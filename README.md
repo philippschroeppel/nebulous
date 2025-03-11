@@ -2,7 +2,13 @@
 
 A cross-cloud container orchestrator
 
-Think of it as a native cross-cloud kubernetes.
+Think of it as a kubernetes that can span clouds with a focus on accelerated compute and AI workloads.
+
+## Installation
+
+```sh
+curl -fsSL -H "Cache-Control: no-cache" https://storage.googleapis.com/nebulous-rs/releases/install.sh | bash
+```
 
 ## Usage
 
@@ -38,10 +44,14 @@ nebu get containers
 
 List one container
 ```sh
-nebu get container foo
+nebu get containers foo
 ```
 
 Delete a container
 ```sh
-nebu delete container foo
+nebu delete containers foo
 ```
+
+## Contributing
+
+Please open an issue or submit a PR.

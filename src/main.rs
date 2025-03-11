@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
         },
         Commands::Delete { command } => match command {
-            DeleteCommands::Container { id } => {
+            DeleteCommands::Containers { id } => {
                 commands::delete_cmd::delete_container(id).await?;
             }
         },

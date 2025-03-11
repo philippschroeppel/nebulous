@@ -152,7 +152,7 @@ pub enum GetCommands {
 #[derive(Subcommand)]
 pub enum DeleteCommands {
     /// Delete a container.
-    Container {
+    Containers {
         /// ID.
         id: String,
     },
