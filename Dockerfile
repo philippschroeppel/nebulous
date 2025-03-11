@@ -66,9 +66,9 @@ EXPOSE 3000
 RUN echo '#!/bin/bash\n\
 if [ ! -z "$NEBU_SYNC_CONFIG" ]; then\n\
   mkdir -p /workspace\n\
-  echo "$NEBU_SYNC_CONFIG" > /workspace/sync.yaml\n\
+  echo "$NEBU_SYNC_CONFIG" > /nebu/sync.yaml\n\
 fi\n\
-nebu sync --config /workspace/sync.yaml --interval 5 --create-if-missing --watch &\n\
+nebu sync --config /nebu/sync.yaml --interval-seconds 5 --create-if-missing --watch &\n\
 exec "$@"' > /entrypoint.sh && \
     chmod +x /entrypoint.sh
 

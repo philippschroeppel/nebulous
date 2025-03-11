@@ -257,37 +257,6 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nebu-job-reporter
-  namespace: nebu
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: nebu-job-reporter
-  template:
-    metadata:
-      labels:
-        app: nebu-job-reporter
-    spec:
-      serviceAccountName: nebu-sa
-      containers:
-        - name: nebu-job-reporter
-          image: us-docker.pkg.dev/agentsea-dev/nebu/server:latest
-          command: ["nebu", "work", "report-trainings"]
-          args: ["--k8s-namespace", "nebu"]
-          ports:
-            - containerPort: 3000
-          env:
-            - name: DATABASE_URL
-              value: postgresql://postgres:changeme@postgres.nebu.svc.cluster.local:5432/nebu
-            - name: MESSAGE_QUEUE_TYPE
-              value: redis
-            - name: REDIS_URL
-              value: redis://redis.nebu.svc.cluster.local:6379
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
   name: postgres
   namespace: nebu
 spec:
