@@ -40,7 +40,7 @@ pub async fn create_container(
     let container_request = ContainerRequest {
         name: command.name,
         image: command.image,
-        command: command.command,
+        command: command.cmd,
         accelerators: command.accelerators,
         platform: command.platform,
         namespace: command.namespace,

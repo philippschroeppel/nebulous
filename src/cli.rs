@@ -83,7 +83,7 @@ pub struct ContainerCommands {
 
     /// Command to run in the container
     #[arg(long)]
-    pub command: Option<String>,
+    pub cmd: Option<String>,
 
     /// Environment variables in KEY=VALUE format
     #[arg(long, value_parser = parse_key_val, action = ArgAction::Append)]
