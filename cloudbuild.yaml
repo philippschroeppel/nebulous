@@ -1,0 +1,41 @@
+steps:
+  # Set up Docker Buildx
+  - name: "gcr.io/cloud-builders/docker"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        docker buildx create --name mybuilder --use
+        docker buildx inspect --bootstrap
+
+  # Build and push server image with conditional tagging
+  - name: "gcr.io/cloud-builders/docker"
+    id: Build and Push
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        # Always build with branch name tag
+        docker buildx build \
+          --platform linux/amd64 \
+          -t us-docker.pkg.dev/$PROJECT_ID/nebulous/server:$BRANCH_NAME \
+          --cache-from type=registry,ref=us-docker.pkg.dev/$PROJECT_ID/nebulous/server:buildcache \
+          --cache-to type=registry,ref=us-docker.pkg.dev/$PROJECT_ID/nebulous/server:buildcache,mode=max \
+          --push \
+          .
+        
+        # Only tag as latest if on main branch
+        if [ "$BRANCH_NAME" == "main" ]; then
+          docker buildx build \
+            --platform linux/amd64 \
+            -t us-docker.pkg.dev/$PROJECT_ID/nebulous/server:latest \
+            --cache-from type=registry,ref=us-docker.pkg.dev/$PROJECT_ID/nebulous/server:buildcache \
+            --push \
+            .
+        fi
+
+
+timeout: "3600s"
+
+options:
+  machineType: "N1_HIGHCPU_8"

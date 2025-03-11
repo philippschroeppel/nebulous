@@ -1,3 +1,53 @@
-fn main() {
-    println!("Hello, world!");
+mod cli;
+mod commands;
+mod models;
+
+use crate::cli::{Cli, Commands, CreateCommands, DeleteCommands, GetCommands};
+use clap::Parser;
+use std::error::Error;
+use tracing_subscriber;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    // Initialize tracing
+    tracing_subscriber::fmt::init();
+
+    // Parse command-line arguments
+    let cli = Cli::parse();
+
+    match cli.command {
+        Commands::Sync {
+            config,
+            interval_seconds,
+            create_if_missing,
+            watch,
+        } => {
+            commands::sync_cmd::execute_sync(config, interval_seconds, create_if_missing, watch)
+                .await?;
+        }
+        Commands::Create { command } => match command {
+            CreateCommands::Container { command } => {
+                // Explicitly specify which ContainerCommands type to use
+                commands::create_cmd::create_container(command).await?;
+            }
+        },
+        Commands::Get { command } => match command {
+            GetCommands::Accelerators { platform } => {
+                commands::get_cmd::get_accelerators(platform).await?;
+            }
+            GetCommands::Containers { name } => {
+                commands::get_cmd::get_containers(name).await?;
+            }
+        },
+        Commands::Delete { command } => match command {
+            DeleteCommands::Container { id } => {
+                commands::delete_cmd::delete_container(id).await?;
+            }
+        },
+        Commands::Login => {
+            commands::login_cmd::execute().await?;
+        }
+    }
+
+    Ok(())
 }

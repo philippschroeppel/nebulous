@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:596381348884:certificate/77230da4-89cc-477f-8432-822cd34e4148
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+  name: nebu
+  namespace: nebu
+spec:
+  ingressClassName: alb
+  rules:
+  - host: nebu.agentlabs.xyz
+    http:
+      paths:
+      - backend:
+          service:
+            name: nebu-server
+            port:
+              number: 3000
+        path: /
+        pathType: Prefix

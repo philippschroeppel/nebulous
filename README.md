@@ -1,2 +1,2 @@
 # Nebulous
-A cross-cloud container scheduler
+A cross-cloud container orchestrator
