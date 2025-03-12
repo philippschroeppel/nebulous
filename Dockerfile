@@ -14,8 +14,10 @@ RUN apt-get update && apt-get install -y \
     g++ \
     cmake \
     zlib1g-dev \
-    sccache \
     && rm -rf /var/lib/apt/lists/*
+
+# Install sccache using cargo
+RUN cargo install sccache
 
 # Set up sccache for Rust
 ENV RUSTC_WRAPPER=sccache
