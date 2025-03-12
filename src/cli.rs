@@ -48,6 +48,17 @@ pub enum Commands {
         watch: bool,
     },
 
+    /// Serve the API server.
+    Serve {
+        /// The address to bind to.
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+
+        /// The port to bind to.
+        #[arg(short, long, default_value_t = 3000)]
+        port: u16,
+    },
+
     /// Login to nebu.
     Login,
 }

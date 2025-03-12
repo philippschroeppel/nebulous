@@ -16,6 +16,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Serve { host, port } => {
+            commands::serve_cmd::execute(host, port).await?;
+        }
         Commands::Sync {
             config,
             interval_seconds,
