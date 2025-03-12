@@ -79,6 +79,10 @@ pub async fn get_container(
             .volumes
             .and_then(|v| serde_json::from_value(v).ok()),
         accelerators: container.accelerators,
+        meters: container
+            .meters
+            .and_then(|v| serde_json::from_value(v).ok()),
+        status: container.status,
     };
 
     Ok(Json(out_container))
@@ -138,6 +142,8 @@ pub async fn list_containers(
             command: c.command,
             volumes: c.volumes.and_then(|v| serde_json::from_value(v).ok()),
             accelerators: c.accelerators,
+            meters: c.meters.and_then(|v| serde_json::from_value(v).ok()),
+            status: c.status,
         })
         .collect();
 

@@ -490,6 +490,10 @@ impl ContainerPlatform for KubePlatform {
                                 cpu_request: Set(None),
                                 memory_request: Set(None),
                                 status: Set(Some("pending".to_string())),
+                                meters: Set(config
+                                    .meters
+                                    .clone()
+                                    .map(|meters| serde_json::json!(meters))),
                                 platform: Set(Some("kubernetes".to_string())),
                                 resource_name: Set(Some(name.clone())),
                                 resource_namespace: Set(Some(self.namespace.clone())),
@@ -557,6 +561,8 @@ impl ContainerPlatform for KubePlatform {
             command: config.command.clone(),
             volumes: config.volumes.clone(),
             accelerators: config.accelerators.clone(),
+            meters: config.meters.clone(),
+            status: Some("pending".to_string()),
         })
     }
 

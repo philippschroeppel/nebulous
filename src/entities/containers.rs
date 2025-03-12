@@ -24,6 +24,7 @@ pub struct Model {
     pub resource_namespace: Option<String>,
     pub command: Option<String>,
     pub labels: Option<Json>,
+    pub meters: Option<Json>,
     pub created_by: Option<String>,
     pub updated_at: DateTimeWithTimeZone,
     pub created_at: DateTimeWithTimeZone,

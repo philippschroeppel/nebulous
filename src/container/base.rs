@@ -2,6 +2,57 @@ use crate::models::{V1Container, V1ContainerRequest};
 use sea_orm::DatabaseConnection;
 use std::collections::HashMap;
 use std::env;
+use std::fmt;
+use std::str::FromStr;
+
+/// Enum for container status
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+pub enum ContainerStatus {
+    Defined,
+    Restarting,
+    Exited,
+    Paused,
+    Pending,
+    Running,
+    Completed,
+    Failed,
+    Stopped,
+}
+
+impl fmt::Display for ContainerStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ContainerStatus::Defined => write!(f, "defined"),
+            ContainerStatus::Restarting => write!(f, "restarting"),
+            ContainerStatus::Exited => write!(f, "exited"),
+            ContainerStatus::Paused => write!(f, "paused"),
+            ContainerStatus::Pending => write!(f, "pending"),
+            ContainerStatus::Running => write!(f, "running"),
+            ContainerStatus::Completed => write!(f, "completed"),
+            ContainerStatus::Failed => write!(f, "failed"),
+            ContainerStatus::Stopped => write!(f, "stopped"),
+        }
+    }
+}
+
+impl FromStr for ContainerStatus {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "defined" => Ok(ContainerStatus::Defined),
+            "restarting" => Ok(ContainerStatus::Restarting),
+            "exited" => Ok(ContainerStatus::Exited),
+            "paused" => Ok(ContainerStatus::Paused),
+            "pending" => Ok(ContainerStatus::Pending),
+            "running" => Ok(ContainerStatus::Running),
+            "completed" => Ok(ContainerStatus::Completed),
+            "failed" => Ok(ContainerStatus::Failed),
+            "stopped" => Ok(ContainerStatus::Stopped),
+            _ => Err(format!("Unknown container status: {}", s)),
+        }
+    }
+}
 
 pub trait ContainerPlatform {
     fn run(

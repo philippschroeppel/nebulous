@@ -1,7 +1,7 @@
 
 use crate::accelerator::runpod::RunPodProvider;
 use crate::accelerator::base::AcceleratorProvider; 
-use crate::container::base::ContainerPlatform;
+use crate::container::base::{ContainerPlatform, ContainerStatus};
 use sea_orm::{DatabaseConnection, Set, ActiveModelTrait};
 use crate::models::{V1Container, V1ContainerRequest, V1VolumeConfig, V1VolumePath};
 use crate::volumes::rclone::{VolumeConfig, VolumePath, SymlinkConfig};
@@ -140,7 +140,6 @@ impl RunpodPlatform {
     }
 
     /// Watch a pod and update its status in the database
-    /// Watch a pod and update its status in the database
     pub async fn watch_pod_status(
         &self,
         pod_id: &str,
@@ -151,44 +150,70 @@ impl RunpodPlatform {
             "[RunPod] Starting to watch pod {} for container {}",
             pod_id, container_id
         );
-
+    
         // Initial status check
-        let mut last_status = String::new();
+        let mut last_status = None;
         let mut consecutive_errors = 0;
         const MAX_ERRORS: usize = 5;
-
-        // Poll the pod status every 30 seconds
+    
+        // Poll the pod status every 20 seconds
         loop {
             match self.runpod_client.get_pod(pod_id).await {
                 Ok(pod_response) => {
                     consecutive_errors = 0;
-
+    
                     if let Some(pod_info) = pod_response.data {
                         info!("[RunPod] Pod {} info: {:?}", pod_id, pod_info);
-                        // Extract status information
-                        let current_status = if let Some(runtime) = &pod_info.runtime {
-                            if runtime.uptime_in_seconds.unwrap_or(0) > 0 {
-                                "running".to_string()
-                            } else {
-                                "starting".to_string()
+                        
+                        // Extract status information using desired_status field
+                        let current_status = match pod_info.desired_status.as_str() {
+                            "RUNNING" => {
+                                // Check if it's actually running by looking at runtime
+                                if let Some(runtime) = &pod_info.runtime {
+                                    if runtime.uptime_in_seconds > 0 {
+                                        ContainerStatus::Running
+                                    } else {
+                                        ContainerStatus::Pending
+                                    }
+                                } else {
+                                    ContainerStatus::Pending
+                                }
+                            },
+                            "EXITED" => ContainerStatus::Completed,
+                            "TERMINATED" => ContainerStatus::Stopped,
+                            "DEAD" => ContainerStatus::Failed,
+                            "CREATED" => ContainerStatus::Defined,
+                            "RESTARTING" => ContainerStatus::Restarting,
+                            "PAUSED" => ContainerStatus::Paused,
+                            _ => {
+                                info!(
+                                    "[RunPod] Unknown pod status: {}, defaulting to Pending",
+                                    pod_info.desired_status
+                                );
+                                ContainerStatus::Pending
                             }
-                        } else {
-                            "pending".to_string()
                         };
-
+    
                         // If status changed, update the database
-                        if current_status != last_status {
-                            info!(
-                                "[RunPod] Pod {} status changed: {} -> {}",
-                                pod_id, last_status, current_status
-                            );
-                            last_status = current_status.clone();
-
+                        if last_status.as_ref() != Some(&current_status) {
+                            if let Some(last) = &last_status {
+                                info!(
+                                    "[RunPod] Pod {} status changed: {} -> {}",
+                                    pod_id, last, current_status
+                                );
+                            } else {
+                                info!(
+                                    "[RunPod] Pod {} initial status: {}",
+                                    pod_id, current_status
+                                );
+                            }
+                            last_status = Some(current_status.clone());
+    
                             // Update the database with the new status using the Mutation struct
                             match crate::mutation::Mutation::update_container_status(
                                 &db,
                                 container_id.to_string(),
-                                current_status.clone(),
+                                current_status.to_string(),
                             )
                             .await
                             {
@@ -205,22 +230,22 @@ impl RunpodPlatform {
                                     )
                                 }
                             }
-
+    
                             // If the pod is in a terminal state, exit the loop
-                            if current_status == "completed"
-                                || current_status == "failed"
-                                || current_status == "stopped"
-                            {
-                                info!(
-                                    "[RunPod] Pod {} reached terminal state: {}",
-                                    pod_id, current_status
-                                );
-                                break;
+                            match current_status {
+                                ContainerStatus::Completed | ContainerStatus::Failed | ContainerStatus::Stopped  | ContainerStatus::Exited | ContainerStatus::Paused => {
+                                    info!(
+                                        "[RunPod] Pod {} reached terminal state: {}",
+                                        pod_id, current_status
+                                    );
+                                    break;
+                                }
+                                _ => {}
                             }
                         }
                     } else {
                         error!("[RunPod] No pod data returned for pod {}", pod_id);
-
+    
                         // Check if pod was deleted or doesn't exist
                         match self.runpod_client.list_pods().await {
                             Ok(pods_list) => {
@@ -230,13 +255,13 @@ impl RunpodPlatform {
                                             "[RunPod] Pod {} no longer exists, marking job as failed",
                                             pod_id
                                         );
-
+    
                                         // Update job as failed in database
                                         if let Err(e) =
                                             crate::mutation::Mutation::update_container_status(
                                                 &db,
                                                 container_id.to_string(),
-                                                "failed".to_string(),
+                                                ContainerStatus::Failed.to_string(),
                                             )
                                             .await
                                         {
@@ -245,7 +270,7 @@ impl RunpodPlatform {
                                                 e
                                             );
                                         }
-
+    
                                         break;
                                     }
                                 }
@@ -257,15 +282,15 @@ impl RunpodPlatform {
                 Err(e) => {
                     error!("[RunPod] Error fetching pod status: {}", e);
                     consecutive_errors += 1;
-
+    
                     // If we've had too many consecutive errors, mark the job as failed
                     if consecutive_errors >= MAX_ERRORS {
                         error!("[RunPod] Too many consecutive errors, marking job as failed");
-
+    
                         if let Err(e) = crate::mutation::Mutation::update_container_status(
                             &db,
                             container_id.to_string(),
-                            "failed".to_string(),
+                            ContainerStatus::Failed.to_string(),
                         )
                         .await
                         {
@@ -274,16 +299,16 @@ impl RunpodPlatform {
                                 e
                             );
                         }
-
+    
                         break;
                     }
                 }
             }
-
+    
             // Wait before checking again
             tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
         }
-
+    
         info!(
             "[RunPod] Finished watching pod {} for container {}",
             pod_id, container_id
@@ -457,7 +482,7 @@ impl ContainerPlatform for RunpodPlatform {
             env_vec.push(runpod::EnvVar { key, value });
         }
         
-        // Add ORIGN_SYNC_CONFIG environment variable with serialized volumes configuration
+        // Add NEBU_SYNC_CONFIG environment variable with serialized volumes configuration
         if let Some(volumes) = &config.volumes {
             let volume_config = RunpodPlatform::determin_volumes_config(volumes.clone());
             match serde_yaml::to_string(&volume_config) {
@@ -542,8 +567,9 @@ impl ContainerPlatform for RunpodPlatform {
                             accelerators: Set(config.accelerators.clone()),
                             cpu_request: Set(None),
                             memory_request: Set(None),
-                            status: Set(Some("pending".to_string())),
+                            status: Set(Some(ContainerStatus::Defined.to_string())),
                             platform: Set(Some("runpod".to_string())),
+                            meters: Set(config.meters.clone().map(|meters| serde_json::json!(meters))),
                             resource_name: Set(Some(pod.id.clone())),
                             resource_namespace: Set(None),
                             command: Set(config.command.clone()),
@@ -605,6 +631,8 @@ impl ContainerPlatform for RunpodPlatform {
             command: config.command.clone(),
             volumes: config.volumes.clone(),
             accelerators: config.accelerators.clone(),
+            meters: config.meters.clone(),
+            status: Some("pending".to_string()),
         })
     }
 

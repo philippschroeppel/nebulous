@@ -9,6 +9,13 @@ pub struct V1ErrorResponse {
     pub traceback: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct V1Meter {
+    pub cost: String,
+    pub currency: String,
+    pub metric: String,
+}
+
 fn default_error_response_type() -> String {
     "ErrorResponse".to_string()
 }
@@ -26,6 +33,7 @@ pub struct V1ContainerRequest {
     pub command: Option<String>,
     pub volumes: Option<V1VolumeConfig>,
     pub accelerators: Option<Vec<String>>,
+    pub meters: Option<Vec<V1Meter>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -50,6 +58,8 @@ pub struct V1Container {
     pub command: Option<String>,
     pub volumes: Option<V1VolumeConfig>,
     pub accelerators: Option<Vec<String>>,
+    pub meters: Option<Vec<V1Meter>>,
+    pub status: Option<String>,
 }
 // Add this function to provide a default kind value
 fn default_container_kind() -> String {
@@ -67,6 +77,7 @@ pub struct V1UpdateContainer {
     pub cpu_request: Option<String>,
     pub memory_request: Option<String>,
     pub platform: Option<String>,
+    pub meters: Option<Vec<V1Meter>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

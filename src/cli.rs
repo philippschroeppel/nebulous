@@ -147,6 +147,18 @@ pub struct ContainerCommands {
     /// File input
     #[arg(long)]
     pub file: Option<String>,
+
+    /// Meters of the container
+    #[arg(long)]
+    pub meter_cost: Option<String>,
+
+    /// Meter unit of the container
+    #[arg(long)]
+    pub meter_metric: Option<String>,
+
+    /// Meter currency of the container
+    #[arg(long)]
+    pub meter_currency: Option<String>,
 }
 
 /// Parse a key-value pair in the format of KEY=VALUE

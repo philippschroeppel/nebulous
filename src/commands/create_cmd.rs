@@ -1,5 +1,5 @@
 use nebulous::config::GlobalConfig;
-use nebulous::models::{V1ContainerRequest, V1VolumeConfig, V1VolumePath};
+use nebulous::models::{V1ContainerRequest, V1Meter, V1VolumeConfig, V1VolumePath};
 use reqwest::Client;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -40,6 +40,16 @@ pub async fn create_container(
             .label
             .map(|label_vec| label_vec.into_iter().collect::<HashMap<String, String>>());
 
+        let meters = if let Some(meter_cost) = command.meter_cost {
+            Some(vec![V1Meter {
+                cost: meter_cost,
+                metric: command.meter_metric.unwrap_or_default(),
+                currency: command.meter_currency.unwrap_or_default(),
+            }])
+        } else {
+            None
+        };
+
         // Build ContainerRequest
         V1ContainerRequest {
             kind: "Container".to_string(),
@@ -52,6 +62,7 @@ pub async fn create_container(
             env_vars: env_vars,
             volumes: volumes,
             labels: labels,
+            meters: meters,
         }
     };
 
