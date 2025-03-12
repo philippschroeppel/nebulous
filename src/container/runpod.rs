@@ -65,7 +65,7 @@ impl RunpodPlatform {
         datacenter_id: &str,
     ) -> Result<String, Box<dyn std::error::Error>> {
         // Define the single required volume with its size
-        let volume_name = "nebu";
+        let volume_name = "nebu"; // TODO: this needs to be per owner
         let size_gb = 500;
 
         // Get existing network volumes
@@ -416,10 +416,10 @@ impl ContainerPlatform for RunpodPlatform {
             match serde_yaml::to_string(volumes) {
                 Ok(serialized_volumes) => {
                     env_vec.push(runpod::EnvVar {
-                        key: "ORIGN_SYNC_CONFIG".to_string(),
+                        key: "NEBU_SYNC_CONFIG".to_string(),
                         value: serialized_volumes,
                     });
-                    info!("[RunPod] Added ORIGN_SYNC_CONFIG environment variable");
+                    info!("[RunPod] Added NEBU_SYNC_CONFIG environment variable");
                 }
                 Err(e) => {
                     error!("[RunPod] Failed to serialize volumes configuration: {}", e);

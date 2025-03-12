@@ -1,4 +1,8 @@
+use crate::models::VolumeConfig as V1VolumeConfig;
+use crate::query::Query;
+use sea_orm::{DatabaseConnection, DbErr};
 use serde::{Deserialize, Serialize};
+use serde_json::from_str;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
@@ -649,6 +653,10 @@ pub fn list_sync_paths(config_path: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// ------------------------------------------------------------------------------------------------
+/// Symlinks
+/// ------------------------------------------------------------------------------------------------
+
 /// Add a symlink to a path in the configuration
 pub fn add_symlink_to_path(
     config_path: &str,
@@ -1042,4 +1050,138 @@ pub async fn execute_non_continuous_sync(
 
     println!("Non-continuous sync operation completed");
     Ok(())
+}
+
+/// ------------------------------------------------------------------------------------------------
+/// Sync checkers
+/// ------------------------------------------------------------------------------------------------
+
+/// Checks if two volume configs both bidirectionally sync from the same S3 path or child paths.
+///
+/// Returns true if both configs have at least one bidirectional sync path that
+/// shares the same S3 path or where one path is a child of the other.
+pub fn has_overlapping_s3_bidirectional_sync(
+    config1: &VolumeConfig,
+    config2: &VolumeConfig,
+) -> bool {
+    // Get all bidirectional paths with S3 sources from both configs
+    let config1_s3_paths: Vec<&str> = config1
+        .paths
+        .iter()
+        .filter(|path| path.bidirectional && path.source_path.starts_with("s3://"))
+        .map(|path| path.source_path.as_str())
+        .collect();
+
+    let config2_s3_paths: Vec<&str> = config2
+        .paths
+        .iter()
+        .filter(|path| path.bidirectional && path.source_path.starts_with("s3://"))
+        .map(|path| path.source_path.as_str())
+        .collect();
+
+    // Check for overlapping paths
+    for path1 in &config1_s3_paths {
+        for path2 in &config2_s3_paths {
+            // Check if paths are the same
+            if path1 == path2 {
+                return true;
+            }
+
+            // Check if one path is a child of the other
+            // We need to ensure we're comparing paths with trailing slashes to avoid partial matches
+            let path1_normalized = if path1.ends_with('/') {
+                path1.to_string()
+            } else {
+                format!("{}/", path1)
+            };
+
+            let path2_normalized = if path2.ends_with('/') {
+                path2.to_string()
+            } else {
+                format!("{}/", path2)
+            };
+
+            if path1_normalized.starts_with(&path2_normalized)
+                || path2_normalized.starts_with(&path1_normalized)
+            {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Checks if a volume configuration has overlapping S3 bidirectional syncs with any active container in the database.
+/// Active containers are those with status "running", "queued", "started", or "waiting".
+///
+/// Returns a vector of container IDs that have overlapping configurations.
+pub async fn find_active_containers_with_overlapping_s3_sync(
+    db: &DatabaseConnection,
+    new_config: &VolumeConfig,
+    exclude_container_id: Option<&str>,
+) -> Result<Vec<String>, DbErr> {
+    // Get all containers from the database
+    let all_containers = Query::find_all_containers(db).await?;
+
+    let mut overlapping_container_ids = Vec::new();
+
+    for container in all_containers {
+        // Skip the container we're updating (if provided)
+        if let Some(exclude_id) = exclude_container_id {
+            if container.id == exclude_id {
+                continue;
+            }
+        }
+
+        // Check if container has an active status
+        if let Some(status) = &container.status {
+            let status_lower = status.to_lowercase();
+            if !["running", "queued", "started", "waiting"].contains(&status_lower.as_str()) {
+                continue; // Skip containers that aren't active
+            }
+        } else {
+            continue; // Skip containers with no status
+        }
+
+        // Parse the volumes JSON from the database
+        if let Some(volumes_json) = &container.volumes {
+            match from_str::<VolumeConfig>(&volumes_json.to_string()) {
+                Ok(existing_config) => {
+                    // Check for overlapping S3 bidirectional syncs
+                    if has_overlapping_s3_bidirectional_sync(new_config, &existing_config) {
+                        overlapping_container_ids.push(container.id.clone());
+                    }
+                }
+                Err(_) => {
+                    // Skip containers with invalid volume configurations
+                    continue;
+                }
+            }
+        }
+    }
+
+    Ok(overlapping_container_ids)
+}
+
+/// Validates that a volume configuration doesn't overlap with any existing container's S3 bidirectional syncs.
+///
+/// Returns Ok(()) if no overlaps are found, or an error with details about the overlapping containers.
+pub async fn validate_no_overlapping_s3_syncs(
+    db: &DatabaseConnection,
+    new_config: &VolumeConfig,
+    exclude_container_id: Option<&str>,
+) -> Result<(), DbErr> {
+    let overlapping_containers =
+        find_active_containers_with_overlapping_s3_sync(db, new_config, exclude_container_id)
+            .await?;
+
+    if overlapping_containers.is_empty() {
+        Ok(())
+    } else {
+        Err(DbErr::Custom(format!(
+            "The volume configuration has overlapping S3 bidirectional syncs with existing containers: {}",
+            overlapping_containers.join(", ")
+        )))
+    }
 }

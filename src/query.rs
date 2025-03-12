@@ -1,7 +1,9 @@
 // src/query.rs
 use crate::entities::containers;
+use crate::models::VolumeConfig;
 use sea_orm::*;
 use sea_orm::{ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter};
+use serde_json::from_str;
 
 pub struct Query;
 
@@ -37,5 +39,12 @@ impl Query {
             "Container with id '{}' not found for the specified owners",
             id
         )))
+    }
+
+    /// Fetches all containers from the database
+    pub async fn find_all_containers(
+        db: &DatabaseConnection,
+    ) -> Result<Vec<containers::Model>, DbErr> {
+        containers::Entity::find().all(db).await
     }
 }

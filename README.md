@@ -81,6 +81,23 @@ Get the IP address of a container
 nebu get containers foo --ip
 ```
 
+SSH into a container
+```sh
+nebu ssh foo
+```
+
+### Namespaces
+
+Namespaces provide a means to segregate groups of resources across clouds. Resources within a given namespace are network isolated using [Tailnet](https://tailscale.com/kb/1136/tailnet), and can be accessed by simply using thier name as the hostname e.g. `http://foo:8080`.
+
+### Services
+
+Services provide a means to expose containers on a stable IP address.
+
+### Volumes
+
+Volumes provide a means to persist data accross clouds. Nebulous uses [Rclone](https://rclone.org/) to sync data between clouds backed by an object storage provider.
+
 ### Organizations
 
 Nebulous is multi-tenant from the ground up. Here is an example of creating a container under the `Agentsea` organization.
