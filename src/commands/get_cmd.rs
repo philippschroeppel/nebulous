@@ -182,3 +182,9 @@ fn remove_null_values(value: &mut Value) {
         _ => {}
     }
 }
+
+pub async fn get_platforms() -> Result<(), Box<dyn Error>> {
+    let platforms = vec!["aws", "runpod", "ec2"];
+    println!("{:?}", platforms);
+    Ok(())
+}

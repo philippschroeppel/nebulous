@@ -12,6 +12,5 @@ volumes:
     destination: /nebu/test
     bidirectional: true
     continuous: true
-    resync: false
 accelerators:
   - "2:A100"

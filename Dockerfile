@@ -68,7 +68,7 @@ if [ ! -z "$NEBU_SYNC_CONFIG" ]; then\n\
   mkdir -p /workspace\n\
   echo "$NEBU_SYNC_CONFIG" > /nebu/sync.yaml\n\
 fi\n\
-nebu sync --config /nebu/sync.yaml --interval-seconds 5 --create-if-missing --watch &\n\
+nebu sync --config /nebu/sync.yaml --interval-seconds 5 --create-if-missing --watch --background --block-once \n\
 exec "$@"' > /entrypoint.sh && \
     chmod +x /entrypoint.sh
 

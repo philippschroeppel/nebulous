@@ -46,6 +46,14 @@ pub enum Commands {
         /// Run in the background.
         #[arg(short, long, default_value_t = false)]
         watch: bool,
+
+        /// Run in the background.
+        #[arg(short, long, default_value_t = false)]
+        background: bool,
+
+        /// Block until the one time sync paths are complete.
+        #[arg(short, long, default_value_t = false)]
+        block_once: bool,
     },
 
     /// Serve the API server.
@@ -161,6 +169,9 @@ pub enum GetCommands {
         #[arg(long)]
         name: Option<String>,
     },
+
+    /// Get platforms.
+    Platforms,
 }
 
 /// Delete resources.

@@ -24,9 +24,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
             interval_seconds,
             create_if_missing,
             watch,
+            background,
+            block_once,
         } => {
-            commands::sync_cmd::execute_sync(config, interval_seconds, create_if_missing, watch)
-                .await?;
+            commands::sync_cmd::execute_sync(
+                config,
+                interval_seconds,
+                create_if_missing,
+                watch,
+                background,
+                block_once,
+            )
+            .await?;
         }
         Commands::Create { command } => match command {
             CreateCommands::Container { command } => {
@@ -40,6 +49,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
             GetCommands::Containers { name } => {
                 commands::get_cmd::get_containers(name).await?;
+            }
+            GetCommands::Platforms => {
+                commands::get_cmd::get_platforms().await?;
             }
         },
         Commands::Delete { command } => match command {

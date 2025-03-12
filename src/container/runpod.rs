@@ -540,6 +540,7 @@ impl ContainerPlatform for RunpodPlatform {
         info!("[RunPod] Job {} created on RunPod with pod ID {}", name, pod_id);
         
         Ok(Container {
+            kind: "Container".to_string(),
             metadata: crate::models::ContainerMeta {
                 id: id.clone(),
                 owner_id: "runpod".to_string(),

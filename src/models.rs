@@ -15,6 +15,8 @@ fn default_error_response_type() -> String {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ContainerRequest {
+    #[serde(default = "default_container_kind")]
+    pub kind: String,
     pub name: Option<String>,
     pub namespace: Option<String>,
     pub platform: Option<String>,
@@ -38,6 +40,8 @@ pub struct ContainerMeta {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Container {
+    #[serde(default = "default_container_kind")]
+    pub kind: String,
     pub metadata: ContainerMeta,
     pub name: String,
     pub namespace: String,
@@ -46,6 +50,10 @@ pub struct Container {
     pub command: Option<String>,
     pub volumes: Option<VolumeConfig>,
     pub accelerators: Option<Vec<String>>,
+}
+// Add this function to provide a default kind value
+fn default_container_kind() -> String {
+    "Container".to_string()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

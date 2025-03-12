@@ -53,6 +53,7 @@ pub async fn get_container(
         })?;
 
     let out_container = Container {
+        kind: "Container".to_string(),
         metadata: ContainerMeta {
             id: container.id.to_string(),
             owner_id: container.owner_id,
@@ -113,6 +114,7 @@ pub async fn list_containers(
     let containers = container_models
         .into_iter()
         .map(|c| Container {
+            kind: "Container".to_string(),
             metadata: ContainerMeta {
                 id: c.id.to_string(),
                 owner_id: c.owner_id,

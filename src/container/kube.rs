@@ -538,6 +538,7 @@ impl ContainerPlatform for KubePlatform {
 
         info!("[Kubernetes] Job {} created on Kubernetes", name);
         Ok(Container {
+            kind: "Container".to_string(),
             metadata: ContainerMeta {
                 id: id.clone(),
                 owner_id: owner_id.to_string(),

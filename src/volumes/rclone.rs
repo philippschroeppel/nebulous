@@ -11,6 +11,14 @@ pub struct VolumeConfig {
     pub paths: Vec<VolumePath>,
     #[serde(default = "default_cache_dir")]
     pub cache_dir: String,
+    #[serde(default)]
+    pub symlinks: Vec<SymlinkConfig>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SymlinkConfig {
+    pub source_path: String,
+    pub symlink_path: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -80,6 +88,7 @@ impl VolumeConfig {
         VolumeConfig {
             paths: Vec::new(),
             cache_dir: default_cache_dir(),
+            symlinks: Vec::new(),
         }
     }
 
@@ -129,6 +138,87 @@ impl VolumeConfig {
                     path.continuous,
                 )
             })
+            .collect()
+    }
+
+    /// Add a symlink configuration
+    pub fn add_symlink_config(
+        &mut self,
+        source_path: String,
+        symlink_path: String,
+    ) -> Result<(), Box<dyn Error>> {
+        // Check if the source path exists in the configuration
+        let source_exists = self
+            .paths
+            .iter()
+            .any(|path| path.source_path == source_path);
+
+        if !source_exists {
+            return Err(format!(
+                "Source path '{}' does not exist in the configuration",
+                source_path
+            )
+            .into());
+        }
+
+        // Check if we already have a symlink config for this source path
+        for symlink_config in &self.symlinks {
+            if symlink_config.source_path == source_path
+                && symlink_config.symlink_path == symlink_path
+            {
+                return Err(format!(
+                    "Symlink from '{}' to '{}' already exists",
+                    source_path, symlink_path
+                )
+                .into());
+            }
+        }
+
+        // Create a new symlink config
+        self.symlinks.push(SymlinkConfig {
+            source_path,
+            symlink_path,
+        });
+
+        Ok(())
+    }
+
+    /// Remove a symlink from the configuration
+    pub fn remove_symlink(
+        &mut self,
+        source_path: &str,
+        symlink_path: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        let position = self.symlinks.iter().position(|config| {
+            config.source_path == source_path && config.symlink_path == symlink_path
+        });
+
+        if let Some(index) = position {
+            self.symlinks.remove(index);
+            return Ok(());
+        }
+
+        Err(format!(
+            "Symlink from '{}' to '{}' not found",
+            source_path, symlink_path
+        )
+        .into())
+    }
+
+    /// List all symlinks in the configuration
+    pub fn list_all_symlinks(&self) -> Vec<(&str, &str)> {
+        self.symlinks
+            .iter()
+            .map(|config| (config.source_path.as_str(), config.symlink_path.as_str()))
+            .collect()
+    }
+
+    /// Get symlinks for a specific source path
+    pub fn get_symlinks_for_source(&self, source_path: &str) -> Vec<&str> {
+        self.symlinks
+            .iter()
+            .filter(|config| config.source_path == source_path)
+            .map(|config| config.symlink_path.as_str())
             .collect()
     }
 }
@@ -556,5 +646,400 @@ pub fn list_sync_paths(config_path: &str) -> Result<(), Box<dyn Error>> {
         );
     }
 
+    Ok(())
+}
+
+/// Add a symlink to a path in the configuration
+pub fn add_symlink_to_path(
+    config_path: &str,
+    path_index: usize,
+    symlink_path: &str,
+) -> Result<(), Box<dyn Error>> {
+    // Read the existing config
+    let mut config = VolumeConfig::read_from_file(config_path)?;
+
+    // Add the symlink to the configuration
+    let source_path = config.paths[path_index].source_path.clone();
+    config.add_symlink_config(source_path, symlink_path.to_string())?;
+
+    // Write the updated config back to the file
+    config.write_to_file(config_path)?;
+
+    println!(
+        "Added symlink {} to path index {}",
+        symlink_path, path_index
+    );
+    Ok(())
+}
+
+/// Remove a symlink from a path in the configuration
+pub fn remove_symlink_from_path(
+    config_path: &str,
+    path_index: usize,
+    symlink_index: usize,
+) -> Result<(), Box<dyn Error>> {
+    // Read the existing config
+    let mut config = VolumeConfig::read_from_file(config_path)?;
+
+    // Get the source path for the specified path index
+    if path_index >= config.paths.len() {
+        return Err(format!("Path index {} out of bounds", path_index).into());
+    }
+    let source_path = config.paths[path_index].source_path.clone();
+
+    // Find all symlinks for this source path
+    let matching_symlinks: Vec<_> = config
+        .symlinks
+        .iter()
+        .filter(|s| s.source_path == source_path)
+        .collect();
+
+    if symlink_index >= matching_symlinks.len() {
+        return Err(format!("Symlink index {} out of bounds", symlink_index).into());
+    }
+
+    // Get the symlink path before removing it
+    let symlink_path = matching_symlinks[symlink_index].symlink_path.clone();
+
+    // Remove the symlink
+    config.remove_symlink(&source_path, &symlink_path)?;
+
+    // Write the updated config back to the file
+    config.write_to_file(config_path)?;
+
+    println!(
+        "Removed symlink {} from path index {}",
+        symlink_path, path_index
+    );
+    Ok(())
+}
+
+/// List all symlinks for a path in the configuration
+pub fn list_symlinks_for_path(config_path: &str, path_index: usize) -> Result<(), Box<dyn Error>> {
+    // Read the existing config
+    let config = VolumeConfig::read_from_file(config_path)?;
+
+    // Get the source path for the specified path index
+    if path_index >= config.paths.len() {
+        return Err(format!("Path index {} out of bounds", path_index).into());
+    }
+    let source_path = &config.paths[path_index].source_path;
+
+    // Get the symlinks for the specified path
+    let symlinks = config.get_symlinks_for_source(source_path);
+
+    if symlinks.is_empty() {
+        println!("No symlinks found for path index {}", path_index);
+        return Ok(());
+    }
+
+    println!("Symlinks for path index {}:", path_index);
+    for (i, symlink) in symlinks.iter().enumerate() {
+        println!("[{}] {}", i, symlink);
+    }
+
+    Ok(())
+}
+
+/// Create symlinks defined in the configuration
+pub fn create_symlinks_from_config(config_path: &str) -> Result<(), Box<dyn Error>> {
+    // Read the existing config
+    let config = VolumeConfig::read_from_file(config_path)?;
+
+    let mut created_count = 0;
+    let mut error_count = 0;
+
+    // Process each symlink configuration
+    for symlink_config in &config.symlinks {
+        // Skip remote paths
+        if symlink_config.source_path.contains(":") {
+            println!(
+                "Skipping symlink for remote path: {}",
+                symlink_config.source_path
+            );
+            continue;
+        }
+
+        // Create parent directories for the symlink if they don't exist
+        if let Some(parent) = Path::new(&symlink_config.symlink_path).parent() {
+            if let Err(e) = fs::create_dir_all(parent) {
+                println!(
+                    "Failed to create parent directories for symlink {}: {}",
+                    symlink_config.symlink_path, e
+                );
+                error_count += 1;
+                continue;
+            }
+        }
+
+        // Remove existing symlink if it exists
+        if Path::new(&symlink_config.symlink_path).exists() {
+            if Path::new(&symlink_config.symlink_path).is_symlink() {
+                if let Err(e) = fs::remove_file(&symlink_config.symlink_path) {
+                    println!(
+                        "Failed to remove existing symlink {}: {}",
+                        symlink_config.symlink_path, e
+                    );
+                    error_count += 1;
+                    continue;
+                }
+            } else {
+                println!(
+                    "Destination path exists and is not a symlink: {}",
+                    symlink_config.symlink_path
+                );
+                error_count += 1;
+                continue;
+            }
+        }
+
+        // Create the symlink
+        let result = {
+            #[cfg(unix)]
+            {
+                std::os::unix::fs::symlink(
+                    &symlink_config.source_path,
+                    &symlink_config.symlink_path,
+                )
+            }
+            #[cfg(windows)]
+            {
+                match fs::metadata(&symlink_config.source_path) {
+                    Ok(metadata) => {
+                        if metadata.is_dir() {
+                            std::os::windows::fs::symlink_dir(
+                                &symlink_config.source_path,
+                                &symlink_config.symlink_path,
+                            )
+                        } else {
+                            std::os::windows::fs::symlink_file(
+                                &symlink_config.source_path,
+                                &symlink_config.symlink_path,
+                            )
+                        }
+                    }
+                    Err(e) => Err(e),
+                }
+            }
+        };
+
+        match result {
+            Ok(_) => {
+                println!(
+                    "Created symlink from {} to {}",
+                    symlink_config.source_path, symlink_config.symlink_path
+                );
+                created_count += 1;
+            }
+            Err(e) => {
+                println!(
+                    "Failed to create symlink from {} to {}: {}",
+                    symlink_config.source_path, symlink_config.symlink_path, e
+                );
+                error_count += 1;
+            }
+        }
+    }
+
+    println!(
+        "Symlink creation completed: {} created, {} failed",
+        created_count, error_count
+    );
+    Ok(())
+}
+
+/// Add a symlink to the configuration
+pub fn add_symlink(
+    config_path: &str,
+    source_path: &str,
+    symlink_path: &str,
+) -> Result<(), Box<dyn Error>> {
+    // Read the existing config
+    let mut config = VolumeConfig::read_from_file(config_path)?;
+
+    // Add the symlink to the configuration
+    config.add_symlink_config(source_path.to_string(), symlink_path.to_string())?;
+
+    // Write the updated config back to the file
+    config.write_to_file(config_path)?;
+
+    println!("Added symlink from {} to {}", source_path, symlink_path);
+    Ok(())
+}
+
+/// Remove a symlink from the configuration
+pub fn remove_symlink(
+    config_path: &str,
+    source_path: &str,
+    symlink_path: &str,
+) -> Result<(), Box<dyn Error>> {
+    // Read the existing config
+    let mut config = VolumeConfig::read_from_file(config_path)?;
+
+    // Remove the symlink from the configuration
+    config.remove_symlink(source_path, symlink_path)?;
+
+    // Write the updated config back to the file
+    config.write_to_file(config_path)?;
+
+    println!("Removed symlink from {} to {}", source_path, symlink_path);
+    Ok(())
+}
+
+/// List all symlinks in the configuration
+pub fn list_symlinks(config_path: &str) -> Result<(), Box<dyn Error>> {
+    // Read the existing config
+    let config = VolumeConfig::read_from_file(config_path)?;
+
+    let all_symlinks = config.list_all_symlinks();
+
+    if all_symlinks.is_empty() {
+        println!("No symlinks found in the configuration.");
+        return Ok(());
+    }
+
+    println!("Symlinks in the configuration:");
+    for (i, (source_path, symlink_path)) in all_symlinks.iter().enumerate() {
+        println!("[{}] {} -> {}", i, source_path, symlink_path);
+    }
+
+    Ok(())
+}
+
+/// List symlinks for a specific source path
+pub fn list_symlinks_for_source(
+    config_path: &str,
+    source_path: &str,
+) -> Result<(), Box<dyn Error>> {
+    // Read the existing config
+    let config = VolumeConfig::read_from_file(config_path)?;
+
+    let symlinks = config.get_symlinks_for_source(source_path);
+
+    if symlinks.is_empty() {
+        println!("No symlinks found for source path: {}", source_path);
+        return Ok(());
+    }
+
+    println!("Symlinks for source path: {}", source_path);
+    for (i, symlink_path) in symlinks.iter().enumerate() {
+        println!("[{}] {}", i, symlink_path);
+    }
+
+    Ok(())
+}
+
+/// Execute one-time sync for non-continuous paths in the configuration
+pub async fn execute_non_continuous_sync(
+    config_path: &str,
+    create_if_missing: bool,
+) -> Result<(), Box<dyn Error>> {
+    println!(
+        "Executing one-time sync for non-continuous paths from: {}",
+        config_path
+    );
+
+    if !Path::new(config_path).exists() {
+        if create_if_missing {
+            create_empty_config(config_path)?;
+        } else {
+            return Err(format!("Config file not found: {}", config_path).into());
+        }
+    }
+
+    // Read the configuration
+    let config = VolumeConfig::read_from_file(config_path)?;
+
+    // Filter out non-continuous paths
+    let once_paths: Vec<_> = config
+        .paths
+        .iter()
+        .filter(|path| !path.continuous)
+        .collect();
+
+    if once_paths.is_empty() {
+        println!("No non-continuous paths found in the configuration.");
+        return Ok(());
+    }
+
+    println!("Found {} non-continuous paths to sync", once_paths.len());
+
+    // Process each non-continuous path
+    for (index, path) in once_paths.iter().enumerate() {
+        let sync_type = if path.bidirectional {
+            "Bidirectional"
+        } else {
+            "Unidirectional"
+        };
+
+        println!(
+            "[{}/{}] {} syncing between {} and {}",
+            index + 1,
+            once_paths.len(),
+            sync_type,
+            path.source_path,
+            path.destination_path
+        );
+
+        // Verify source path exists if it's a local path
+        if !path.source_path.starts_with("s3:") && !Path::new(&path.source_path).exists() {
+            println!("Warning: Source path does not exist: {}", path.source_path);
+            continue;
+        }
+
+        // Build the rclone command
+        let mut cmd = Command::new("rclone");
+
+        if path.bidirectional {
+            cmd.arg("bisync");
+            cmd.arg(&path.source_path);
+            cmd.arg(&path.destination_path);
+
+            if path.resync {
+                cmd.arg("--resync");
+            }
+        } else {
+            cmd.arg("sync");
+            cmd.arg(&path.source_path);
+            cmd.arg(&path.destination_path);
+        }
+
+        // Add common options
+        cmd.arg("--verbose");
+        cmd.arg("--fast-list");
+
+        // Add cache directory
+        cmd.arg("--cache-dir");
+        cmd.arg(&config.cache_dir);
+
+        // Execute the command
+        let output = cmd.output()?;
+        if output.status.success() {
+            println!(
+                "Successfully synced between {} and {}",
+                path.source_path, path.destination_path
+            );
+
+            // If this was a resync operation, mark it as completed
+            if path.resync && path.bidirectional {
+                // Find the index in the original config
+                if let Some(original_index) = config.paths.iter().position(|p| {
+                    p.source_path == path.source_path && p.destination_path == path.destination_path
+                }) {
+                    // Read the config again to get the latest version
+                    let mut updated_config = VolumeConfig::read_from_file(config_path)?;
+                    if original_index < updated_config.paths.len() {
+                        updated_config.paths[original_index].resync = false;
+                        updated_config.write_to_file(config_path)?;
+                    }
+                }
+            }
+        } else {
+            let error = String::from_utf8_lossy(&output.stderr);
+            println!("Failed to sync: {}", error);
+        }
+    }
+
+    println!("Non-continuous sync operation completed");
     Ok(())
 }

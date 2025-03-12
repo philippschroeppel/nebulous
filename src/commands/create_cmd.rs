@@ -42,6 +42,7 @@ pub async fn create_container(
 
         // Build ContainerRequest
         ContainerRequest {
+            kind: "Container".to_string(),
             name: command.name,
             image: command.image,
             command: command.cmd,
