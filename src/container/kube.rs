@@ -1,5 +1,5 @@
 use crate::container::base::ContainerPlatform;
-use crate::models::{Container, ContainerMeta, ContainerRequest};
+use crate::models::{V1Container, V1ContainerMeta, V1ContainerRequest};
 use k8s_openapi::api::batch::v1::{Job, JobSpec};
 use k8s_openapi::api::core::v1::{
     Container as K8sContainer, ContainerPort, EnvVar, PodSpec, PodTemplateSpec,
@@ -263,10 +263,10 @@ impl ContainerPlatform for KubePlatform {
     /// Run a container on Kubernetes by creating a Job
     fn run(
         &self,
-        config: &ContainerRequest,
+        config: &V1ContainerRequest,
         db: &DatabaseConnection,
         owner_id: &str,
-    ) -> Result<Container, Box<dyn std::error::Error>> {
+    ) -> Result<V1Container, Box<dyn std::error::Error>> {
         let name = config.name.clone().unwrap_or_else(|| {
             // Generate a random human-friendly name using petname
             petname::petname(3, "-").unwrap()
@@ -537,9 +537,9 @@ impl ContainerPlatform for KubePlatform {
         });
 
         info!("[Kubernetes] Job {} created on Kubernetes", name);
-        Ok(Container {
+        Ok(V1Container {
             kind: "Container".to_string(),
-            metadata: ContainerMeta {
+            metadata: V1ContainerMeta {
                 id: id.clone(),
                 owner_id: owner_id.to_string(),
                 created_at: chrono::Utc::now().timestamp(),

@@ -1,6 +1,6 @@
 // src/query.rs
 use crate::entities::containers;
-use crate::models::VolumeConfig;
+use crate::models::V1VolumeConfig;
 use sea_orm::*;
 use sea_orm::{ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter};
 use serde_json::from_str;

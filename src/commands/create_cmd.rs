@@ -1,5 +1,5 @@
 use nebulous::config::GlobalConfig;
-use nebulous::models::{ContainerRequest, VolumeConfig, VolumePath};
+use nebulous::models::{V1ContainerRequest, V1VolumeConfig, V1VolumePath};
 use reqwest::Client;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -16,8 +16,8 @@ pub async fn create_container(
         let volumes = if let (Some(source), Some(destination)) =
             (&command.volume_source, &command.volume_destination)
         {
-            Some(VolumeConfig {
-                paths: vec![VolumePath {
+            Some(V1VolumeConfig {
+                paths: vec![V1VolumePath {
                     source_path: source.clone(),
                     destination_path: destination.clone(),
                     resync: command.volume_resync,
@@ -41,7 +41,7 @@ pub async fn create_container(
             .map(|label_vec| label_vec.into_iter().collect::<HashMap<String, String>>());
 
         // Build ContainerRequest
-        ContainerRequest {
+        V1ContainerRequest {
             kind: "Container".to_string(),
             name: command.name,
             image: command.image,

@@ -1,4 +1,4 @@
-use crate::models::{Container, ContainerRequest};
+use crate::models::{V1Container, V1ContainerRequest};
 use sea_orm::DatabaseConnection;
 use std::collections::HashMap;
 use std::env;
@@ -6,10 +6,10 @@ use std::env;
 pub trait ContainerPlatform {
     fn run(
         &self,
-        config: &ContainerRequest,
+        config: &V1ContainerRequest,
         db: &DatabaseConnection,
         owner_id: &str,
-    ) -> Result<Container, Box<dyn std::error::Error>>;
+    ) -> Result<V1Container, Box<dyn std::error::Error>>;
 
     fn delete(&self, id: &str, db: &DatabaseConnection) -> Result<(), Box<dyn std::error::Error>>;
 

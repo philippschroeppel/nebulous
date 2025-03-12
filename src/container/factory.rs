@@ -1,7 +1,7 @@
 use crate::container::base::ContainerPlatform;
 use crate::container::kube::KubePlatform;
 use crate::container::runpod::RunpodPlatform;
-use crate::models::{Container, ContainerRequest};
+use crate::models::{V1Container, V1ContainerRequest};
 use sea_orm::DatabaseConnection;
 use std::error::Error;
 
@@ -16,10 +16,10 @@ impl PlatformType {
     // Example method that both platforms would have
     pub async fn run(
         &self,
-        request: &ContainerRequest,
+        request: &V1ContainerRequest,
         db: &DatabaseConnection,
         owner_id: &str,
-    ) -> Result<Container, Box<dyn Error>> {
+    ) -> Result<V1Container, Box<dyn Error>> {
         match self {
             PlatformType::Runpod(platform) => platform.run(request, db, owner_id),
             PlatformType::Kube(platform) => platform.run(request, db, owner_id),

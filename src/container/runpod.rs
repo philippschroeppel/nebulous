@@ -1,12 +1,13 @@
-use crate::accelerator::base::AcceleratorProvider;
+
 use crate::accelerator::runpod::RunPodProvider;
+use crate::accelerator::base::AcceleratorProvider; 
 use crate::container::base::ContainerPlatform;
 use sea_orm::{DatabaseConnection, Set, ActiveModelTrait};
-use crate::models::{Container, ContainerRequest};
+use crate::models::{V1Container, V1ContainerRequest, V1VolumeConfig, V1VolumePath};
+use crate::volumes::rclone::{VolumeConfig, VolumePath, SymlinkConfig};
 use petname;
 use runpod::*;
 use short_uuid::ShortUuid;
-use serde_json::Value as Json;
 use std::collections::HashMap;
 use tracing::{error, info};
 
@@ -35,7 +36,7 @@ impl RunpodPlatform {
     }
 
     /// Select an appropriate GPU type based on VRAM request
-    fn select_gpu_type(
+    fn _select_gpu_type(
         &self,
         vram_request: &Option<u32>,
         gpu_types: &[GpuTypeWithDatacenter],
@@ -289,6 +290,51 @@ impl RunpodPlatform {
         );
         Ok(())
     }
+
+    fn determin_volumes_config(model: V1VolumeConfig) -> VolumeConfig {
+        let mut volume_paths = Vec::new();
+        let mut symlinks = Vec::new();
+        let cache_dir = model.cache_dir.clone();
+        
+        for path in model.paths {
+            // Check if destination path is local (not starting with s3:// or other remote protocol)
+            let is_local_destination = !path.destination_path.starts_with("s3://") 
+                && !path.destination_path.starts_with("gs://")
+                && !path.destination_path.starts_with("azure://");
+            
+            let destination_path = if is_local_destination {
+                // For local paths, we'll sync to cache directory instead
+                let path_without_leading_slash = path.destination_path.trim_start_matches('/');
+                let cache_path = format!("{}/{}", cache_dir, path_without_leading_slash);
+                
+                // Add a symlink from the cache path to the original destination path
+                symlinks.push(SymlinkConfig {
+                    source_path: cache_path.clone(),
+                    symlink_path: path.destination_path.clone(),
+                });
+                
+                cache_path
+            } else {
+                path.destination_path
+            };
+            
+            let volume_path = VolumePath {
+                source_path: path.source_path,
+                destination_path: destination_path,
+                resync: path.resync,
+                bidirectional: path.bidirectional,
+                continuous: path.continuous,
+            };
+            volume_paths.push(volume_path);
+        }
+        
+        let volume_config = VolumeConfig {
+            paths: volume_paths,
+            cache_dir: cache_dir,
+            symlinks: symlinks,
+        };
+        volume_config
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -303,7 +349,7 @@ impl ContainerPlatform for RunpodPlatform {
     ///
     /// Because the original `TrainingPlatform` trait is not async, this function uses a
     /// Tokio runtime internally to block on the async `create_on_demand_pod` or `create_spot_pod`.
-    fn run(&self, config: &ContainerRequest, db: &DatabaseConnection, owner_id: &str) -> Result<Container, Box<dyn std::error::Error>> {
+    fn run(&self, config: &V1ContainerRequest, db: &DatabaseConnection, owner_id: &str) -> Result<V1Container, Box<dyn std::error::Error>> {
         let name = config.name.clone().unwrap_or_else(|| {
             // Generate a random human-friendly name using petname
             petname::petname(3, "-").unwrap()
@@ -413,7 +459,8 @@ impl ContainerPlatform for RunpodPlatform {
         
         // Add ORIGN_SYNC_CONFIG environment variable with serialized volumes configuration
         if let Some(volumes) = &config.volumes {
-            match serde_yaml::to_string(volumes) {
+            let volume_config = RunpodPlatform::determin_volumes_config(volumes.clone());
+            match serde_yaml::to_string(&volume_config) {
                 Ok(serialized_volumes) => {
                     env_vec.push(runpod::EnvVar {
                         key: "NEBU_SYNC_CONFIG".to_string(),
@@ -452,7 +499,7 @@ impl ContainerPlatform for RunpodPlatform {
             image_name: Some(config.image.clone()),
             docker_args: config.command.clone(),
             ports: Some("8000".to_string()),
-            volume_mount_path: Some("/cache/rclone".to_string()),
+            volume_mount_path: Some("/nebu/cache".to_string()),
             env: env_vec,
             network_volume_id: Some(network_volume_id),
         };
@@ -534,14 +581,16 @@ impl ContainerPlatform for RunpodPlatform {
             }
         });
 
+        let docker_command = config.command.clone().map(|cmd| format!("nebu sync --config /nebu/sync.yaml --interval-seconds 5 --create-if-missing --watch --background --block-once --sync-from-env && {}", cmd));
+
         // Handle any errors from the async block
         let pod_id = pod_id.map_err(|e| Box::<dyn std::error::Error>::from(e))?;
 
         info!("[RunPod] Job {} created on RunPod with pod ID {}", name, pod_id);
         
-        Ok(Container {
+        Ok(V1Container {
             kind: "Container".to_string(),
-            metadata: crate::models::ContainerMeta {
+            metadata: crate::models::V1ContainerMeta {
                 id: id.clone(),
                 owner_id: "runpod".to_string(),
                 created_at: chrono::Utc::now().timestamp(),
@@ -619,7 +668,7 @@ impl ContainerPlatform for RunpodPlatform {
     }
 
     fn accelerator_map(&self) -> HashMap<String, String> {
-        let provider = crate::accelerator::runpod::RunPodProvider::new();
+        let provider = RunPodProvider::new();
         provider.accelerator_map().clone()
     }
 }

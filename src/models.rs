@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct ErrorResponse {
+pub struct V1ErrorResponse {
     #[serde(rename = "type", default = "default_error_response_type")]
     pub response_type: String,
     pub request_id: String,
@@ -14,7 +14,7 @@ fn default_error_response_type() -> String {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ContainerRequest {
+pub struct V1ContainerRequest {
     #[serde(default = "default_container_kind")]
     pub kind: String,
     pub name: Option<String>,
@@ -24,12 +24,12 @@ pub struct ContainerRequest {
     pub image: String,
     pub env_vars: Option<HashMap<String, String>>,
     pub command: Option<String>,
-    pub volumes: Option<VolumeConfig>,
+    pub volumes: Option<V1VolumeConfig>,
     pub accelerators: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct ContainerMeta {
+pub struct V1ContainerMeta {
     pub id: String,
     pub owner_id: String,
     pub created_at: i64,
@@ -39,16 +39,16 @@ pub struct ContainerMeta {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct Container {
+pub struct V1Container {
     #[serde(default = "default_container_kind")]
     pub kind: String,
-    pub metadata: ContainerMeta,
+    pub metadata: V1ContainerMeta,
     pub name: String,
     pub namespace: String,
     pub image: String,
     pub env_vars: Option<HashMap<String, String>>,
     pub command: Option<String>,
-    pub volumes: Option<VolumeConfig>,
+    pub volumes: Option<V1VolumeConfig>,
     pub accelerators: Option<Vec<String>>,
 }
 // Add this function to provide a default kind value
@@ -57,11 +57,11 @@ fn default_container_kind() -> String {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct UpdateContainer {
+pub struct V1UpdateContainer {
     pub image: Option<String>,
     pub env_vars: Option<HashMap<String, String>>,
     pub command: Option<String>,
-    pub volumes: Option<VolumeConfig>,
+    pub volumes: Option<V1VolumeConfig>,
     pub accelerators: Option<Vec<String>>,
     pub labels: Option<HashMap<String, String>>,
     pub cpu_request: Option<String>,
@@ -70,14 +70,14 @@ pub struct UpdateContainer {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct VolumeConfig {
-    pub paths: Vec<VolumePath>,
+pub struct V1VolumeConfig {
+    pub paths: Vec<V1VolumePath>,
     #[serde(default = "default_cache_dir")]
     pub cache_dir: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct VolumePath {
+pub struct V1VolumePath {
     pub source_path: String,
     pub destination_path: String,
     #[serde(default)]
@@ -104,7 +104,7 @@ fn default_cache_dir() -> String {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct UserProfile {
+pub struct V1UserProfile {
     pub email: String,
     pub display_name: Option<String>,
     pub handle: Option<String>,
@@ -120,6 +120,6 @@ pub struct UserProfile {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ContainerList {
-    pub containers: Vec<Container>,
+pub struct V1ContainerList {
+    pub containers: Vec<V1Container>,
 }

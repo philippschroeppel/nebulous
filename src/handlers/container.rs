@@ -2,7 +2,9 @@
 
 use crate::container::factory::platform_factory;
 use crate::entities::containers;
-use crate::models::{Container, ContainerList, ContainerMeta, ContainerRequest, UserProfile};
+use crate::models::{
+    V1Container, V1ContainerList, V1ContainerMeta, V1ContainerRequest, V1UserProfile,
+};
 
 use tracing::info;
 
@@ -28,9 +30,9 @@ use std::collections::HashMap;
 
 pub async fn get_container(
     State(state): State<AppState>,
-    Extension(user_profile): Extension<UserProfile>,
+    Extension(user_profile): Extension<V1UserProfile>,
     Path(id): Path<String>,
-) -> Result<Json<Container>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Json<V1Container>, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
 
     let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
@@ -52,9 +54,9 @@ pub async fn get_container(
             )
         })?;
 
-    let out_container = Container {
+    let out_container = V1Container {
         kind: "Container".to_string(),
-        metadata: ContainerMeta {
+        metadata: V1ContainerMeta {
             id: container.id.to_string(),
             owner_id: container.owner_id,
             created_at: container.created_at.timestamp(),
@@ -85,8 +87,8 @@ pub async fn get_container(
 #[axum::debug_handler]
 pub async fn list_containers(
     State(state): State<AppState>,
-    Extension(user_profile): Extension<UserProfile>,
-) -> Result<Json<ContainerList>, (StatusCode, Json<serde_json::Value>)> {
+    Extension(user_profile): Extension<V1UserProfile>,
+) -> Result<Json<V1ContainerList>, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
 
     let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
@@ -113,9 +115,9 @@ pub async fn list_containers(
     // Convert database models to API response models
     let containers = container_models
         .into_iter()
-        .map(|c| Container {
+        .map(|c| V1Container {
             kind: "Container".to_string(),
-            metadata: ContainerMeta {
+            metadata: V1ContainerMeta {
                 id: c.id.to_string(),
                 owner_id: c.owner_id,
                 created_at: c.created_at.timestamp(),
@@ -139,14 +141,14 @@ pub async fn list_containers(
         })
         .collect();
 
-    Ok(Json(ContainerList { containers }))
+    Ok(Json(V1ContainerList { containers }))
 }
 
 pub async fn create_container(
     State(state): State<AppState>,
-    Extension(user_profile): Extension<UserProfile>,
-    Json(container_request): Json<ContainerRequest>,
-) -> Result<Json<Container>, (StatusCode, Json<serde_json::Value>)> {
+    Extension(user_profile): Extension<V1UserProfile>,
+    Json(container_request): Json<V1ContainerRequest>,
+) -> Result<Json<V1Container>, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
 
     let platform = platform_factory(
@@ -170,7 +172,7 @@ pub async fn create_container(
 
 pub async fn delete_container(
     State(state): State<AppState>,
-    Extension(user_profile): Extension<UserProfile>,
+    Extension(user_profile): Extension<V1UserProfile>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;

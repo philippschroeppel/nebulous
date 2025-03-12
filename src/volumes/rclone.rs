@@ -1,4 +1,4 @@
-use crate::models::VolumeConfig as V1VolumeConfig;
+use crate::models::V1VolumeConfig;
 use crate::query::Query;
 use sea_orm::{DatabaseConnection, DbErr};
 use serde::{Deserialize, Serialize};
@@ -1137,7 +1137,16 @@ pub async fn find_active_containers_with_overlapping_s3_sync(
         // Check if container has an active status
         if let Some(status) = &container.status {
             let status_lower = status.to_lowercase();
-            if !["running", "queued", "started", "waiting"].contains(&status_lower.as_str()) {
+            if ![
+                "running",
+                "queued",
+                "started",
+                "waiting",
+                "pending",
+                "suspended",
+            ]
+            .contains(&status_lower.as_str())
+            {
                 continue; // Skip containers that aren't active
             }
         } else {

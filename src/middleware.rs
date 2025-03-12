@@ -1,4 +1,4 @@
-use crate::models::UserProfile;
+use crate::models::V1UserProfile;
 use crate::AppState;
 use axum::{
     extract::{Request, State},
@@ -40,7 +40,7 @@ pub async fn auth_middleware(
                 println!("✅ Auth response: {}", response_text);
 
                 // Parse the user profile from the cloned response
-                match serde_json::from_str::<UserProfile>(&response_text) {
+                match serde_json::from_str::<V1UserProfile>(&response_text) {
                     Ok(user_profile) => {
                         request.extensions_mut().insert(user_profile);
                         return next.run(request).await;

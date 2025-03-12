@@ -1,5 +1,5 @@
 use crate::entities::containers;
-use crate::models::UpdateContainer;
+use crate::models::V1UpdateContainer;
 use sea_orm::prelude::Json;
 use sea_orm::*;
 use serde_json::json;
@@ -36,7 +36,7 @@ impl Mutation {
     pub async fn update_container(
         db: &DatabaseConnection,
         id: String,
-        update_data: UpdateContainer,
+        update_data: V1UpdateContainer,
     ) -> Result<containers::Model, DbErr> {
         let container = containers::Entity::find_by_id(id)
             .one(db)

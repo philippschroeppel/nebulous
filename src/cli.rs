@@ -54,6 +54,10 @@ pub enum Commands {
         /// Block until the one time sync paths are complete.
         #[arg(short, long, default_value_t = false)]
         block_once: bool,
+
+        /// Sync from the NEBU_SYNC_CONFIG environment variable.
+        #[arg(short, long, default_value_t = false)]
+        sync_from_env: bool,
     },
 
     /// Serve the API server.
