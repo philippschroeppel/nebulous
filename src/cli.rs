@@ -57,7 +57,7 @@ pub enum Commands {
 
         /// Sync from the NEBU_SYNC_CONFIG environment variable.
         #[arg(short, long, default_value_t = false)]
-        sync_from_env: bool,
+        config_from_env: bool,
     },
 
     /// Serve the API server.

@@ -18,10 +18,10 @@ pub async fn execute_sync(
     watch: bool,
     background: bool,
     block_once: bool,
-    sync_from_env: bool,
+    config_from_env: bool,
 ) -> Result<(), Box<dyn Error>> {
     // Get config path from environment variable if sync_from_env is true
-    let config_path = if sync_from_env {
+    let config_path = if config_from_env {
         std::env::var("NEBU_SYNC_CONFIG").unwrap_or_else(|_| {
             println!("Warning: NEBU_SYNC_CONFIG environment variable not set, using provided config path");
             config_path

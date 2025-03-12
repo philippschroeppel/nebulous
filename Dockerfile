@@ -64,7 +64,7 @@ EXPOSE 3000
 
 # Create a startup script to run the sync tool in the background
 RUN echo '#!/bin/bash\n\
-nebu sync --config /nebu/sync.yaml --interval-seconds 5 --create-if-missing --watch --background --block-once --sync-from-env \n\
+nebu sync --config /nebu/sync.yaml --interval-seconds 5 --create-if-missing --watch --background --block-once --config-from-env \n\
 exec "$@"' > /entrypoint.sh && \
     chmod +x /entrypoint.sh
 

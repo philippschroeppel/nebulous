@@ -54,7 +54,7 @@ petname = "2.0.2"
 walkdir = "2.5.0"
 anyhow = "1.0.95"
 schemars = { version = "0.8.21", features = ["derive"] }
-runpod = "0.1.5"
+runpod = "0.1.6"
 axum-extra = { version = "0.10.0" }
 thiserror = "2.0.12"
 aws-config = "1.5.18"

@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             watch,
             background,
             block_once,
-            sync_from_env,
+            config_from_env,
         } => {
             commands::sync_cmd::execute_sync(
                 config,
@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 watch,
                 background,
                 block_once,
-                sync_from_env,
+                config_from_env,
             )
             .await?;
         }

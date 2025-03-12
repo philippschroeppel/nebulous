@@ -486,6 +486,8 @@ impl ContainerPlatform for RunpodPlatform {
         }
         let id = ShortUuid::generate().to_string();
 
+        let docker_command = config.command.clone().map(|cmd| format!("nebu sync --config /nebu/sync.yaml --interval-seconds 5 --create-if-missing --watch --background --block-once --config-from-env && {}", cmd));
+
         // 5) Create an on-demand instance instead of a spot instance
         let create_request = CreateOnDemandPodRequest {
             cloud_type: Some("SECURE".to_string()),
@@ -497,7 +499,7 @@ impl ContainerPlatform for RunpodPlatform {
             gpu_type_id: Some(runpod_gpu_type_id),
             name: Some(id.clone()),
             image_name: Some(config.image.clone()),
-            docker_args: config.command.clone(),
+            docker_args: docker_command.clone(),
             ports: Some("8000".to_string()),
             volume_mount_path: Some("/nebu/cache".to_string()),
             env: env_vec,
@@ -580,8 +582,6 @@ impl ContainerPlatform for RunpodPlatform {
                 }
             }
         });
-
-        let docker_command = config.command.clone().map(|cmd| format!("nebu sync --config /nebu/sync.yaml --interval-seconds 5 --create-if-missing --watch --background --block-once --sync-from-env && {}", cmd));
 
         // Handle any errors from the async block
         let pod_id = pod_id.map_err(|e| Box::<dyn std::error::Error>::from(e))?;
