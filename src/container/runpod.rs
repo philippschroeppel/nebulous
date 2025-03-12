@@ -618,10 +618,10 @@ impl ContainerPlatform for RunpodPlatform {
             kind: "Container".to_string(),
             metadata: crate::models::V1ContainerMeta {
                 id: id.clone(),
-                owner_id: "runpod".to_string(),
+                owner_id: owner_id.to_string(),
                 created_at: chrono::Utc::now().timestamp(),
                 updated_at: chrono::Utc::now().timestamp(),
-                created_by: "runpod".to_string(),
+                created_by: owner_id.to_string(),
                 labels: config.labels.clone(),
             },
             name: name,
