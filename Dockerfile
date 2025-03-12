@@ -22,7 +22,12 @@ ENV RUSTC_WRAPPER=sccache
 
 # Create a new empty shell project with only Cargo files
 WORKDIR /usr/src/nebulous
-COPY Cargo.toml Cargo.lock ./
+# Copy Cargo.toml first and handle missing Cargo.lock
+COPY Cargo.toml ./
+# Create empty Cargo.lock if it doesn't exist
+RUN touch Cargo.lock
+
+# Create minimal src directory
 RUN mkdir src && echo "fn main() {}" > src/main.rs
 
 # Pre-build dependencies to leverage Docker layer caching
