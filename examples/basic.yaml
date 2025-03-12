@@ -1,0 +1,17 @@
+name: pytorch-test
+image: "pytorch/pytorch:latest"
+command: "echo $TEST > /nebu/test/test.txt && nvidia-smi > /nebu/test/nvidia-smi.txt && ls -l /nebu/test > /nebu/test/ls.txt"
+platform: "runpod"
+namespace: "nebu-test"
+labels:
+  this: that
+env_vars:
+  TEST: "hello"
+volumes:
+  - source: s3://nebulous-rs/test
+    destination: /nebu/test
+    bidirectional: true
+    continuous: true
+    resync: false
+accelerators:
+  - "2:A100"

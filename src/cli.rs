@@ -131,6 +131,10 @@ pub struct ContainerCommands {
     /// Cache directory for volume (default: /nebu/cache)
     #[arg(long, default_value = "/nebu/cache")]
     pub volume_cache_dir: String,
+
+    /// File input
+    #[arg(long)]
+    pub file: Option<String>,
 }
 
 /// Parse a key-value pair in the format of KEY=VALUE
