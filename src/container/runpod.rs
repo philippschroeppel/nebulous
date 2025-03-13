@@ -1,7 +1,7 @@
 use crate::accelerator::base::AcceleratorProvider;
 use crate::accelerator::runpod::RunPodProvider;
 use crate::container::base::{ContainerPlatform, ContainerStatus};
-use crate::models::{V1Container, V1ContainerRequest, V1VolumeConfig, V1VolumePath};
+use crate::models::{V1Container, V1ContainerRequest, V1UserProfile, V1VolumeConfig, V1VolumePath};
 use crate::volumes::rclone::{SymlinkConfig, VolumeConfig, VolumePath};
 use petname;
 use runpod::*;
@@ -407,6 +407,7 @@ impl ContainerPlatform for RunpodPlatform {
         &self,
         config: &V1ContainerRequest,
         db: &DatabaseConnection,
+        user_profile: &V1UserProfile,
         owner_id: &str,
     ) -> Result<V1Container, Box<dyn std::error::Error>> {
         let name = config
@@ -583,7 +584,7 @@ impl ContainerPlatform for RunpodPlatform {
 
         let mut env_vec = Vec::new();
 
-        for (key, value) in self.get_common_env_vars() {
+        for (key, value) in self.get_common_env_vars(user_profile).await {
             env_vec.push(runpod::EnvVar { key, value });
         }
 
@@ -624,11 +625,14 @@ impl ContainerPlatform for RunpodPlatform {
             let base_command = format!("nebu sync --config /nebu/sync.yaml --interval-seconds 5 --create-if-missing --watch --background --block-once --config-from-env && {}", cmd);
             
             // If restart policy is 'never', add command to delete the container after completion
-            if config.restart == "never" {
+            let full_command = if config.restart == "never" {
                 format!("{{ {}; }}; nebu delete containers {}", base_command, id)
             } else {
                 base_command
-            }
+            };
+            
+            // Wrap the command with bash -c to ensure shell features work
+            format!("bash -c '{}'", full_command.replace("'", "'\\''"))
         });
         info!("[RunPod] Docker command: {:?}", docker_command);
 

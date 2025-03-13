@@ -1,5 +1,5 @@
 use crate::container::base::ContainerPlatform;
-use crate::models::{V1Container, V1ContainerMeta, V1ContainerRequest};
+use crate::models::{V1Container, V1ContainerMeta, V1ContainerRequest, V1UserProfile};
 use k8s_openapi::api::batch::v1::{Job, JobSpec};
 use k8s_openapi::api::core::v1::{
     Container as K8sContainer, ContainerPort, EnvVar, PodSpec, PodTemplateSpec,
@@ -265,6 +265,7 @@ impl ContainerPlatform for KubePlatform {
         &self,
         config: &V1ContainerRequest,
         db: &DatabaseConnection,
+        user_profile: &V1UserProfile,
         owner_id: &str,
     ) -> Result<V1Container, Box<dyn std::error::Error>> {
         let name = config

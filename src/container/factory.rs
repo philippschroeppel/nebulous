@@ -1,7 +1,7 @@
 use crate::container::base::ContainerPlatform;
 use crate::container::kube::KubePlatform;
 use crate::container::runpod::RunpodPlatform;
-use crate::models::{V1Container, V1ContainerRequest};
+use crate::models::{V1Container, V1ContainerRequest, V1UserProfile};
 use sea_orm::DatabaseConnection;
 use std::error::Error;
 
@@ -18,11 +18,14 @@ impl PlatformType {
         &self,
         request: &V1ContainerRequest,
         db: &DatabaseConnection,
+        user_profile: &V1UserProfile,
         owner_id: &str,
     ) -> Result<V1Container, Box<dyn Error>> {
         match self {
-            PlatformType::Runpod(platform) => platform.run(request, db, owner_id).await,
-            PlatformType::Kube(platform) => platform.run(request, db, owner_id).await,
+            PlatformType::Runpod(platform) => {
+                platform.run(request, db, user_profile, owner_id).await
+            }
+            PlatformType::Kube(platform) => platform.run(request, db, user_profile, owner_id).await,
         }
     }
 

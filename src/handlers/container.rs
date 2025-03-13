@@ -166,7 +166,12 @@ pub async fn create_container(
             .unwrap_or("runpod".to_string()),
     );
     let container = platform
-        .run(&container_request, db_pool, &user_profile.email)
+        .run(
+            &container_request,
+            db_pool,
+            &user_profile,
+            &user_profile.email,
+        )
         .await
         .map_err(|e| {
             (

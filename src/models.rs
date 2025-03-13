@@ -172,3 +172,20 @@ pub struct V1UserProfile {
 pub struct V1ContainerList {
     pub containers: Vec<V1Container>,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct V1CreateAgentKeyRequest {
+    pub agent_id: String,
+    pub name: String,
+    pub duration: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct V1AgentKey {
+    pub name: String,
+    pub key: Option<String>,
+    pub created: Option<i64>,
+    pub valid_for: Option<i64>,
+    pub org: Option<String>,
+    pub role: Option<String>,
+}

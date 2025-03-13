@@ -1,4 +1,5 @@
-use crate::models::{V1Container, V1ContainerRequest};
+use crate::auth::agent::create_agent_key;
+use crate::models::{V1Container, V1ContainerRequest, V1CreateAgentKeyRequest, V1UserProfile};
 use sea_orm::DatabaseConnection;
 use std::collections::HashMap;
 use std::env;
@@ -59,6 +60,7 @@ pub trait ContainerPlatform {
         &self,
         config: &V1ContainerRequest,
         db: &DatabaseConnection,
+        user_profile: &V1UserProfile,
         owner_id: &str,
     ) -> Result<V1Container, Box<dyn std::error::Error>>;
 
@@ -71,9 +73,23 @@ pub trait ContainerPlatform {
     fn accelerator_map(&self) -> HashMap<String, String>;
 
     // Default implementation for common environment variables
-    fn get_common_env_vars(&self) -> HashMap<String, String> {
+    async fn get_common_env_vars(&self, user_profile: &V1UserProfile) -> HashMap<String, String> {
         let mut env_vars = HashMap::new();
         let config = crate::config::GlobalConfig::read().unwrap();
+
+        let create_agent_key_request = V1CreateAgentKeyRequest {
+            agent_id: "nebu".to_string(),
+            name: format!("nebu-{}", uuid::Uuid::new_v4()),
+            duration: 3600,
+        };
+
+        let agent_key = create_agent_key(
+            "https://auth.hub.agentlabs.xyz",
+            &user_profile.token.clone().unwrap(),
+            create_agent_key_request,
+        )
+        .await
+        .unwrap();
 
         // Get AWS credentials from environment
         let aws_access_key =
@@ -97,8 +113,9 @@ pub trait ContainerPlatform {
             "RCLONE_CONFIG_S3REMOTE_REGION".to_string(),
             "us-east-1".to_string(),
         );
-        env_vars.insert("NEBU_API_KEY".to_string(), config.api_key.unwrap());
+        env_vars.insert("NEBU_API_KEY".to_string(), agent_key.key.unwrap());
         env_vars.insert("NEBU_SERVER".to_string(), config.server.unwrap());
+
         // env_vars.insert(
         //     "RCLONE_CONFIG_S3REMOTE_ACL".to_string(),
         //     "private".to_string(),
