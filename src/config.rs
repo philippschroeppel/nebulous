@@ -30,25 +30,39 @@ impl GlobalConfig {
 
     pub fn read() -> Result<Self, Box<dyn std::error::Error>> {
         let config_path = get_config_file_path()?;
-
-        if config_path.exists() {
+        let path_exists = config_path.exists();
+        let mut config = if path_exists {
             let yaml = fs::read_to_string(config_path)?;
-            let config: GlobalConfig = serde_yaml::from_str(&yaml)?;
-
-            // Check if we have an API key
-            if config.api_key.is_none() {
-                return Err("Please login first using 'nebu login'".into());
-            }
-            if config.server.is_none() {
-                return Err("Please login first using 'nebu login'".into());
-            }
-
-            Ok(config)
+            serde_yaml::from_str(&yaml)?
         } else {
-            let default_config = GlobalConfig::default();
-            default_config.write()?;
-            Ok(default_config)
+            GlobalConfig::default()
+        };
+
+        // Try to get API key from environment if not in config
+        if config.api_key.is_none() {
+            config.api_key = env::var("NEBU_API_KEY")
+                .or_else(|_| env::var("AGENTSEA_API_KEY"))
+                .ok();
         }
+        // Try to get server from environment if not in config
+        if config.server.is_none() {
+            config.server = env::var("NEBU_SERVER").ok();
+        }
+
+        // Check if we have the required values after trying environment variables
+        if config.api_key.is_none() {
+            return Err("API key not found. Please login using 'nebu login' or set NEBU_API_KEY environment variable".into());
+        }
+        if config.server.is_none() {
+            return Err("Server not found. Please login using 'nebu login' or set NEBU_SERVER environment variable".into());
+        }
+
+        // Only write the config file if it doesn't exist yet
+        if !path_exists {
+            config.write()?;
+        }
+
+        Ok(config)
     }
 }
 

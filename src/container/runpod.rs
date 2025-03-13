@@ -619,7 +619,17 @@ impl ContainerPlatform for RunpodPlatform {
         let id = ShortUuid::generate().to_string();
         info!("[RunPod] ID: {}", id);
 
-        let docker_command = config.command.clone().map(|cmd| format!("nebu sync --config /nebu/sync.yaml --interval-seconds 5 --create-if-missing --watch --background --block-once --config-from-env && {}", cmd));
+
+        let docker_command = config.command.clone().map(|cmd| {
+            let base_command = format!("nebu sync --config /nebu/sync.yaml --interval-seconds 5 --create-if-missing --watch --background --block-once --config-from-env && {}", cmd);
+            
+            // If restart policy is 'never', add command to delete the container after completion
+            if config.restart == "never" {
+                format!("{{ {}; }}; nebu delete containers {}", base_command, id)
+            } else {
+                base_command
+            }
+        });
         info!("[RunPod] Docker command: {:?}", docker_command);
 
         // 5) Create an on-demand instance instead of a spot instance

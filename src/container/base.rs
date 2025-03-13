@@ -73,6 +73,7 @@ pub trait ContainerPlatform {
     // Default implementation for common environment variables
     fn get_common_env_vars(&self) -> HashMap<String, String> {
         let mut env_vars = HashMap::new();
+        let config = crate::config::GlobalConfig::read().unwrap();
 
         // Get AWS credentials from environment
         let aws_access_key =
@@ -96,6 +97,8 @@ pub trait ContainerPlatform {
             "RCLONE_CONFIG_S3REMOTE_REGION".to_string(),
             "us-east-1".to_string(),
         );
+        env_vars.insert("NEBU_API_KEY".to_string(), config.api_key.unwrap());
+        env_vars.insert("NEBU_SERVER".to_string(), config.server.unwrap());
         // env_vars.insert(
         //     "RCLONE_CONFIG_S3REMOTE_ACL".to_string(),
         //     "private".to_string(),
