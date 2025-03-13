@@ -1,25 +1,56 @@
 use chrono::{DateTime, Utc};
 
 use nebulous::config::GlobalConfig;
+use serde::Serialize;
 use serde_json::Value;
 use std::error::Error;
 
-pub async fn get_containers(name: Option<String>) -> Result<(), Box<dyn Error>> {
+pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
     let config = GlobalConfig::read()?;
     let server = config.server.unwrap();
+    let api_key = config.api_key.unwrap_or_default();
+
+    let bearer_token = format!("Bearer {}", api_key);
 
     let url = format!("{}/v1/containers", server);
 
     // Create HTTP client
     let client = reqwest::Client::new();
 
-    // Build the request
-    let mut request = client.get(&url);
-
     // Add name filter if provided
-    if let Some(container_name) = &name {
-        request = request.query(&[("name", container_name)]);
+    if let Some(container_id) = &id {
+        let url = format!("{}/v1/containers/{}", server, container_id);
+
+        // Build the request
+        let request = client.get(&url).header("Authorization", &bearer_token);
+
+        // Execute the request
+        let response = request.send().await?;
+
+        // Check if the request was successful
+        if !response.status().is_success() {
+            return Err(format!("Failed to get containers: {}", response.status()).into());
+        }
+        // Parse the response
+        let mut containers: Value = response.json().await?;
+
+        // Remove null values for cleaner output
+        remove_null_values(&mut containers);
+
+        // Alternative approach using lower-level API
+        let mut buf = Vec::new();
+        {
+            let mut serializer = serde_yaml::Serializer::new(&mut buf);
+            containers.serialize(&mut serializer)?;
+        }
+        let yaml = String::from_utf8(buf)?;
+
+        println!("{}", yaml);
+        return Ok(());
     }
+
+    // Build the request
+    let request = client.get(&url).header("Authorization", &bearer_token);
 
     // Execute the request
     let response = request.send().await?;
@@ -46,45 +77,52 @@ pub async fn get_containers(name: Option<String>) -> Result<(), Box<dyn Error>> 
         prettytable::Cell::new("CREATED"),
     ]));
 
+    let empty_vec = Vec::new();
+    let container_list = containers
+        .get("containers")
+        .and_then(Value::as_array)
+        .unwrap_or(&empty_vec);
+
     // Process containers data
-    if let Value::Array(container_list) = &containers {
-        for container in container_list {
-            if let Value::Object(container_obj) = container {
-                // Extract container details with defaults for missing values
-                let id = container_obj
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .unwrap_or("N/A");
-                let name = container_obj
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .unwrap_or("N/A");
-                let status = container_obj
-                    .get("status")
-                    .and_then(Value::as_str)
-                    .unwrap_or("N/A");
+    for container in container_list {
+        if let Value::Object(container_obj) = container {
+            // Extract container details with defaults for missing values
+            let id = container_obj
+                .get("metadata")
+                .and_then(Value::as_object)
+                .and_then(|metadata| metadata.get("id"))
+                .and_then(Value::as_str)
+                .unwrap_or("N/A");
+            let name = container_obj
+                .get("metadata")
+                .and_then(Value::as_object)
+                .and_then(|metadata| metadata.get("name"))
+                .and_then(Value::as_str)
+                .unwrap_or("N/A");
+            let status = container_obj
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("N/A");
 
-                // Format creation time if available
-                let created = if let Some(created_str) =
-                    container_obj.get("created_at").and_then(Value::as_str)
-                {
-                    if let Ok(created_time) = created_str.parse::<DateTime<Utc>>() {
-                        created_time.format("%Y-%m-%d %H:%M:%S").to_string()
-                    } else {
-                        created_str.to_string()
-                    }
-                } else {
-                    "N/A".to_string()
-                };
+            // Format creation time if available
+            let created = container_obj
+                .get("metadata")
+                .and_then(Value::as_object)
+                .and_then(|metadata| metadata.get("created_at"))
+                .and_then(|v| v.as_i64().or_else(|| v.as_u64().map(|n| n as i64)))
+                .map(|timestamp| {
+                    let dt = DateTime::<Utc>::from_timestamp(timestamp, 0).unwrap_or_default();
+                    dt.format("%Y-%m-%d %H:%M:%S").to_string()
+                })
+                .unwrap_or_else(|| "N/A".to_string());
 
-                // Add row to table
-                table.add_row(prettytable::Row::new(vec![
-                    prettytable::Cell::new(id),
-                    prettytable::Cell::new(name),
-                    prettytable::Cell::new(status),
-                    prettytable::Cell::new(&created),
-                ]));
-            }
+            // Add row to table
+            table.add_row(prettytable::Row::new(vec![
+                prettytable::Cell::new(id),
+                prettytable::Cell::new(name),
+                prettytable::Cell::new(status),
+                prettytable::Cell::new(&created),
+            ]));
         }
     }
 
@@ -184,7 +222,7 @@ fn remove_null_values(value: &mut Value) {
 }
 
 pub async fn get_platforms() -> Result<(), Box<dyn Error>> {
-    let platforms = vec!["aws", "runpod", "ec2"];
+    let platforms = vec!["gce", "runpod", "ec2"];
     println!("{:?}", platforms);
     Ok(())
 }

@@ -1,16 +1,24 @@
-name: pytorch-test
+kind: Container
+metadata:
+  name: pytorch-test
+  namespace: "nebu-test"
+  labels:
+    this: that
 image: "pytorch/pytorch:latest"
-command: "echo $TEST > /nebu/test/test.txt && nvidia-smi > /nebu/test/nvidia-smi.txt && ls -l /nebu/test > /nebu/test/ls.txt"
-platform: "runpod"
-namespace: "nebu-test"
-labels:
-  this: that
+command: "echo $HELLO > /nebu/test/test.txt && nvidia-smi > /nebu/test/nvidia-smi.txt && ls -l /nebu/test > /nebu/test/ls.txt && sleep infinity"
+platform: runpod
 env_vars:
-  TEST: "hello"
+  - key: HELLO
+    value: world
 volumes:
-  - source: s3://nebulous-rs/test
-    destination: /nebu/test
+  - source_path: s3://nebulous-rs/test
+    destination_path: /nebu/test
     bidirectional: true
     continuous: true
 accelerators:
-  - "2:A100"
+  - "1:A100_SXM"
+meters:
+  - cost: 0.1
+    unit: second
+    metric: runtime
+    currency: USD

@@ -20,15 +20,15 @@ nebu login
 Create a container on runpod with 4 A100 GPUs
 ```yaml
 kind: Container
-name: pytorch-test
-image: "pytorch/pytorch:latest"
-command: "nvidia-smi"
-platform: "runpod"
-namespace: "foo"
-labels:
-  this: that
+metadata:
+  name: pytorch-test
+  namespace: nebu-test
+image: pytorch/pytorch:latest
+command: nvidia-smi
+platform: runpod
 env_vars:
-  TEST: "hello"
+  - key: HELLO
+    value: world
 volumes:
   - source: s3://foo/bar
     destination: /quz/baz
@@ -113,18 +113,15 @@ nebu create container \
 
 ### Meters
 
-Nebulous natively supports metered billing through [OpenMeter](https://openmeter.cloud/) using the `cost` field.
+Nebulous natively supports metered billing through [OpenMeter](https://openmeter.cloud/) using the `meters` field.
 
-```sh
-nebu create container \
-    --name "Agentsea/foo" \
-    --image tensorflow/tensorflow:latest \
-    --cmd "echo hello" \
-    --platform ec2 \
-    --accelerators "1:L40s"
-    --cost "0.1/s"
+```yaml
+meters:
+  - cost: 0.1
+    unit: second
+    currency: USD
+    metric: runtime 
 ```
-_Cost is in USD_
 
 ## Contributing
 
@@ -135,3 +132,4 @@ Please open an issue or submit a PR.
 - [Kubernetes](https://kubernetes.io/)
 - [Aurea](https://github.com/aurae-runtime/aurae)
 - [RunPod](https://runpod.io/)
+- [Prime Intellect](https://primeintellect.com/)

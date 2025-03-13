@@ -9,6 +9,10 @@ use tracing_subscriber;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    // Initialize logging with INFO level
+    if std::env::var("RUST_LOG").is_err() {
+        std::env::set_var("RUST_LOG", "info");
+    }
     // Initialize tracing
     tracing_subscriber::fmt::init();
 
@@ -41,16 +45,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         Commands::Create { command } => match command {
             CreateCommands::Container { command } => {
-                // Explicitly specify which ContainerCommands type to use
-                commands::create_cmd::create_container(command).await?;
+                // Add debug output to help diagnose the issue
+                println!("Attempting to create container with command");
+
+                // Wrap the call in a match to catch and print any errors
+                match commands::create_cmd::create_container(command).await {
+                    Ok(_) => (),
+                    Err(e) => {
+                        eprintln!("Error creating container: {:?}", e);
+                        return Err(e);
+                    }
+                }
             }
         },
         Commands::Get { command } => match command {
             GetCommands::Accelerators { platform } => {
                 commands::get_cmd::get_accelerators(platform).await?;
             }
-            GetCommands::Containers { name } => {
-                commands::get_cmd::get_containers(name).await?;
+            GetCommands::Containers { id } => {
+                commands::get_cmd::get_containers(id).await?;
             }
             GetCommands::Platforms => {
                 commands::get_cmd::get_platforms().await?;

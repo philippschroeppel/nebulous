@@ -39,23 +39,26 @@ pub async fn create_app() -> Result<Router, Box<dyn std::error::Error>> {
     // Initialize the appropriate message queue based on configuration
     let message_queue = match CONFIG.message_queue_type.to_lowercase().as_str() {
         "redis" => {
-            // Read the password from the REDIS_PASSWORD environment variable
-            let redis_password = std::env::var("REDIS_PASSWORD")
-                .expect("REDIS_PASSWORD environment variable not set");
-
-            // Strip off the "redis://" prefix if it’s present to avoid duplicating the scheme
+            // Get the Redis URL from config
             let stripped_url = CONFIG
                 .redis_url
                 .strip_prefix("redis://")
                 .unwrap_or_else(|| CONFIG.redis_url.as_str());
 
-            // Construct a new connection URL that injects the password
-            // e.g. if CONFIG.redis_url was "redis://localhost:6379",
-            // final URL becomes "redis://:password@localhost:6379"
-            let redis_url_with_password = format!("redis://:{redis_password}@{stripped_url}");
+            // Check if REDIS_PASSWORD is set
+            let redis_url = match std::env::var("REDIS_PASSWORD") {
+                Ok(password) if !password.is_empty() => {
+                    // If password is set, include it in the URL
+                    format!("redis://:{password}@{stripped_url}")
+                }
+                _ => {
+                    // If password is not set or empty, use URL without password
+                    format!("redis://{stripped_url}")
+                }
+            };
 
-            // Create the Redis client using the new URL
-            let redis_client = Arc::new(redis::Client::open(redis_url_with_password)?);
+            // Create the Redis client using the constructed URL
+            let redis_client = Arc::new(redis::Client::open(redis_url)?);
 
             MessageQueue::Redis {
                 client: redis_client,

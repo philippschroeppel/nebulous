@@ -21,15 +21,15 @@ impl PlatformType {
         owner_id: &str,
     ) -> Result<V1Container, Box<dyn Error>> {
         match self {
-            PlatformType::Runpod(platform) => platform.run(request, db, owner_id),
-            PlatformType::Kube(platform) => platform.run(request, db, owner_id),
+            PlatformType::Runpod(platform) => platform.run(request, db, owner_id).await,
+            PlatformType::Kube(platform) => platform.run(request, db, owner_id).await,
         }
     }
 
     pub async fn delete(&self, id: &str, db: &DatabaseConnection) -> Result<(), Box<dyn Error>> {
         match self {
-            PlatformType::Runpod(platform) => platform.delete(id, db),
-            PlatformType::Kube(platform) => platform.delete(id, db),
+            PlatformType::Runpod(platform) => platform.delete(id, db).await,
+            PlatformType::Kube(platform) => platform.delete(id, db).await,
         }
     }
 

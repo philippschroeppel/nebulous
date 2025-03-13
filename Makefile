@@ -10,8 +10,9 @@ copy-install-script:
 
 .PHONY: install
 install:
-	cargo build
-	sudo cp target/debug/nebulous ~/.local/bin/nebulous
+	rm -f ~/.local/bin/nebu
+	cargo build --quiet
+	sudo cp target/debug/nebulous ~/.local/bin/nebu
 
 
 .PHONY: test-prepare

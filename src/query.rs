@@ -47,4 +47,19 @@ impl Query {
     ) -> Result<Vec<containers::Model>, DbErr> {
         containers::Entity::find().all(db).await
     }
+
+    /// Fetches the status of a container by its ID
+    pub async fn get_container_status(
+        db: &DatabaseConnection,
+        container_id: &str,
+    ) -> Result<Option<String>, DbErr> {
+        let container = containers::Entity::find_by_id(container_id)
+            .select_only()
+            .column(containers::Column::Status)
+            .one(db)
+            .await?;
+
+        // Extract the status field from the container if it exists
+        Ok(container.and_then(|c| c.status))
+    }
 }

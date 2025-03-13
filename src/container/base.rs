@@ -55,14 +55,18 @@ impl FromStr for ContainerStatus {
 }
 
 pub trait ContainerPlatform {
-    fn run(
+    async fn run(
         &self,
         config: &V1ContainerRequest,
         db: &DatabaseConnection,
         owner_id: &str,
     ) -> Result<V1Container, Box<dyn std::error::Error>>;
 
-    fn delete(&self, id: &str, db: &DatabaseConnection) -> Result<(), Box<dyn std::error::Error>>;
+    async fn delete(
+        &self,
+        id: &str,
+        db: &DatabaseConnection,
+    ) -> Result<(), Box<dyn std::error::Error>>;
 
     fn accelerator_map(&self) -> HashMap<String, String>;
 

@@ -57,6 +57,8 @@ pub async fn get_container(
     let out_container = V1Container {
         kind: "Container".to_string(),
         metadata: V1ContainerMeta {
+            name: container.name.clone(),
+            namespace: container.namespace.clone(),
             id: container.id.to_string(),
             owner_id: container.owner_id,
             created_at: container.created_at.timestamp(),
@@ -67,8 +69,6 @@ pub async fn get_container(
                 .and_then(|v| serde_json::from_value(v).ok())
                 .unwrap_or_default(),
         },
-        name: container.name.clone(),
-        namespace: container.namespace.clone(),
         image: container.image.clone(),
         env_vars: container
             .env_vars
@@ -83,6 +83,7 @@ pub async fn get_container(
             .meters
             .and_then(|v| serde_json::from_value(v).ok()),
         status: container.status,
+        restart: container.restart,
     };
 
     Ok(Json(out_container))
@@ -122,6 +123,8 @@ pub async fn list_containers(
         .map(|c| V1Container {
             kind: "Container".to_string(),
             metadata: V1ContainerMeta {
+                name: c.name,
+                namespace: c.namespace,
                 id: c.id.to_string(),
                 owner_id: c.owner_id,
                 created_at: c.created_at.timestamp(),
@@ -132,8 +135,6 @@ pub async fn list_containers(
                     .and_then(|v| serde_json::from_value(v).ok())
                     .unwrap_or_default(),
             },
-            name: c.name,
-            namespace: c.namespace,
             image: c.image,
             env_vars: c
                 .env_vars
@@ -144,6 +145,7 @@ pub async fn list_containers(
             accelerators: c.accelerators,
             meters: c.meters.and_then(|v| serde_json::from_value(v).ok()),
             status: c.status,
+            restart: c.restart,
         })
         .collect();
 

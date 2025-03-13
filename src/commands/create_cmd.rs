@@ -1,5 +1,7 @@
 use nebulous::config::GlobalConfig;
-use nebulous::models::{V1ContainerRequest, V1Meter, V1VolumeConfig, V1VolumePath};
+use nebulous::models::{
+    V1ContainerMetaRequest, V1ContainerRequest, V1EnvVar, V1Meter, V1VolumeConfig, V1VolumePath,
+};
 use reqwest::Client;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -8,9 +10,14 @@ use std::error::Error;
 pub async fn create_container(
     command: crate::cli::ContainerCommands,
 ) -> Result<(), Box<dyn Error>> {
+    println!("Creating container");
     let container_request = if let Some(file) = command.file {
+        println!("Reading file: {}", file);
         let file_content = std::fs::read_to_string(file)?;
-        serde_yaml::from_str(&file_content)?
+        println!("File content read");
+        let container_request: V1ContainerRequest = serde_yaml::from_str(&file_content)?;
+        println!("Container request: {:?}", container_request);
+        container_request
     } else {
         // Build volume configuration if source and destination are provided
         let volumes = if let (Some(source), Some(destination)) =
@@ -31,9 +38,12 @@ pub async fn create_container(
         };
 
         // Convert Vec<(String, String)> to HashMap<String, String> for env vars
-        let env_vars = command
-            .env
-            .map(|env_vec| env_vec.into_iter().collect::<HashMap<String, String>>());
+        let env_vars = command.env.map(|env_vec| {
+            env_vec
+                .into_iter()
+                .map(|(key, value)| V1EnvVar { key, value })
+                .collect::<Vec<V1EnvVar>>()
+        });
 
         // Convert Vec<(String, String)> to HashMap<String, String> for labels
         let labels = command
@@ -43,6 +53,7 @@ pub async fn create_container(
         let meters = if let Some(meter_cost) = command.meter_cost {
             Some(vec![V1Meter {
                 cost: meter_cost,
+                unit: command.meter_unit.unwrap_or_default(),
                 metric: command.meter_metric.unwrap_or_default(),
                 currency: command.meter_currency.unwrap_or_default(),
             }])
@@ -50,34 +61,48 @@ pub async fn create_container(
             None
         };
 
+        if command.image.is_none() {
+            return Err("Image is required".into());
+        }
+
         // Build ContainerRequest
         V1ContainerRequest {
             kind: "Container".to_string(),
-            name: command.name,
-            image: command.image,
+            image: command.image.unwrap(),
             command: command.cmd,
             accelerators: command.accelerators,
             platform: command.platform,
-            namespace: command.namespace,
             env_vars: env_vars,
-            volumes: volumes,
-            labels: labels,
+            volumes: Some(volumes.unwrap().paths),
+            metadata: Some(V1ContainerMetaRequest {
+                name: command.name,
+                namespace: command.namespace,
+                owner_id: None,
+                labels: labels,
+            }),
             meters: meters,
+            restart: command.restart.unwrap_or("always".to_string()),
         }
     };
 
     let client = Client::new();
     let config = GlobalConfig::read()?;
     let server = config.server.unwrap();
+    let api_key = config.api_key.ok_or("API key not found in configuration")?;
 
     let url = format!("{}/v1/containers", server);
-    let response = client.post(&url).json(&container_request).send().await?;
+    let response = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .json(&container_request)
+        .send()
+        .await?;
 
     if response.status().is_success() {
         let container: Value = response.json().await?;
-        println!("Container created successfully:");
+        println!("Container created successfully!");
         println!("ID: {}", container["metadata"]["id"]);
-        println!("Name: {}", container["name"]);
+        println!("Name: {}", container["metadata"]["name"]);
     } else {
         let error_text = response.text().await?;
         return Err(format!("Failed to create container: {}", error_text).into());

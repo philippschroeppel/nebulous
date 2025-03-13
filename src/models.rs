@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct V1ErrorResponse {
     #[serde(rename = "type", default = "default_error_response_type")]
@@ -11,33 +13,69 @@ pub struct V1ErrorResponse {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct V1Meter {
-    pub cost: String,
+    pub cost: f64,
     pub currency: String,
+    pub unit: String,
     pub metric: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct V1EnvVar {
+    pub key: String,
+    pub value: String,
 }
 
 fn default_error_response_type() -> String {
     "ErrorResponse".to_string()
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct V1ContainerMetaRequest {
+    pub name: Option<String>,
+    pub namespace: Option<String>,
+    pub labels: Option<HashMap<String, String>>,
+    pub owner_id: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct V1ContainerRequest {
     #[serde(default = "default_container_kind")]
     pub kind: String,
-    pub name: Option<String>,
-    pub namespace: Option<String>,
     pub platform: Option<String>,
-    pub labels: Option<HashMap<String, String>>,
+    pub metadata: Option<V1ContainerMetaRequest>,
+    // pub labels: Option<HashMap<String, String>>,
     pub image: String,
-    pub env_vars: Option<HashMap<String, String>>,
+    pub env_vars: Option<Vec<V1EnvVar>>,
     pub command: Option<String>,
-    pub volumes: Option<V1VolumeConfig>,
+    pub volumes: Option<Vec<V1VolumePath>>,
     pub accelerators: Option<Vec<String>>,
     pub meters: Option<Vec<V1Meter>>,
+    #[serde(default = "default_restart")]
+    pub restart: String,
+}
+
+pub enum RestartPolicy {
+    Always,
+    Never,
+}
+
+fn default_restart() -> String {
+    RestartPolicy::Always.to_string()
+}
+
+impl fmt::Display for RestartPolicy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RestartPolicy::Always => write!(f, "Always"),
+            RestartPolicy::Never => write!(f, "Never"),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct V1ContainerMeta {
+    pub name: String,
+    pub namespace: String,
     pub id: String,
     pub owner_id: String,
     pub created_at: i64,
@@ -51,15 +89,14 @@ pub struct V1Container {
     #[serde(default = "default_container_kind")]
     pub kind: String,
     pub metadata: V1ContainerMeta,
-    pub name: String,
-    pub namespace: String,
     pub image: String,
-    pub env_vars: Option<HashMap<String, String>>,
+    pub env_vars: Option<Vec<V1EnvVar>>,
     pub command: Option<String>,
-    pub volumes: Option<V1VolumeConfig>,
+    pub volumes: Option<Vec<V1VolumePath>>,
     pub accelerators: Option<Vec<String>>,
     pub meters: Option<Vec<V1Meter>>,
     pub status: Option<String>,
+    pub restart: String,
 }
 // Add this function to provide a default kind value
 fn default_container_kind() -> String {
@@ -69,15 +106,16 @@ fn default_container_kind() -> String {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct V1UpdateContainer {
     pub image: Option<String>,
-    pub env_vars: Option<HashMap<String, String>>,
+    pub env_vars: Option<Vec<V1EnvVar>>,
     pub command: Option<String>,
-    pub volumes: Option<V1VolumeConfig>,
+    pub volumes: Option<Vec<V1VolumePath>>,
     pub accelerators: Option<Vec<String>>,
     pub labels: Option<HashMap<String, String>>,
     pub cpu_request: Option<String>,
     pub memory_request: Option<String>,
     pub platform: Option<String>,
     pub meters: Option<Vec<V1Meter>>,
+    pub restart: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

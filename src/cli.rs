@@ -101,8 +101,8 @@ pub struct ContainerCommands {
     pub platform: Option<String>,
 
     /// Container image
-    #[arg(long, required = true)]
-    pub image: String,
+    #[arg(long)]
+    pub image: Option<String>,
 
     /// Command to run in the container
     #[arg(long)]
@@ -145,12 +145,12 @@ pub struct ContainerCommands {
     pub volume_cache_dir: String,
 
     /// File input
-    #[arg(long)]
+    #[arg(short = 'f', long)]
     pub file: Option<String>,
 
     /// Meters of the container
     #[arg(long)]
-    pub meter_cost: Option<String>,
+    pub meter_cost: Option<f64>,
 
     /// Meter unit of the container
     #[arg(long)]
@@ -159,6 +159,14 @@ pub struct ContainerCommands {
     /// Meter currency of the container
     #[arg(long)]
     pub meter_currency: Option<String>,
+
+    /// Meter unit of the container
+    #[arg(long)]
+    pub meter_unit: Option<String>,
+
+    /// Restart policy of the container
+    #[arg(long)]
+    pub restart: Option<String>,
 }
 
 /// Parse a key-value pair in the format of KEY=VALUE
@@ -182,8 +190,7 @@ pub enum GetCommands {
     /// Get containers.
     Containers {
         /// Platform to get containers for.
-        #[arg(long)]
-        name: Option<String>,
+        id: Option<String>,
     },
 
     /// Get platforms.

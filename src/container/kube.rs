@@ -261,16 +261,20 @@ impl KubePlatform {
 
 impl ContainerPlatform for KubePlatform {
     /// Run a container on Kubernetes by creating a Job
-    fn run(
+    async fn run(
         &self,
         config: &V1ContainerRequest,
         db: &DatabaseConnection,
         owner_id: &str,
     ) -> Result<V1Container, Box<dyn std::error::Error>> {
-        let name = config.name.clone().unwrap_or_else(|| {
-            // Generate a random human-friendly name using petname
-            petname::petname(3, "-").unwrap()
-        });
+        let name = config
+            .metadata
+            .as_ref()
+            .and_then(|meta| meta.name.clone())
+            .unwrap_or_else(|| {
+                // Generate a random human-friendly name using petname
+                petname::petname(3, "-").unwrap()
+            });
         info!("[Kubernetes] Using name: {}", name);
 
         // Create a runtime to handle the async call
@@ -333,10 +337,10 @@ impl ContainerPlatform for KubePlatform {
 
         // Add user-provided environment variables
         if let Some(user_env_vars) = &config.env_vars {
-            for (key, value) in user_env_vars {
+            for env_var in user_env_vars {
                 env_vars.push(EnvVar {
-                    name: key.clone(),
-                    value: Some(value.clone()),
+                    name: env_var.key.clone(),
+                    value: Some(env_var.value.clone()),
                     ..Default::default()
                 });
             }
@@ -472,8 +476,9 @@ impl ContainerPlatform for KubePlatform {
                             let container = crate::entities::containers::ActiveModel {
                                 id: Set(id.clone()),
                                 namespace: Set(config
-                                    .namespace
-                                    .clone()
+                                    .metadata
+                                    .as_ref()
+                                    .and_then(|meta| meta.namespace.clone())
                                     .unwrap_or_else(|| "default".to_string())),
                                 name: Set(name.clone()),
                                 owner_id: Set(owner_id.to_string()),
@@ -497,10 +502,14 @@ impl ContainerPlatform for KubePlatform {
                                 platform: Set(Some("kubernetes".to_string())),
                                 resource_name: Set(Some(name.clone())),
                                 resource_namespace: Set(Some(self.namespace.clone())),
+                                restart: Set(config.restart.clone()),
                                 command: Set(config.command.clone()),
+                                public_ip: Set(None),
+                                private_ip: Set(None),
                                 labels: Set(config
-                                    .labels
-                                    .clone()
+                                    .metadata
+                                    .as_ref()
+                                    .and_then(|meta| meta.labels.clone())
                                     .map(|labels| serde_json::json!(labels))),
                                 created_by: Set(Some("kubernetes".to_string())),
                                 updated_at: Set(chrono::Utc::now().into()),
@@ -544,18 +553,22 @@ impl ContainerPlatform for KubePlatform {
         Ok(V1Container {
             kind: "Container".to_string(),
             metadata: V1ContainerMeta {
+                name: name.clone(),
+                namespace: config
+                    .metadata
+                    .as_ref()
+                    .and_then(|meta| meta.namespace.clone())
+                    .unwrap_or_else(|| "default".to_string()),
                 id: id.clone(),
                 owner_id: owner_id.to_string(),
                 created_at: chrono::Utc::now().timestamp(),
                 updated_at: chrono::Utc::now().timestamp(),
                 created_by: "kubernetes".to_string(),
-                labels: config.labels.clone(),
+                labels: config
+                    .metadata
+                    .as_ref()
+                    .and_then(|meta| meta.labels.clone()),
             },
-            name: name.clone(),
-            namespace: config
-                .namespace
-                .clone()
-                .unwrap_or_else(|| "default".to_string()),
             image: config.image.clone(),
             env_vars: config.env_vars.clone(),
             command: config.command.clone(),
@@ -563,10 +576,15 @@ impl ContainerPlatform for KubePlatform {
             accelerators: config.accelerators.clone(),
             meters: config.meters.clone(),
             status: Some("pending".to_string()),
+            restart: config.restart.clone(),
         })
     }
 
-    fn delete(&self, id: &str, db: &DatabaseConnection) -> Result<(), Box<dyn std::error::Error>> {
+    async fn delete(
+        &self,
+        id: &str,
+        db: &DatabaseConnection,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }
 
