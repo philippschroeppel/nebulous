@@ -55,8 +55,11 @@ RUN apt-get update && apt-get install -y \
     unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the binary from builder
-COPY --from=builder /usr/src/nebulous/target/release/nebulous /usr/local/bin/nebu
+# Copy the binary from builder - fix the binary name
+COPY --from=builder /usr/src/nebulous/target/release/nebulous /usr/local/bin/nebulous
+
+# Create a symlink for the 'nebu' command to point to 'nebulous'
+RUN ln -s /usr/local/bin/nebulous /usr/local/bin/nebu
 
 # Install rclone
 RUN curl https://rclone.org/install.sh | bash
@@ -79,12 +82,12 @@ ENV DATABASE_URL=sqlite:/data/nebulous.db
 EXPOSE 3000
 
 # Create a startup script to run the sync tool in the background
-RUN echo '#!/bin/bash\n\
-nebu sync --config /nebu/sync.yaml --interval-seconds 5 --create-if-missing --watch --background --block-once --config-from-env \n\
-exec "$@"' > /entrypoint.sh && \
-    chmod +x /entrypoint.sh
+# RUN echo '#!/bin/bash\n\
+# nebu sync --config /nebu/sync.yaml --interval-seconds 5 --create-if-missing --watch --background --block-once --config-from-env \n\
+# exec "$@"' > /entrypoint.sh && \
+#     chmod +x /entrypoint.sh
 
-ENTRYPOINT ["/entrypoint.sh"]
+# ENTRYPOINT ["/entrypoint.sh"]
 
 # Run the binary
 CMD ["nebu", "serve", "--host", "0.0.0.0", "--port", "3000"]
