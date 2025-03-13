@@ -8,6 +8,17 @@ pub async fn init_db() -> Result<DbPool, DbErr> {
     let database_url = &CONFIG.database_url;
     println!("Connecting to database at: {}", database_url);
 
+    // Create the data directory if it doesn't exist
+    if database_url.starts_with("sqlite:") {
+        let path = database_url.trim_start_matches("sqlite:");
+        let path = std::path::Path::new(path);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                DbErr::Custom(format!("Failed to create database directory: {}", e))
+            })?;
+        }
+    }
+
     let db = Database::connect(database_url).await?;
 
     // Create the schema builder

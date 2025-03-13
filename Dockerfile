@@ -29,9 +29,6 @@ COPY Cargo.toml ./
 # Create empty Cargo.lock if it doesn't exist
 RUN touch Cargo.lock
 
-# Create minimal src directory
-RUN mkdir src && echo "fn main() {}" > src/main.rs
-
 # Pre-build dependencies to leverage Docker layer caching
 RUN cargo build --release || true
 
@@ -80,14 +77,6 @@ ENV DATABASE_URL=sqlite:/data/nebulous.db
 
 # Expose the default port
 EXPOSE 3000
-
-# Create a startup script to run the sync tool in the background
-# RUN echo '#!/bin/bash\n\
-# nebu sync --config /nebu/sync.yaml --interval-seconds 5 --create-if-missing --watch --background --block-once --config-from-env \n\
-# exec "$@"' > /entrypoint.sh && \
-#     chmod +x /entrypoint.sh
-
-# ENTRYPOINT ["/entrypoint.sh"]
 
 # Run the binary
 CMD ["nebu", "serve", "--host", "0.0.0.0", "--port", "3000"]
