@@ -102,22 +102,23 @@ jobs:
           echo "Building version $TAG_NAME..."
           cargo build --release --target ${{ matrix.target }}
 
-      - name: Create Archive
+      - name: Prepare Binary
         env:
           TAG_NAME: "v${{ needs.create_tag.outputs.version }}"
         run: |
-          BINARY_NAME=nebulous
+          BINARY_NAME=nebu
+          SOURCE_NAME=nebulous
           TARGET_DIR="target/${{ matrix.target }}/release"
-          TAR_NAME="${BINARY_NAME}-${TAG_NAME}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz"
-
-          echo "Creating archive ${TAR_NAME}..."
-          tar -czvf "${TAR_NAME}" -C "${TARGET_DIR}" "${BINARY_NAME}"
-
+          BINARY_FILENAME="${BINARY_NAME}-${TAG_NAME}-${{ matrix.platform }}-${{ matrix.arch }}"
+          
+          # Copy the binary with the versioned name and rename to nebu
+          cp "${TARGET_DIR}/${SOURCE_NAME}" "${BINARY_FILENAME}"
+          
           echo "Generating checksum..."
           if [[ "${{ matrix.platform }}" == "darwin" ]]; then
-            shasum -a 256 "${TAR_NAME}" >> checksums.txt
+            shasum -a 256 "${BINARY_FILENAME}" >> checksums.txt
           else
-            sha256sum "${TAR_NAME}" >> checksums.txt
+            sha256sum "${BINARY_FILENAME}" >> checksums.txt
           fi
 
       - name: Upload Artifact
@@ -125,7 +126,7 @@ jobs:
         with:
           name: binaries-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
-            *.tar.gz
+            nebu-*
             checksums.txt
           retention-days: 1
 
@@ -133,7 +134,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: "v${{ needs.create_tag.outputs.version }}"
-          files: "*.tar.gz"
+          files: "nebu-*"
           body: "Release version ${{ needs.create_tag.outputs.version }}"
 
       - name: Configure AWS credentials
@@ -150,25 +151,22 @@ jobs:
 
       - name: Upload to S3
         run: |
-          # Upload versioned files to version-specific directory
-          aws s3 cp *.tar.gz s3://nebulous-artifacts/releases/v${{ needs.create_tag.outputs.version }}/
+          # Upload versioned binary to version-specific directory
+          aws s3 cp nebu-v${{ needs.create_tag.outputs.version }}-${{ matrix.platform }}-${{ matrix.arch }} s3://nebulous-artifacts/releases/v${{ needs.create_tag.outputs.version }}/
           aws s3 cp checksums.txt s3://nebulous-artifacts/releases/v${{ needs.create_tag.outputs.version }}/
           
-          # Create and upload "latest" named files
-          for file in *.tar.gz; do
-            latest_file=$(echo $file | sed "s/v${{ needs.create_tag.outputs.version }}/latest/")
-            cp "$file" "$latest_file"
-          done
+          # Create and upload "latest" named binary
+          cp nebu-v${{ needs.create_tag.outputs.version }}-${{ matrix.platform }}-${{ matrix.arch }} nebu-latest-${{ matrix.platform }}-${{ matrix.arch }}
           
-          # Generate new checksums for latest files
+          # Generate new checksums for latest binary
           rm checksums.txt
           if [[ "${{ matrix.platform }}" == "darwin" ]]; then
-            shasum -a 256 *latest*.tar.gz >> checksums.txt
+            shasum -a 256 nebu-latest-${{ matrix.platform }}-${{ matrix.arch }} >> checksums.txt
           else
-            sha256sum *latest*.tar.gz >> checksums.txt
+            sha256sum nebu-latest-${{ matrix.platform }}-${{ matrix.arch }} >> checksums.txt
           fi
           
-          # Upload latest files
-          aws s3 cp *latest*.tar.gz s3://nebulous-artifacts/releases/latest/
+          # Upload latest binary
+          aws s3 cp nebu-latest-${{ matrix.platform }}-${{ matrix.arch }} s3://nebulous-artifacts/releases/latest/
           aws s3 cp checksums.txt s3://nebulous-artifacts/releases/latest/
         shell: bash

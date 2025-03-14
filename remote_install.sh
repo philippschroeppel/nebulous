@@ -8,12 +8,10 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # S3 URL for the binary
-S3_BINARY_URL="https://nebulous-artifacts.s3.amazonaws.com/releases/latest/nebulous-latest-linux-amd64.tar.gz"
+S3_BINARY_URL="https://nebulous-artifacts.s3.amazonaws.com/releases/latest/nebu-latest-linux-amd64"
 # Where to install the binary
 INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="nebu"
-TAR_FILENAME="nebulous-latest-linux-amd64.tar.gz"
-ORIGINAL_BINARY_NAME="nebulous"
 
 echo -e "${YELLOW}Starting installation...${NC}"
 
@@ -135,28 +133,24 @@ install_binary() {
     # Create temp directory
     TMP_DIR=$(mktemp -d)
     
-    # Download the tar file
-    if ! curl -L "$S3_BINARY_URL" -o "$TMP_DIR/$TAR_FILENAME"; then
+    # Download the binary directly
+    if ! curl -L "$S3_BINARY_URL" -o "$TMP_DIR/$BINARY_NAME"; then
         echo -e "${RED}Failed to download binary from S3.${NC}"
         rm -rf "$TMP_DIR"
         exit 1
     fi
     
-    # Extract the tar file
-    echo -e "${YELLOW}Extracting tar file...${NC}"
-    tar -xzf "$TMP_DIR/$TAR_FILENAME" -C "$TMP_DIR"
-    
     # Make it executable
-    chmod +x "$TMP_DIR/$ORIGINAL_BINARY_NAME"
+    chmod +x "$TMP_DIR/$BINARY_NAME"
     
-    # Move to install directory with new name
-    echo -e "${YELLOW}Installing binary to $INSTALL_DIR as $BINARY_NAME...${NC}"
+    # Move to install directory
+    echo -e "${YELLOW}Installing binary to $INSTALL_DIR...${NC}"
     
     # Check if we have write permission to the install directory
     if [ -w "$INSTALL_DIR" ] || [ "$USE_SUDO" = false ]; then
-        mv "$TMP_DIR/$ORIGINAL_BINARY_NAME" "$INSTALL_DIR/$BINARY_NAME"
+        mv "$TMP_DIR/$BINARY_NAME" "$INSTALL_DIR/$BINARY_NAME"
     else
-        run_with_sudo mv "$TMP_DIR/$ORIGINAL_BINARY_NAME" "$INSTALL_DIR/$BINARY_NAME"
+        run_with_sudo mv "$TMP_DIR/$BINARY_NAME" "$INSTALL_DIR/$BINARY_NAME"
     fi
     
     # Clean up
