@@ -217,10 +217,15 @@ install_binary() {
 }
 
 # Main execution
+echo -e "${YELLOW}Starting installation...${NC}"
 detect_os
+echo -e "${YELLOW}Checking for curl...${NC}"
 install_curl
+echo -e "${YELLOW}Checking for extraction utilities...${NC}"
 install_extraction_utils
+echo -e "${YELLOW}Checking for rclone...${NC}"
 install_rclone
+echo -e "${YELLOW}Installing binary...${NC}"
 install_binary
 
 echo -e "${GREEN}Installation completed successfully!${NC}"
