@@ -361,7 +361,6 @@ pub async fn execute_continuous_sync(
         tokio::time::sleep(tokio::time::Duration::from_secs(interval_seconds)).await;
     }
 }
-
 /// Start a new rclone sync process for a path
 async fn start_sync_process(
     path: &VolumePath,
@@ -387,6 +386,8 @@ async fn start_sync_process(
         cmd.arg("--resync");
     }
 
+    cmd.arg("--create-empty-src-dirs");
+
     // Add common options
     cmd.arg("--verbose");
     cmd.arg("--fast-list");
@@ -398,6 +399,9 @@ async fn start_sync_process(
     // Add resilient mode for bidirectional sync
     if path.bidirectional {
         cmd.arg("--resilient");
+
+        // Add --force flag to help with empty directory issues
+        cmd.arg("--force");
     }
 
     // Spawn the process
@@ -466,6 +470,9 @@ pub async fn execute_sync(
             if path.resync {
                 cmd.arg("--resync");
             }
+
+            // Add --force flag to help with empty directory issues
+            cmd.arg("--force");
         } else {
             cmd.arg("sync");
             cmd.arg(&path.source_path);
@@ -475,6 +482,7 @@ pub async fn execute_sync(
         // Add common options
         cmd.arg("--verbose");
         cmd.arg("--fast-list");
+        cmd.arg("--create-empty-src-dirs");
 
         // Add cache directory
         cmd.arg("--cache-dir");
@@ -500,6 +508,38 @@ pub async fn execute_sync(
         } else {
             let error = String::from_utf8_lossy(&output.stderr);
             println!("Failed to sync: {}", error);
+
+            // Check if this is the "empty prior listing" error and we need to resync
+            if error.contains("empty prior Path1 listing")
+                || error.contains("Must run --resync to recover")
+            {
+                println!("Detected need for resync. Attempting to resync...");
+
+                // Create a new command with --resync flag
+                let mut resync_cmd = Command::new("rclone");
+                resync_cmd.arg("bisync");
+                resync_cmd.arg(&path.source_path);
+                resync_cmd.arg(&path.destination_path);
+                resync_cmd.arg("--resync");
+                resync_cmd.arg("--force");
+                resync_cmd.arg("--verbose");
+                resync_cmd.arg("--fast-list");
+                resync_cmd.arg("--create-empty-src-dirs");
+                resync_cmd.arg("--cache-dir");
+                resync_cmd.arg(&config.cache_dir);
+
+                // Execute the resync command
+                let resync_output = resync_cmd.output()?;
+                if resync_output.status.success() {
+                    println!(
+                        "Resync successful between {} and {}",
+                        path.source_path, path.destination_path
+                    );
+                } else {
+                    let resync_error = String::from_utf8_lossy(&resync_output.stderr);
+                    println!("Resync failed: {}", resync_error);
+                }
+            }
         }
     }
 
@@ -1006,6 +1046,9 @@ pub async fn execute_non_continuous_sync(
             if path.resync {
                 cmd.arg("--resync");
             }
+
+            // Add --force flag to help with empty directory issues
+            cmd.arg("--force");
         } else {
             cmd.arg("sync");
             cmd.arg(&path.source_path);
@@ -1015,6 +1058,7 @@ pub async fn execute_non_continuous_sync(
         // Add common options
         cmd.arg("--verbose");
         cmd.arg("--fast-list");
+        cmd.arg("--create-empty-src-dirs");
 
         // Add cache directory
         cmd.arg("--cache-dir");
@@ -1045,6 +1089,38 @@ pub async fn execute_non_continuous_sync(
         } else {
             let error = String::from_utf8_lossy(&output.stderr);
             println!("Failed to sync: {}", error);
+
+            // Check if this is the "empty prior listing" error and we need to resync
+            if error.contains("empty prior Path1 listing")
+                || error.contains("Must run --resync to recover")
+            {
+                println!("Detected need for resync. Attempting to resync...");
+
+                // Create a new command with --resync flag
+                let mut resync_cmd = Command::new("rclone");
+                resync_cmd.arg("bisync");
+                resync_cmd.arg(&path.source_path);
+                resync_cmd.arg(&path.destination_path);
+                resync_cmd.arg("--resync");
+                resync_cmd.arg("--force");
+                resync_cmd.arg("--verbose");
+                resync_cmd.arg("--fast-list");
+                resync_cmd.arg("--create-empty-src-dirs");
+                resync_cmd.arg("--cache-dir");
+                resync_cmd.arg(&config.cache_dir);
+
+                // Execute the resync command
+                let resync_output = resync_cmd.output()?;
+                if resync_output.status.success() {
+                    println!(
+                        "Resync successful between {} and {}",
+                        path.source_path, path.destination_path
+                    );
+                } else {
+                    let resync_error = String::from_utf8_lossy(&resync_output.stderr);
+                    println!("Resync failed: {}", resync_error);
+                }
+            }
         }
     }
 
