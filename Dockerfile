@@ -1,5 +1,5 @@
 # Build stage
-FROM --platform=$TARGETPLATFORM rust:1.82-slim-bullseye as builder
+FROM rust:1.82-slim-bullseye AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -35,10 +35,8 @@ RUN cargo build --release || true
 # Now copy actual source code
 COPY . .
 
-# Build with release profile, utilizing cache
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/src/nebulous/target \
-    cargo build --release
+# Build with release profile
+RUN cargo build --release
 
 # Runtime stage
 FROM debian:bullseye-slim
