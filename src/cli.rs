@@ -167,6 +167,10 @@ pub struct ContainerCommands {
     /// Restart policy of the container
     #[arg(long)]
     pub restart: Option<String>,
+
+    /// Queue to run the container in
+    #[arg(long)]
+    pub queue: Option<String>,
 }
 
 /// Parse a key-value pair in the format of KEY=VALUE

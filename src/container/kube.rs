@@ -1,5 +1,9 @@
 use crate::container::base::ContainerPlatform;
-use crate::models::{V1Container, V1ContainerMeta, V1ContainerRequest, V1UserProfile};
+use crate::container::base::ContainerStatus;
+use crate::entities::containers;
+use crate::models::{
+    V1Container, V1ContainerMeta, V1ContainerRequest, V1ContainerStatus, V1UserProfile,
+};
 use k8s_openapi::api::batch::v1::{Job, JobSpec};
 use k8s_openapi::api::core::v1::{
     Container as K8sContainer, ContainerPort, EnvVar, PodSpec, PodTemplateSpec,
@@ -184,6 +188,7 @@ impl KubePlatform {
                             &db,
                             container_id.to_string(),
                             current_status.clone(),
+                            None,
                         )
                         .await
                         {
@@ -223,6 +228,7 @@ impl KubePlatform {
                             &db,
                             container_id.to_string(),
                             "failed".to_string(),
+                            Some("Too many consecutive errors".to_string()),
                         )
                         .await
                         {
@@ -261,7 +267,7 @@ impl KubePlatform {
 
 impl ContainerPlatform for KubePlatform {
     /// Run a container on Kubernetes by creating a Job
-    async fn run(
+    async fn declare(
         &self,
         config: &V1ContainerRequest,
         db: &DatabaseConnection,
@@ -495,7 +501,10 @@ impl ContainerPlatform for KubePlatform {
                                 accelerators: Set(config.accelerators.clone()),
                                 cpu_request: Set(None),
                                 memory_request: Set(None),
-                                status: Set(Some("pending".to_string())),
+                                status: Set(Some(serde_json::json!(V1ContainerStatus {
+                                    status: Some(ContainerStatus::Pending.to_string()),
+                                    message: None
+                                }))),
                                 meters: Set(config
                                     .meters
                                     .clone()
@@ -505,6 +514,9 @@ impl ContainerPlatform for KubePlatform {
                                 resource_namespace: Set(Some(self.namespace.clone())),
                                 restart: Set(config.restart.clone()),
                                 command: Set(config.command.clone()),
+                                queue: Set(config.queue.clone()),
+                                desired_status: Set(Some("pending".to_string())),
+                                controller_data: Set(None),
                                 public_ip: Set(None),
                                 private_ip: Set(None),
                                 labels: Set(config
@@ -576,9 +588,21 @@ impl ContainerPlatform for KubePlatform {
             volumes: config.volumes.clone(),
             accelerators: config.accelerators.clone(),
             meters: config.meters.clone(),
-            status: Some("pending".to_string()),
+            queue: config.queue.clone(),
+            status: Some(V1ContainerStatus {
+                status: Some(ContainerStatus::Pending.to_string()),
+                message: None,
+            }),
             restart: config.restart.clone(),
         })
+    }
+
+    async fn reconcile(
+        &self,
+        container: &containers::Model,
+        db: &DatabaseConnection,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
     }
 
     async fn delete(

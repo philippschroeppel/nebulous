@@ -231,6 +231,11 @@ spec:
                 secretKeyRef:
                   name: aws-secret
                   key: AWS_SECRET_ACCESS_KEY
+            - name: SECRET_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nebu-secret
+                  key: SECRET_ENCRYPTION_KEY
           volumeMounts:
             - name: huggingface-cache
               mountPath: /huggingface

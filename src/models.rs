@@ -43,7 +43,6 @@ pub struct V1ContainerRequest {
     pub kind: String,
     pub platform: Option<String>,
     pub metadata: Option<V1ContainerMetaRequest>,
-    // pub labels: Option<HashMap<String, String>>,
     pub image: String,
     pub env_vars: Option<Vec<V1EnvVar>>,
     pub command: Option<String>,
@@ -52,6 +51,7 @@ pub struct V1ContainerRequest {
     pub meters: Option<Vec<V1Meter>>,
     #[serde(default = "default_restart")]
     pub restart: String,
+    pub queue: Option<String>,
 }
 
 pub enum RestartPolicy {
@@ -85,6 +85,12 @@ pub struct V1ContainerMeta {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct V1ContainerStatus {
+    pub status: Option<String>,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct V1Container {
     #[serde(default = "default_container_kind")]
     pub kind: String,
@@ -95,8 +101,9 @@ pub struct V1Container {
     pub volumes: Option<Vec<V1VolumePath>>,
     pub accelerators: Option<Vec<String>>,
     pub meters: Option<Vec<V1Meter>>,
-    pub status: Option<String>,
     pub restart: String,
+    pub queue: Option<String>,
+    pub status: Option<V1ContainerStatus>,
 }
 // Add this function to provide a default kind value
 fn default_container_kind() -> String {
@@ -116,6 +123,7 @@ pub struct V1UpdateContainer {
     pub platform: Option<String>,
     pub meters: Option<Vec<V1Meter>>,
     pub restart: Option<String>,
+    pub queue: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

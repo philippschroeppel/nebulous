@@ -32,8 +32,9 @@ use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-pub async fn create_app() -> Result<Router, Box<dyn std::error::Error>> {
-    println!("Creating app");
+/// Create and return the application state.
+pub async fn create_app_state() -> Result<AppState, Box<dyn std::error::Error>> {
+    println!("Creating app state");
     let db_pool = init_db().await?;
     println!("Database pool created");
 
@@ -82,16 +83,20 @@ pub async fn create_app() -> Result<Router, Box<dyn std::error::Error>> {
     };
 
     let app_state = AppState {
-        db_pool: db_pool.clone(),
+        db_pool,
         message_queue,
     };
 
-    // Create your routes
+    Ok(app_state)
+}
+
+/// Given the `AppState`, create and return the Axum `Router`.
+pub async fn create_app(app_state: AppState) -> Router {
     let routes = create_routes(app_state.clone());
 
     // Define a CORS layer (this example allows any origin, headers, and methods)
     let cors = CorsLayer::new()
-        .allow_origin(Any) // TODO: fix me
+        .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
 
@@ -100,5 +105,5 @@ pub async fn create_app() -> Result<Router, Box<dyn std::error::Error>> {
         .layer(cors)
         .with_state(app_state);
 
-    Ok(app)
+    app
 }

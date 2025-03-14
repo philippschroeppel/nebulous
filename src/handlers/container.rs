@@ -82,8 +82,11 @@ pub async fn get_container(
         meters: container
             .meters
             .and_then(|v| serde_json::from_value(v).ok()),
-        status: container.status,
+        status: container
+            .status
+            .and_then(|v| serde_json::from_value(v).ok()),
         restart: container.restart,
+        queue: container.queue,
     };
 
     Ok(Json(out_container))
@@ -144,8 +147,9 @@ pub async fn list_containers(
             volumes: c.volumes.and_then(|v| serde_json::from_value(v).ok()),
             accelerators: c.accelerators,
             meters: c.meters.and_then(|v| serde_json::from_value(v).ok()),
-            status: c.status,
+            status: c.status.and_then(|v| serde_json::from_value(v).ok()),
             restart: c.restart,
+            queue: c.queue,
         })
         .collect();
 
@@ -166,7 +170,7 @@ pub async fn create_container(
             .unwrap_or("runpod".to_string()),
     );
     let container = platform
-        .run(
+        .declare(
             &container_request,
             db_pool,
             &user_profile,

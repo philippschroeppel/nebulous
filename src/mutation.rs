@@ -1,5 +1,5 @@
 use crate::entities::containers;
-use crate::models::V1UpdateContainer;
+use crate::models::{V1ContainerStatus, V1UpdateContainer};
 use sea_orm::prelude::Json;
 use sea_orm::*;
 use serde_json::json;
@@ -14,11 +14,11 @@ impl Mutation {
         form_data.insert(db).await
     }
 
-    // Mutation to update only the container status
-    pub async fn update_container_status(
+    /// Mutation to update the resource_name field in a container
+    pub async fn update_container_resource_name(
         db: &DatabaseConnection,
         id: String,
-        status: String,
+        resource_name: String,
     ) -> Result<containers::Model, DbErr> {
         let container = containers::Entity::find_by_id(id)
             .one(db)
@@ -26,7 +26,33 @@ impl Mutation {
             .ok_or(DbErr::Custom("Container not found".to_string()))?;
 
         let mut container: containers::ActiveModel = container.into();
-        container.status = Set(Some(status));
+
+        container.resource_name = Set(Some(resource_name));
+        container.updated_at = Set(chrono::Utc::now().into());
+
+        container.update(db).await
+    }
+
+    // Mutation to update only the container status
+    pub async fn update_container_status(
+        db: &DatabaseConnection,
+        id: String,
+        status: String,
+        message: Option<String>,
+    ) -> Result<containers::Model, DbErr> {
+        let container = containers::Entity::find_by_id(id)
+            .one(db)
+            .await?
+            .ok_or(DbErr::Custom("Container not found".to_string()))?;
+
+        let mut container: containers::ActiveModel = container.into();
+
+        let status = V1ContainerStatus {
+            status: Some(status),
+            message: message,
+        };
+
+        container.status = Set(Some(json!(status).into()));
         container.updated_at = Set(chrono::Utc::now().into());
 
         container.update(db).await

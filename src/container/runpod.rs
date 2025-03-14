@@ -1,13 +1,15 @@
 use crate::accelerator::base::AcceleratorProvider;
 use crate::accelerator::runpod::RunPodProvider;
 use crate::container::base::{ContainerPlatform, ContainerStatus};
-use crate::models::{V1Container, V1ContainerRequest, V1UserProfile, V1VolumeConfig, V1VolumePath};
+use crate::models::{V1Container, V1ContainerRequest, V1UserProfile, V1VolumeConfig, V1VolumePath, V1ContainerStatus, RestartPolicy};
 use crate::volumes::rclone::{SymlinkConfig, VolumeConfig, VolumePath};
+use crate::entities::containers;
 use petname;
 use runpod::*;
 use sea_orm::{ActiveModelTrait, DatabaseConnection, Set};
 use short_uuid::ShortUuid;
 use std::collections::HashMap;
+use crate::mutation::Mutation;
 use std::str::FromStr;
 use tracing::{error, info};
 
@@ -21,7 +23,7 @@ impl RunpodPlatform {
     pub fn new() -> Self {
         // Read the API key from environment variables
         let api_key = std::env::var("RUNPOD_API_KEY")
-            .expect("[RunPod] Missing RUNPOD_API_KEY environment variable");
+            .expect("[Runpod Controller] Missing RUNPOD_API_KEY environment variable");
 
         RunpodPlatform {
             runpod_client: RunpodClient::new(api_key),
@@ -84,14 +86,14 @@ impl RunpodPlatform {
             .collect();
 
         info!(
-            "[RunPod] Existing network volumes in datacenter {}: {:?}",
+            "[Runpod Controller] Existing network volumes in datacenter {}: {:?}",
             datacenter_id, existing_volume_names
         );
 
         // Check if our volume already exists
         let volume_id = if existing_volume_names.contains(&volume_name.to_string()) {
             info!(
-                "[RunPod] Network volume '{}' already exists in datacenter {}",
+                "[Runpod Controller] Network volume '{}' already exists in datacenter {}",
                 volume_name, datacenter_id
             );
 
@@ -103,7 +105,7 @@ impl RunpodPlatform {
                 .ok_or_else(|| format!("Volume '{}' exists but ID not found", volume_name))?
         } else {
             info!(
-                "[RunPod] Creating network volume '{}' with size {}GB in datacenter {}",
+                "[Runpod Controller] Creating network volume '{}' with size {}GB in datacenter {}",
                 volume_name, size_gb, datacenter_id
             );
 
@@ -121,14 +123,14 @@ impl RunpodPlatform {
             {
                 Ok(volume) => {
                     info!(
-                        "[RunPod] Successfully created network volume '{}' (id = {})",
+                        "[Runpod Controller] Successfully created network volume '{}' (id = {})",
                         volume_name, volume.id
                     );
                     volume.id
                 }
                 Err(e) => {
                     error!(
-                        "[RunPod] Error creating network volume '{}': {:?}",
+                        "[Runpod Controller] Error creating network volume '{}': {:?}",
                         volume_name, e
                     );
                     return Err(e.into());
@@ -140,46 +142,59 @@ impl RunpodPlatform {
     }
 
     /// Watch a pod and update its status in the database
-    /// Watch a pod and update its status in the database
-    pub async fn watch_pod_status(
+    pub async fn watch(
         &self,
-        container_id: &str,
         db: &DatabaseConnection,
+        container: containers::Model,
     ) -> Result<(), Box<dyn std::error::Error>> {
         info!(
-            "[RunPod] Starting to watch pod for container {}",
-            container_id
+            "[Runpod Controller] Starting to watch pod for container {}",
+            container.id
         );
+        let container_id = container.id.to_string();
 
         // Get initial status from database
         let (mut last_status, resource_name) =
             match crate::query::Query::find_container_by_id(db, container_id.to_string()).await {
                 Ok(container) => {
                     info!(
-                        "[RunPod] Initial database container for {}: {:?}",
+                        "[Runpod Controller] Initial database container for {}: {:?}",
                         container_id, container
                     );
+                    
+                    // Fix: Parse the status JSON properly
                     let status = container
                         .as_ref()
                         .and_then(|c| c.status.clone())
-                        .map(|s| ContainerStatus::from_str(&s).unwrap_or(ContainerStatus::Pending));
+                        .and_then(|status_json| {
+                            // Try to extract the status field from the JSON
+                            if let Some(status_obj) = status_json.as_object() {
+                                if let Some(status_value) = status_obj.get("status") {
+                                    if let Some(status_str) = status_value.as_str() {
+                                        return Some(ContainerStatus::from_str(status_str).unwrap_or(ContainerStatus::Pending));
+                                    }
+                                }
+                            }
+                            None
+                        });
+                        
                     let resource_name = container.as_ref().and_then(|c| c.resource_name.clone());
-
+        
                     (status, resource_name)
                 }
                 Err(e) => {
                     error!(
-                        "[RunPod] Error fetching initial container from database: {}",
+                        "[Runpod Controller] Error fetching initial container from database: {}",
                         e
                     );
                     (None, None)
                 }
             };
 
-        info!("[RunPod] Resource name: {:?}", resource_name);
+        info!("[Runpod Controller] Resource name: {:?}", resource_name);
         // Use resource_name from database if available, otherwise use the provided pod_id
         let pod_id_to_watch = resource_name.clone().unwrap();
-        info!("[RunPod] Using pod ID for watching: {}", pod_id_to_watch);
+        info!("[Runpod Controller] Using pod ID for watching: {}", pod_id_to_watch);
 
         let mut consecutive_errors = 0;
         const MAX_ERRORS: usize = 5;
@@ -191,7 +206,7 @@ impl RunpodPlatform {
                     consecutive_errors = 0;
 
                     if let Some(pod_info) = pod_response.data {
-                        info!("[RunPod] Pod {} info: {:?}", pod_id_to_watch, pod_info);
+                        info!("[Runpod Controller] Pod {} info: {:?}", pod_id_to_watch, pod_info);
 
                         // Extract status information using desired_status field
                         let current_status = match pod_info.desired_status.as_str() {
@@ -205,28 +220,28 @@ impl RunpodPlatform {
                             "PAUSED" => ContainerStatus::Paused,
                             _ => {
                                 info!(
-                                    "[RunPod] Unknown pod status: {}, defaulting to Pending",
+                                    "[Runpod Controller] Unknown pod status: {}, defaulting to Pending",
                                     pod_info.desired_status
                                 );
                                 ContainerStatus::Pending
                             }
                         };
 
-                        info!("[RunPod] Current RunPod status: {}", current_status);
-                        info!("[RunPod] Last database status: {:?}", last_status);
+                        info!("[Runpod Controller] Current RunPod status: {}", current_status);
+                        info!("[Runpod Controller] Last database status: {:?}", last_status);
 
                         // If status changed, update the database
                         if last_status.as_ref() != Some(&current_status) {
                             if let Some(last) = &last_status {
                                 info!(
-                                    "[RunPod] Pod {:?} status changed: {} -> {}",
+                                    "[Runpod Controller] Pod {:?} status changed: {} -> {}",
                                     resource_name.clone(),
                                     last,
                                     current_status
                                 );
                             } else {
                                 info!(
-                                    "[RunPod] Pod {:?} initial status: {}",
+                                    "[Runpod Controller] Pod {:?} initial status: {}",
                                     resource_name, current_status
                                 );
                             }
@@ -236,12 +251,13 @@ impl RunpodPlatform {
                                 &db,
                                 container_id.to_string(),
                                 current_status.to_string(),
+                                None,
                             )
                             .await
                             {
                                 Ok(_) => {
                                     info!(
-                                        "[RunPod] Updated container {:?} status to {}",
+                                        "[Runpod Controller] Updated container {:?} status to {}",
                                         container_id, current_status
                                     );
                                     // Update last_status after successful database update
@@ -249,30 +265,23 @@ impl RunpodPlatform {
                                 }
                                 Err(e) => {
                                     error!(
-                                    "[RunPod] Failed to update container status in database: {}",
+                                    "[Runpod Controller] Failed to update container status in database: {}",
                                     e
                                 )
                                 }
                             }
 
                             // If the pod is in a terminal state, exit the loop
-                            match current_status {
-                                ContainerStatus::Completed
-                                | ContainerStatus::Failed
-                                | ContainerStatus::Stopped
-                                | ContainerStatus::Exited
-                                | ContainerStatus::Paused => {
-                                    info!(
-                                        "[RunPod] Pod {:?} reached terminal state: {}",
-                                        resource_name, current_status
-                                    );
-                                    break;
-                                }
-                                _ => {}
+                            if current_status.is_inactive() {
+                                info!(
+                                    "[Runpod Controller] Pod {:?} reached terminal state: {}",
+                                    resource_name, current_status
+                                );
+                                break;
                             }
                         }
                     } else {
-                        error!("[RunPod] No pod data returned for pod {:?}", resource_name);
+                        error!("[Runpod Controller] No pod data returned for pod {:?}", resource_name);
 
                         // Check if pod was deleted or doesn't exist
                         match self.runpod_client.list_pods().await {
@@ -284,7 +293,7 @@ impl RunpodPlatform {
                                         .any(|p| &p.id == resource_name.as_ref().unwrap())
                                     {
                                         info!(
-                                            "[RunPod] Pod {:?} no longer exists, marking job as failed",
+                                            "[Runpod Controller] Pod {:?} no longer exists, marking job as failed",
                                             resource_name
                                         );
 
@@ -294,11 +303,12 @@ impl RunpodPlatform {
                                                 &db,
                                                 container_id.to_string(),
                                                 ContainerStatus::Failed.to_string(),
+                                                Some("Pod no longer exists".to_string()),
                                             )
                                             .await
                                         {
                                             error!(
-                                                "[RunPod] Failed to update job status in database: {}",
+                                                "[Runpod Controller] Failed to update job status in database: {}",
                                                 e
                                             );
                                         }
@@ -307,27 +317,28 @@ impl RunpodPlatform {
                                     }
                                 }
                             }
-                            Err(e) => error!("[RunPod] Error listing pods: {}", e),
+                            Err(e) => error!("[Runpod Controller] Error listing pods: {}", e),
                         }
                     }
                 }
                 Err(e) => {
-                    error!("[RunPod] Error fetching pod status: {}", e);
+                    error!("[Runpod Controller] Error fetching pod status: {}", e);
                     consecutive_errors += 1;
 
                     // If we've had too many consecutive errors, mark the job as failed
                     if consecutive_errors >= MAX_ERRORS {
-                        error!("[RunPod] Too many consecutive errors, marking job as failed");
+                        error!("[Runpod Controller] Too many consecutive errors, marking job as failed");
 
                         if let Err(e) = crate::mutation::Mutation::update_container_status(
                             &db,
                             container_id.to_string(),
                             ContainerStatus::Failed.to_string(),
+                            Some("Too many consecutive errors".to_string()),
                         )
                         .await
                         {
                             error!(
-                                "[RunPod] Failed to update container status in database: {}",
+                                "[Runpod Controller] Failed to update container status in database: {}",
                                 e
                             );
                         }
@@ -342,13 +353,13 @@ impl RunpodPlatform {
         }
 
         info!(
-            "[RunPod] Finished watching pod {:?} for container {}",
+            "[Runpod Controller] Finished watching pod {:?} for container {}",
             resource_name, container_id
         );
         Ok(())
     }
 
-    fn determin_volumes_config(model: Vec<V1VolumePath>) -> VolumeConfig {
+    fn determine_volumes_config(model: Vec<V1VolumePath>) -> VolumeConfig {
         let mut volume_paths = Vec::new();
         let mut symlinks = Vec::new();
         let cache_dir = "/nebu/cache".to_string();
@@ -392,41 +403,24 @@ impl RunpodPlatform {
         };
         volume_config
     }
-}
 
-#[derive(Debug, Clone)]
-struct GpuTypeWithDatacenter {
-    id: String,
-    memory_in_gb: Option<u32>,
-    data_center_id: String,
-}
-
-impl ContainerPlatform for RunpodPlatform {
-    /// Asynchronously run a container by provisioning a RunPod spot or on-demand pod.
-    async fn run(
+    async fn create(
         &self,
-        config: &V1ContainerRequest,
         db: &DatabaseConnection,
-        user_profile: &V1UserProfile,
-        owner_id: &str,
-    ) -> Result<V1Container, Box<dyn std::error::Error>> {
-        let name = config
-            .metadata
-            .as_ref()
-            .and_then(|meta| meta.name.clone())
-            .unwrap_or_else(|| {
-                // Generate a random human-friendly name using petname
-                petname::petname(3, "-").unwrap()
-            });
-        info!("[RunPod] Using name: {}", name);
+        model: containers::Model,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+
+        Mutation::update_container_status(db, model.id.clone(), ContainerStatus::Creating.to_string(), None).await?;
+
+        info!("[Runpod Controller] Using name: {}", model.name);
         let gpu_types_response = match self.runpod_client.list_gpu_types_graphql().await {
             Ok(response) => response,
             Err(e) => {
-                error!("[RunPod] Error fetching GPU types: {:?}", e);
+                error!("[Runpod Controller] Error fetching GPU types: {:?}", e);
 
                 // More detailed error information
                 if let Some(status) = e.status() {
-                    error!("[RunPod] HTTP Status: {}", status);
+                    error!("[Runpod Controller] HTTP Status: {}", status);
                 }
 
                 return Err(Box::<dyn std::error::Error>::from(format!(
@@ -454,29 +448,29 @@ impl ContainerPlatform for RunpodPlatform {
                 };
 
                 info!(
-                    "[RunPod] GPU Type: {}, Display Name: {}, Memory: {}",
+                    "[Runpod Controller] GPU Type: {}, Display Name: {}, Memory: {}",
                     gpu_type.id, gpu_type.display_name, memory_str
                 );
             }
-            info!("[RunPod] Available GPU types: {:?}", available_gpu_types);
+            info!("[Runpod Controller] Available GPU types: {:?}", available_gpu_types);
         }
-        info!("[RunPod] GPU types response: {:?}", gpu_types_response);
+        info!("[Runpod Controller] GPU types response: {:?}", gpu_types_response);
 
         // Parse accelerators if provided
-        if let Some(accelerators) = &config.accelerators {
+        if let Some(accelerators) = &model.accelerators {
             if !accelerators.is_empty() {
                 let mut found_valid_accelerator = false;
 
                 // Try each accelerator in the list until we find one that works
                 for accelerator in accelerators {
                     // Parse the accelerator (format: "count:type")
-                    info!("[RunPod] Accelerator: {}", accelerator);
+                    info!("[Runpod Controller] Accelerator: {}", accelerator);
                     let parts: Vec<&str> = accelerator.split(':').collect();
                     if parts.len() == 2 {
                         if let Ok(count) = parts[0].parse::<i32>() {
                             // Convert from our accelerator name to RunPod's GPU type ID
                             if let Some(runpod_gpu_name) = self.accelerator_map().get(parts[1]) {
-                                info!("[RunPod] RunPod GPU name: {}", runpod_gpu_name);
+                                info!("[Runpod Controller] RunPod GPU name: {}", runpod_gpu_name);
                                 // Check if this GPU type is available on RunPod
                                 if available_gpu_types.is_empty()
                                     || available_gpu_types.contains(runpod_gpu_name)
@@ -487,7 +481,7 @@ impl ContainerPlatform for RunpodPlatform {
                                     found_valid_accelerator = true;
 
                                     info!(
-                                        "[RunPod] Using accelerator: {} (count: {})",
+                                        "[Runpod Controller] Using accelerator: {} (count: {})",
                                         runpod_gpu_type_id, requested_gpu_count
                                     );
 
@@ -495,13 +489,13 @@ impl ContainerPlatform for RunpodPlatform {
                                     break;
                                 } else {
                                     info!(
-                                        "[RunPod] Accelerator type '{}' is not available, trying next option",
+                                        "[Runpod Controller] Accelerator type '{}' is not available, trying next option",
                                         runpod_gpu_name
                                     );
                                 }
                             } else {
                                 info!(
-                                    "[RunPod] Unknown accelerator type: {}, trying next option",
+                                    "[Runpod Controller] Unknown accelerator type: {}, trying next option",
                                     parts[1]
                                 );
                             }
@@ -512,7 +506,7 @@ impl ContainerPlatform for RunpodPlatform {
                 // If we couldn't find any valid accelerator, return an error
                 if !found_valid_accelerator {
                     error!(
-                        "[RunPod] None of the requested accelerator types are available. Available types: {:?}",
+                        "[Runpod Controller] None of the requested accelerator types are available. Available types: {:?}",
                         available_gpu_types
                     );
                     return Err(Box::<dyn std::error::Error>::from(
@@ -528,17 +522,17 @@ impl ContainerPlatform for RunpodPlatform {
         //     // Collect all GPU types from all datacenters
         //     let mut all_gpu_types = Vec::new();
 
-        //     info!("[RunPod] Available datacenters and GPU types:");
+        //     info!("[Runpod Controller] Available datacenters and GPU types:");
         //     for datacenter in &datacenters {
         //         info!(
-        //             "[RunPod] Datacenter: {} ({})",
+        //             "[Runpod Controller] Datacenter: {} ({})",
         //             datacenter.name, datacenter.id
         //         );
 
         //         // Remove the Option check since gpu_types is already a Vec
         //         for gpu_type in &datacenter.gpu_types {
         //             info!(
-        //                 "[Runpod]  ID: {}, Name: {}, Memory: {} GB",
+        //                 "[Runpod Controller]  ID: {}, Name: {}, Memory: {} GB",
         //                 gpu_type.id, gpu_type.display_name, gpu_type.memory_in_gb as u32
         //             );
 
@@ -551,7 +545,7 @@ impl ContainerPlatform for RunpodPlatform {
         //         }
         //     }
 
-        //     info!("[RunPod] Using GPU type: {}", runpod_gpu_type_id);
+        //     info!("[Runpod Controller] Using GPU type: {}", runpod_gpu_type_id);
 
         //     // Determine datacenter ID based on selected GPU type
         //     if let Some(gpu_info) = all_gpu_types.iter().find(|g| g.id == runpod_gpu_type_id) {
@@ -559,13 +553,13 @@ impl ContainerPlatform for RunpodPlatform {
         //     }
         // } else if let Some(errors) = gpu_types_response.errors {
         //     let error_messages: Vec<String> = errors.iter().map(|e| e.message.clone()).collect();
-        //     error!("[RunPod] GraphQL errors: {:?}", error_messages);
+        //     error!("[Runpod Controller] GraphQL errors: {:?}", error_messages);
         //     return Err(Box::<dyn std::error::Error>::from(format!(
         //         "Error fetching GPU types: GraphQL errors: {:?}",
         //         error_messages
         //     )));
         // } else {
-        //     error!("[RunPod] No data or errors returned from GPU types query");
+        //     error!("[Runpod Controller] No data or errors returned from GPU types query");
         //     return Err(Box::<dyn std::error::Error>::from(
         //         "Error fetching GPU types: No data or errors returned",
         //     ));
@@ -584,44 +578,66 @@ impl ContainerPlatform for RunpodPlatform {
 
         let mut env_vec = Vec::new();
 
-        for (key, value) in self.get_common_env_vars(user_profile).await {
+        for (key, value) in self.get_common_env_vars(&model, db).await {
             env_vec.push(runpod::EnvVar { key, value });
         }
 
         // Add NEBU_SYNC_CONFIG environment variable with serialized volumes configuration
-        if let Some(volumes) = &config.volumes {
-            let volume_config = RunpodPlatform::determin_volumes_config(volumes.clone());
-            match serde_yaml::to_string(&volume_config) {
-                Ok(serialized_volumes) => {
+        match model.parse_volumes() {
+            Ok(Some(volumes)) => {
+                // We got a valid Vec of V1VolumePath. Proceed as before.
+                let volume_config = RunpodPlatform::determine_volumes_config(volumes);
+    
+                match serde_yaml::to_string(&volume_config) {
+                    Ok(serialized_volumes) => {
+                        env_vec.push(runpod::EnvVar {
+                            key: "NEBU_SYNC_CONFIG".to_string(),
+                            value: serialized_volumes,
+                        });
+                        info!("[Runpod Controller] Added NEBU_SYNC_CONFIG environment variable");
+                    }
+                    Err(e) => {
+                        error!("[Runpod Controller] Failed to serialize volumes configuration: {}", e);
+                        // Continue without this env var rather than failing the whole operation
+                    }
+                }
+            }
+            Ok(None) => {
+                // parse_volumes() returned Ok, but no volumes were present
+                info!("[Runpod Controller] No volumes configured, skipping NEBU_SYNC_CONFIG");
+            }
+            Err(e) => {
+                // A serialization error occurred, so handle it (log, return, etc.)
+                error!("[Runpod Controller] Failed to parse volumes: {}", e);
+                // If you’d prefer to ignore the parse failure and still run, you could do so here
+            }
+        }
+        info!("[Runpod Controller] Environment variables: {:?}", env_vec);
+
+        match model.parse_env_vars() {
+            Ok(Some(env_vars)) => {
+                // We have a valid, non-empty list of environment variables.
+                for env_var in env_vars {
                     env_vec.push(runpod::EnvVar {
-                        key: "NEBU_SYNC_CONFIG".to_string(),
-                        value: serialized_volumes,
+                        key: env_var.key.clone(),
+                        value: env_var.value.clone(),
                     });
-                    info!("[RunPod] Added NEBU_SYNC_CONFIG environment variable");
                 }
-                Err(e) => {
-                    error!("[RunPod] Failed to serialize volumes configuration: {}", e);
-                    // Continue without this env var rather than failing the whole operation
-                }
+                info!("[Runpod Controller] Successfully parsed and added environment variables from model");
+            }
+            Ok(None) => {
+                // parse_env_vars() returned Ok, but the database column was None or empty.
+                info!("[Runpod Controller] No environment variables configured in database");
+            }
+            Err(e) => {
+                // A serialization error occurred while parsing
+                error!("[Runpod Controller] Failed to parse environment variables: {}", e);
+                // Decide how you want to handle the error (return early, ignore, etc.)
             }
         }
-        info!("[RunPod] Environment variables: {:?}", env_vec);
+        info!("[Runpod Controller] Environment variables: {:?}", env_vec);
 
-        // Only add env_vars if they exist
-        if let Some(env_vars) = &config.env_vars {
-            for env_var in env_vars {
-                env_vec.push(runpod::EnvVar {
-                    key: env_var.key.clone(),
-                    value: env_var.value.clone(),
-                });
-            }
-        }
-        info!("[RunPod] Environment variables: {:?}", env_vec);
-        let id = ShortUuid::generate().to_string();
-        info!("[RunPod] ID: {}", id);
-
-
-        let docker_command = config.command.clone().map(|cmd| {
+        let docker_command = model.command.clone().map(|cmd| {
             // First check and install curl if needed
             let curl_install = "if ! command -v curl &> /dev/null; then apt-get update && apt-get install -y curl || (apk update && apk add --no-cache curl) || echo 'Failed to install curl'; fi";
             
@@ -634,8 +650,8 @@ impl ContainerPlatform for RunpodPlatform {
                 cmd);
             
             // If restart policy is 'never', add command to delete the container after completion
-            let full_command = if config.restart == "never" {
-                format!("{{ {}; }}; nebu delete containers {}", base_command, id)
+            let full_command = if model.restart == RestartPolicy::Never.to_string() {
+                format!("{{ {}; }}; nebu delete containers {}", base_command, model.id)
             } else {
                 base_command
             };
@@ -643,7 +659,7 @@ impl ContainerPlatform for RunpodPlatform {
             // Wrap the command with bash -c to ensure shell features work
             format!("bash -c '{}'", full_command.replace("'", "'\\''"))
         });
-        info!("[RunPod] Docker command: {:?}", docker_command);
+        info!("[Runpod Controller] Docker command: {:?}", docker_command);
 
         // 5) Create an on-demand instance instead of a spot instance
         let create_request = CreateOnDemandPodRequest {
@@ -654,8 +670,8 @@ impl ContainerPlatform for RunpodPlatform {
             min_vcpu_count: Some(8),
             min_memory_in_gb: Some(30),
             gpu_type_id: Some(runpod_gpu_type_id),
-            name: Some(id.clone()),
-            image_name: Some(config.image.clone()),
+            name: Some(model.id.clone()),
+            image_name: Some(model.image.clone()),
             docker_args: None,
             docker_entrypoint: docker_command.clone(),
             ports: Some("8000".to_string()),
@@ -667,7 +683,7 @@ impl ContainerPlatform for RunpodPlatform {
         };
 
         info!(
-            "[RunPod] Creating on-demand pod with request: {:?}",
+            "[Runpod Controller] Creating on-demand pod with request: {:?}",
             create_request
         );
 
@@ -680,74 +696,17 @@ impl ContainerPlatform for RunpodPlatform {
             Ok(resp) => {
                 if let Some(pod) = resp.data {
                     info!(
-                        "[RunPod] Successfully created On-Demand Pod '{}' (id = {}) on RunPod!",
-                        name, pod.id
+                        "[Runpod Controller] Successfully created On-Demand Pod '{}' (id = {}) on RunPod!",
+                        model.id, pod.id
                     );
 
-                    // Create the container record in the database
-                    let container = crate::entities::containers::ActiveModel {
-                        id: Set(id.clone()),
-                        namespace: Set(config
-                            .metadata
-                            .as_ref()
-                            .and_then(|meta| meta.namespace.clone())
-                            .unwrap_or_else(|| "default".to_string())),
-                        name: Set(name.clone()),
-                        owner_id: Set(owner_id.to_string()),
-                        image: Set(config.image.clone()),
-                        env_vars: Set(config.env_vars.clone().map(|vars| serde_json::json!(vars))),
-                        volumes: Set(config.volumes.clone().map(|vols| serde_json::json!(vols))),
-                        accelerators: Set(config.accelerators.clone()),
-                        cpu_request: Set(None),
-                        memory_request: Set(None),
-                        status: Set(Some(ContainerStatus::Defined.to_string())),
-                        platform: Set(Some("runpod".to_string())),
-                        meters: Set(config
-                            .meters
-                            .clone()
-                            .map(|meters| serde_json::json!(meters))),
-                        resource_name: Set(Some(pod.id.clone())),
-                        resource_namespace: Set(None),
-                        command: Set(config.command.clone()),
-                        labels: Set(config.metadata.as_ref().and_then(|meta| {
-                            meta.labels.clone().map(|labels| serde_json::json!(labels))
-                        })),
-                        restart: Set(config.restart.clone()),
-                        public_ip: Set(None),
-                        private_ip: Set(None),
-                        created_by: Set(Some(owner_id.to_string())),
-                        updated_at: Set(chrono::Utc::now().into()),
-                        created_at: Set(chrono::Utc::now().into()),
-                    };
-
-                    if let Err(e) = container.insert(db).await {
-                        error!("[RunPod] Failed to create container in database: {:?}", e);
-                        return Err(
-                            format!("Failed to create container in database: {:?}", e).into()
-                        );
-                    } else {
-                        info!(
-                            "[RunPod] Created container {} in database with RunPod pod ID {}",
-                            name, pod.id
-                        );
-                    }
-
-                    // Start watching the pod status in a separate task
-                    let id_clone = id.clone();
-                    let db_clone = db.clone();
-                    let self_clone = self.clone();
-
-                    tokio::spawn(async move {
-                        if let Err(e) = self_clone.watch_pod_status(&id_clone, &db_clone).await {
-                            error!("[RunPod] Error watching pod status: {:?}", e);
-                        }
-                    });
-
+                    Mutation::update_container_resource_name(db, model.id.clone(), pod.id.clone()).await?;
+                    Mutation::update_container_status(db, model.id.clone(), ContainerStatus::Created.to_string(), None).await?;
                     pod.id
                 } else {
                     return Err(format!(
                         "On-Demand Pod creation returned empty data for job '{}'",
-                        name
+                        model.id
                     )
                     .into());
                 }
@@ -755,16 +714,208 @@ impl ContainerPlatform for RunpodPlatform {
             Err(e) => {
                 return Err(format!(
                     "Error creating on-demand pod on RunPod for '{}': {:?}",
-                    name, e
+                    model.id, e
                 )
                 .into());
             }
         };
 
         info!(
-            "[RunPod] Job {} created on RunPod with pod ID {}",
-            name, pod_id
+            "[Runpod Controller] Job {} created on RunPod with pod ID {}",
+            model.id, pod_id
         );
+
+        Ok(pod_id)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct GpuTypeWithDatacenter {
+    id: String,
+    memory_in_gb: Option<u32>,
+    data_center_id: String,
+}
+
+impl ContainerPlatform for RunpodPlatform {
+    /// Asynchronously run a container by provisioning a RunPod spot or on-demand pod.
+    async fn declare(
+        &self,
+        config: &V1ContainerRequest,
+        db: &DatabaseConnection,
+        user_profile: &V1UserProfile,
+        owner_id: &str,
+    ) -> Result<V1Container, Box<dyn std::error::Error>> {
+        let name = config
+            .metadata
+            .as_ref()
+            .and_then(|meta| meta.name.clone())
+            .unwrap_or_else(|| {
+                // Generate a random human-friendly name using petname
+                petname::petname(3, "-").unwrap()
+            });
+        info!("[Runpod Controller] Using name: {}", name);
+        let gpu_types_response = match self.runpod_client.list_gpu_types_graphql().await {
+            Ok(response) => response,
+            Err(e) => {
+                error!("[Runpod Controller] Error fetching GPU types: {:?}", e);
+
+                // More detailed error information
+                if let Some(status) = e.status() {
+                    error!("[Runpod Controller] HTTP Status: {}", status);
+                }
+
+                return Err(Box::<dyn std::error::Error>::from(format!(
+                    "Error fetching GPU types: {:?}",
+                    e
+                )));
+            }
+        };
+
+        let mut runpod_gpu_type_id: String = "NVIDIA_TESLA_T4".to_string(); // Default value
+        let mut requested_gpu_count = 1; // Default value
+        let mut datacenter_id = String::from("US"); // Default value
+        let mut available_gpu_types = Vec::new();
+
+        // Extract available GPU types from the response
+        if let Some(data) = &gpu_types_response.data {
+            // Log the available GPU types
+            for gpu_type in data {
+                available_gpu_types.push(gpu_type.id.clone());
+
+                // Log GPU type details
+                let memory_str = match gpu_type.memory_in_gb {
+                    Some(mem) => format!("{} GB", mem),
+                    None => "Unknown".to_string(),
+                };
+
+                info!(
+                    "[Runpod Controller] GPU Type: {}, Display Name: {}, Memory: {}",
+                    gpu_type.id, gpu_type.display_name, memory_str
+                );
+            }
+            info!("[Runpod Controller] Available GPU types: {:?}", available_gpu_types);
+        }
+        info!("[Runpod Controller] GPU types response: {:?}", gpu_types_response);
+
+        // Parse accelerators if provided
+        if let Some(accelerators) = &config.accelerators {
+            if !accelerators.is_empty() {
+                let mut found_valid_accelerator = false;
+
+                // Try each accelerator in the list until we find one that works
+                for accelerator in accelerators {
+                    // Parse the accelerator (format: "count:type")
+                    info!("[Runpod Controller] Accelerator: {}", accelerator);
+                    let parts: Vec<&str> = accelerator.split(':').collect();
+                    if parts.len() == 2 {
+                        if let Ok(count) = parts[0].parse::<i32>() {
+                            // Convert from our accelerator name to RunPod's GPU type ID
+                            if let Some(runpod_gpu_name) = self.accelerator_map().get(parts[1]) {
+                                info!("[Runpod Controller] RunPod GPU name: {}", runpod_gpu_name);
+                                // Check if this GPU type is available on RunPod
+                                if available_gpu_types.is_empty()
+                                    || available_gpu_types.contains(runpod_gpu_name)
+                                {
+                                    // This accelerator is available, use it
+                                    requested_gpu_count = count;
+                                    runpod_gpu_type_id = runpod_gpu_name.clone();
+                                    found_valid_accelerator = true;
+
+                                    info!(
+                                        "[Runpod Controller] Using accelerator: {} (count: {})",
+                                        runpod_gpu_type_id, requested_gpu_count
+                                    );
+
+                                    // We found a valid accelerator, stop looking
+                                    break;
+                                } else {
+                                    info!(
+                                        "[Runpod Controller] Accelerator type '{}' is not available, trying next option",
+                                        runpod_gpu_name
+                                    );
+                                }
+                            } else {
+                                info!(
+                                    "[Runpod Controller] Unknown accelerator type: {}, trying next option",
+                                    parts[1]
+                                );
+                            }
+                        }
+                    }
+                }
+
+                // If we couldn't find any valid accelerator, return an error
+                if !found_valid_accelerator {
+                    error!(
+                        "[Runpod Controller] None of the requested accelerator types are available. Available types: {:?}",
+                        available_gpu_types
+                    );
+                    return Err(Box::<dyn std::error::Error>::from(
+                        "None of the requested accelerator types are available on RunPod"
+                            .to_string(),
+                    ));
+                }
+            }
+        }
+
+        let id = ShortUuid::generate().to_string();
+        info!("[Runpod Controller] ID: {}", id);
+
+        self.store_agent_key_secret(db,user_profile, &id, owner_id).await?;
+
+        // Create the container record in the database
+        let container = crate::entities::containers::ActiveModel {
+            id: Set(id.clone()),
+            namespace: Set(config
+                .metadata
+                .as_ref()
+                .and_then(|meta| meta.namespace.clone())
+                .unwrap_or_else(|| "default".to_string())),
+            name: Set(name.clone()),
+            owner_id: Set(owner_id.to_string()),
+            image: Set(config.image.clone()),
+            env_vars: Set(config.env_vars.clone().map(|vars| serde_json::json!(vars))),
+            volumes: Set(config.volumes.clone().map(|vols| serde_json::json!(vols))),
+            accelerators: Set(config.accelerators.clone()),
+            cpu_request: Set(None),
+            memory_request: Set(None),
+            status: Set(Some(serde_json::json!(V1ContainerStatus {
+                status: Some(ContainerStatus::Defined.to_string()),
+                message: None
+            }))),
+            platform: Set(Some("runpod".to_string())),
+            meters: Set(config
+                .meters
+                .clone()
+                .map(|meters| serde_json::json!(meters))),
+            resource_name: Set(None),
+            resource_namespace: Set(None),
+            command: Set(config.command.clone()),
+            labels: Set(config.metadata.as_ref().and_then(|meta| {
+                meta.labels.clone().map(|labels| serde_json::json!(labels))
+            })),
+            restart: Set(config.restart.clone()),
+            queue: Set(config.queue.clone()),
+            desired_status: Set(Some(ContainerStatus::Running.to_string())),
+            public_ip: Set(None),
+            private_ip: Set(None),
+            created_by: Set(Some(owner_id.to_string())),
+            updated_at: Set(chrono::Utc::now().into()),
+            created_at: Set(chrono::Utc::now().into()),
+            controller_data: Set(None),
+        };
+
+        if let Err(e) = container.insert(db).await {
+            error!("[Runpod Controller] Failed to create container in database: {:?}", e);
+            return Err(
+                format!("Failed to create container in database: {:?}", e).into()
+            );
+        } else {
+            info!(
+                "[Runpod Controller] Created container {} in database ",
+                id
+            );
+        }
 
         Ok(V1Container {
             kind: "Container".to_string(),
@@ -791,9 +942,45 @@ impl ContainerPlatform for RunpodPlatform {
             volumes: config.volumes.clone(),
             accelerators: config.accelerators.clone(),
             meters: config.meters.clone(),
-            status: Some("pending".to_string()),
+            queue: config.queue.clone(),
+            status: Some(V1ContainerStatus {
+                status: Some(ContainerStatus::Defined.to_string()),
+                message: None,
+            }),
             restart: config.restart.clone(),
         })
+    }
+
+    async fn reconcile(
+        &self,
+        container: &containers::Model,
+        db: &DatabaseConnection,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if let Ok(Some(parsed_status)) = container.parse_status() {
+            let status = parsed_status.status.unwrap_or(ContainerStatus::Invalid.to_string());
+
+            let status = ContainerStatus::from_str(&status).unwrap_or(ContainerStatus::Invalid);
+
+            if status.needs_start() {
+                info!("[Runpod Controller] Container {} needs to be started", container.id);
+                if let Some(ds) = &container.desired_status {
+
+                    if ds == &ContainerStatus::Running.to_string() {
+                        info!("[Runpod Controller] Container {} has a desired status of 'running', creating...", container.id);
+                        self.create(db, container.clone()).await?;
+                    }
+                }else {
+                    info!("[Runpod Controller] Container {} does not have a desired status of 'running'", container.id);
+                }
+            }
+
+            if status.needs_watch() {
+                info!("[Runpod Controller] Container {} needs to be watched", container.id);
+                self.watch( db, container.clone()).await?;
+            }
+        }
+
+        Ok(())
     }
 
     async fn delete(
@@ -801,7 +988,7 @@ impl ContainerPlatform for RunpodPlatform {
         id: &str,
         db: &DatabaseConnection,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        info!("[RunPod] Attempting to delete container with name: {}", id);
+        info!("[Runpod Controller] Attempting to delete container with name: {}", id);
 
         // First, list all pods to find the one with our name
         match self.runpod_client.list_pods().await {
@@ -812,44 +999,45 @@ impl ContainerPlatform for RunpodPlatform {
 
                     if let Some(pod) = pod_to_delete {
                         info!(
-                            "[RunPod] Found pod with ID: {} for container: {}",
+                            "[Runpod Controller] Found pod with ID: {} for container: {}",
                             pod.id, id
                         );
 
                         // Stop the pod
                         match self.runpod_client.delete_pod(&pod.id).await {
                             Ok(_) => {
-                                info!("[RunPod] Successfully stopped pod: {}", pod.id);
+                                info!("[Runpod Controller] Successfully stopped pod: {}", pod.id);
 
                                 // Update container status in database
                                 if let Err(e) = crate::mutation::Mutation::update_container_status(
                                     &db,
                                     id.clone().to_string(),
-                                    "stopped".to_string(),
+                                    ContainerStatus::Stopped.to_string(),
+                                    None,
                                 )
                                 .await
                                 {
-                                    error!("[RunPod] Failed to update container status in database: {}", e);
+                                    error!("[Runpod Controller] Failed to update container status in database: {}", e);
                                     return Err(e.into());
                                 } else {
-                                    info!("[RunPod] Updated container {} status to stopped", id);
+                                    info!("[Runpod Controller] Updated container {} status to stopped", id);
                                 }
                             }
                             Err(e) => {
-                                error!("[RunPod] Failed to stop pod {}: {}", pod.id, e);
+                                error!("[Runpod Controller] Failed to stop pod {}: {}", pod.id, e);
                                 return Err(e.into());
                             }
                         }
                     } else {
-                        info!("[RunPod] No pod found with name: {}", id);
+                        info!("[Runpod Controller] No pod found with name: {}", id);
                     }
                 } else {
-                    error!("[RunPod] No pods data returned from RunPod API");
+                    error!("[Runpod Controller] No pods data returned from RunPod API");
                     return Err("No pods data returned from RunPod API".into());
                 }
             }
             Err(e) => {
-                error!("[RunPod] Error listing pods: {}", e);
+                error!("[Runpod Controller] Error listing pods: {}", e);
                 return Err(e.into());
             }
         }

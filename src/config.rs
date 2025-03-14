@@ -10,6 +10,7 @@ use std::path::PathBuf;
 pub struct GlobalConfig {
     pub api_key: Option<String>,
     pub server: Option<String>,
+    pub auth_server: Option<String>,
 }
 
 impl GlobalConfig {
@@ -46,15 +47,17 @@ impl GlobalConfig {
         }
         // Try to get server from environment if not in config
         if config.server.is_none() {
-            config.server = env::var("NEBU_SERVER").ok();
+            config.server = env::var("NEBU_SERVER")
+                .or_else(|_| env::var("AGENTSEA_SERVER"))
+                .ok()
+                .or(Some("https://nebu.agentlabs.xyz".to_string()));
         }
-
-        // Check if we have the required values after trying environment variables
-        if config.api_key.is_none() {
-            return Err("API key not found. Please login using 'nebu login' or set NEBU_API_KEY environment variable".into());
-        }
-        if config.server.is_none() {
-            return Err("Server not found. Please login using 'nebu login' or set NEBU_SERVER environment variable".into());
+        // Try to get auth server from environment if not in config
+        if config.auth_server.is_none() {
+            config.auth_server = env::var("NEBU_AUTH_SERVER")
+                .or_else(|_| env::var("AGENTSEA_AUTH_SERVER"))
+                .ok()
+                .or(Some("https://auth.hub.agentlabs.xyz".to_string()));
         }
 
         // Only write the config file if it doesn't exist yet

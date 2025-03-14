@@ -1,6 +1,7 @@
 use crate::container::base::ContainerPlatform;
 use crate::container::kube::KubePlatform;
 use crate::container::runpod::RunpodPlatform;
+use crate::entities::containers;
 use crate::models::{V1Container, V1ContainerRequest, V1UserProfile};
 use sea_orm::DatabaseConnection;
 use std::error::Error;
@@ -14,7 +15,7 @@ pub enum PlatformType {
 // Implement methods on the enum that delegate to the contained platform
 impl PlatformType {
     // Example method that both platforms would have
-    pub async fn run(
+    pub async fn declare(
         &self,
         request: &V1ContainerRequest,
         db: &DatabaseConnection,
@@ -23,9 +24,22 @@ impl PlatformType {
     ) -> Result<V1Container, Box<dyn Error>> {
         match self {
             PlatformType::Runpod(platform) => {
-                platform.run(request, db, user_profile, owner_id).await
+                platform.declare(request, db, user_profile, owner_id).await
             }
-            PlatformType::Kube(platform) => platform.run(request, db, user_profile, owner_id).await,
+            PlatformType::Kube(platform) => {
+                platform.declare(request, db, user_profile, owner_id).await
+            }
+        }
+    }
+
+    pub async fn reconcile(
+        &self,
+        container: &containers::Model,
+        db: &DatabaseConnection,
+    ) -> Result<(), Box<dyn Error>> {
+        match self {
+            PlatformType::Runpod(platform) => platform.reconcile(container, db).await,
+            PlatformType::Kube(platform) => platform.reconcile(container, db).await,
         }
     }
 

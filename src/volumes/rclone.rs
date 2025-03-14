@@ -1,4 +1,4 @@
-use crate::models::V1VolumeConfig;
+use crate::models::{V1ContainerStatus, V1VolumeConfig};
 use crate::query::Query;
 use sea_orm::{DatabaseConnection, DbErr};
 use serde::{Deserialize, Serialize};
@@ -1223,19 +1223,29 @@ pub async fn find_active_containers_with_overlapping_s3_sync(
         }
 
         // Check if container has an active status
-        if let Some(status) = &container.status {
-            let status_lower = status.to_lowercase();
-            if ![
-                "running",
-                "queued",
-                "started",
-                "waiting",
-                "pending",
-                "suspended",
-            ]
-            .contains(&status_lower.as_str())
-            {
-                continue; // Skip containers that aren't active
+        if let Some(status_json) = &container.status {
+            // Deserialize the JSON to V1ContainerStatus
+            match serde_json::from_value::<V1ContainerStatus>(status_json.clone()) {
+                Ok(status) => {
+                    let status_str = match status.status {
+                        Some(s) => s.to_lowercase(),
+                        None => continue, // Skip if status is None
+                    };
+
+                    if ![
+                        "running",
+                        "queued",
+                        "started",
+                        "waiting",
+                        "pending",
+                        "suspended",
+                    ]
+                    .contains(&status_str.as_str())
+                    {
+                        continue; // Skip containers that aren't active
+                    }
+                }
+                Err(_) => continue, // Skip if deserialization fails
             }
         } else {
             continue; // Skip containers with no status
