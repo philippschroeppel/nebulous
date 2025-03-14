@@ -151,8 +151,8 @@ jobs:
       - name: Upload to S3
         run: |
           # Upload versioned files to version-specific directory
-          aws s3 cp *.tar.gz s3://nebulous-rs/releases/v${{ needs.create_tag.outputs.version }}/
-          aws s3 cp checksums.txt s3://nebulous-rs/releases/v${{ needs.create_tag.outputs.version }}/
+          aws s3 cp *.tar.gz s3://nebulous-artifacts/releases/v${{ needs.create_tag.outputs.version }}/
+          aws s3 cp checksums.txt s3://nebulous-artifacts/releases/v${{ needs.create_tag.outputs.version }}/
           
           # Create and upload "latest" named files
           for file in *.tar.gz; do
@@ -169,6 +169,6 @@ jobs:
           fi
           
           # Upload latest files
-          aws s3 cp *latest*.tar.gz s3://nebulous-rs/releases/latest/
-          aws s3 cp checksums.txt s3://nebulous-rs/releases/latest/
+          aws s3 cp *latest*.tar.gz s3://nebulous-artifacts/releases/latest/
+          aws s3 cp checksums.txt s3://nebulous-artifacts/releases/latest/
         shell: bash
