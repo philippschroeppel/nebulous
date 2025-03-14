@@ -622,7 +622,10 @@ impl ContainerPlatform for RunpodPlatform {
 
 
         let docker_command = config.command.clone().map(|cmd| {
-            let base_command = format!("nebu sync --config /nebu/sync.yaml --interval-seconds 5 --create-if-missing --watch --background --block-once --config-from-env && {}", cmd);
+            // First check and install curl if needed
+            let curl_install = "if ! command -v curl &> /dev/null; then apt-get update && apt-get install -y curl || (apk update && apk add --no-cache curl) || echo 'Failed to install curl'; fi";
+            
+            let base_command = format!("{} && nebu sync --config /nebu/sync.yaml --interval-seconds 5 --create-if-missing --watch --background --block-once --config-from-env && {}", curl_install, cmd);
             
             // If restart policy is 'never', add command to delete the container after completion
             let full_command = if config.restart == "never" {
