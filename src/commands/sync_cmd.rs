@@ -29,6 +29,11 @@ pub async fn execute_sync(
     } else {
         config_path
     };
+
+    // Setup rclone configuration from environment variables if available
+    // Keep the temp file alive for the duration of the function
+    let _rclone_config = rclone::setup_rclone_config_from_env()?;
+
     // Create symlinks before starting any sync operations
     if let Err(e) = rclone::create_symlinks_from_config(&config_path) {
         println!("Warning: Failed to create symlinks: {}", e);
@@ -44,6 +49,7 @@ pub async fn execute_sync(
     if watch {
         if background {
             // For Unix-like systems, spawn a detached process
+            use std::fs::OpenOptions;
             use std::process::{Command, Stdio};
 
             println!("Starting continuous sync in background...");
@@ -63,14 +69,35 @@ pub async fn execute_sync(
                 create_arg,
             ];
 
+            // Create log files for stdout and stderr
+            let log_dir = std::env::var("NEBU_LOG_DIR").unwrap_or_else(|_| "./logs".to_string());
+            std::fs::create_dir_all(&log_dir)?;
+
+            let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+            let stdout_log = format!("{}/nebu_sync_stdout_{}.log", log_dir, timestamp);
+            let stderr_log = format!("{}/nebu_sync_stderr_{}.log", log_dir, timestamp);
+
+            let stdout_file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .append(true)
+                .open(&stdout_log)?;
+
+            let stderr_file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .append(true)
+                .open(&stderr_log)?;
+
             Command::new("nohup")
                 .arg(std::env::current_exe()?)
                 .args(args.iter().filter(|&arg| !arg.is_empty()))
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
+                .stdout(Stdio::from(stdout_file))
+                .stderr(Stdio::from(stderr_file))
                 .spawn()?;
 
             println!("Background sync process started. You can safely exit this program.");
+            println!("Logs are stored at: {} and {}", stdout_log, stderr_log);
             Ok(())
         } else {
             // Normal continuous sync in foreground
@@ -79,6 +106,7 @@ pub async fn execute_sync(
     } else {
         if background {
             // For Unix-like systems, spawn a detached process for one-time sync
+            use std::fs::OpenOptions;
             use std::process::{Command, Stdio};
 
             println!("Starting one-time sync in background...");
@@ -93,14 +121,35 @@ pub async fn execute_sync(
                 },
             ];
 
+            // Create log files for stdout and stderr
+            let log_dir = std::env::var("NEBU_LOG_DIR").unwrap_or_else(|_| "./logs".to_string());
+            std::fs::create_dir_all(&log_dir)?;
+
+            let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+            let stdout_log = format!("{}/nebu_sync_stdout_{}.log", log_dir, timestamp);
+            let stderr_log = format!("{}/nebu_sync_stderr_{}.log", log_dir, timestamp);
+
+            let stdout_file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .append(true)
+                .open(&stdout_log)?;
+
+            let stderr_file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .append(true)
+                .open(&stderr_log)?;
+
             Command::new("nohup")
                 .arg(std::env::current_exe()?)
                 .args(args.iter().filter(|&arg| !arg.is_empty()))
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
+                .stdout(Stdio::from(stdout_file))
+                .stderr(Stdio::from(stderr_file))
                 .spawn()?;
 
             println!("Background sync process started. You can safely exit this program.");
+            println!("Logs are stored at: {} and {}", stdout_log, stderr_log);
             Ok(())
         } else {
             // Normal one-time sync in foreground

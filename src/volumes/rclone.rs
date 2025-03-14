@@ -1194,3 +1194,54 @@ pub async fn validate_no_overlapping_s3_syncs(
         )))
     }
 }
+
+/// Sets up rclone configuration from environment variables if available
+/// Returns a temporary file handle if a config was created (to keep it alive)
+pub fn setup_rclone_config_from_env() -> Result<Option<std::fs::File>, Box<dyn Error>> {
+    // Check if we have rclone config environment variables
+    let has_s3_env_vars = std::env::var("RCLONE_CONFIG_S3REMOTE_TYPE").is_ok()
+        || std::env::var("AWS_ACCESS_KEY_ID").is_ok();
+
+    if has_s3_env_vars {
+        // Create a temporary rclone config file
+        let temp_path = std::env::temp_dir().join("rclone_config.conf");
+        let mut temp_file = std::fs::File::create(&temp_path)?;
+        use std::io::Write;
+
+        // Write S3 remote configuration
+        writeln!(temp_file, "[s3]")?;
+        writeln!(temp_file, "type = s3")?;
+
+        // Add region if available
+        if let Ok(region) = std::env::var("RCLONE_CONFIG_S3REMOTE_REGION") {
+            writeln!(temp_file, "region = {}", region)?;
+        } else if let Ok(region) = std::env::var("AWS_REGION") {
+            writeln!(temp_file, "region = {}", region)?;
+        }
+
+        // Add provider if available
+        if let Ok(provider) = std::env::var("RCLONE_CONFIG_S3REMOTE_PROVIDER") {
+            writeln!(temp_file, "provider = {}", provider)?;
+        }
+
+        // Add env_auth if available
+        if let Ok(env_auth) = std::env::var("RCLONE_CONFIG_S3REMOTE_ENV_AUTH") {
+            writeln!(temp_file, "env_auth = {}", env_auth)?;
+        } else {
+            // Default to true if AWS credentials are in environment
+            if std::env::var("AWS_ACCESS_KEY_ID").is_ok()
+                && std::env::var("AWS_SECRET_ACCESS_KEY").is_ok()
+            {
+                writeln!(temp_file, "env_auth = true")?;
+            }
+        }
+
+        // Set the RCLONE_CONFIG environment variable to point to our temporary file
+        std::env::set_var("RCLONE_CONFIG", temp_path.to_string_lossy().to_string());
+
+        println!("Created temporary rclone configuration from environment variables");
+        Ok(Some(temp_file))
+    } else {
+        Ok(None)
+    }
+}
