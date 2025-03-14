@@ -15,6 +15,57 @@ BINARY_NAME="nebu"
 
 echo -e "${YELLOW}Starting installation...${NC}"
 
+# Function to check and install extraction utilities
+install_extraction_utils() {
+    if command -v unzip >/dev/null 2>&1; then
+        echo -e "${GREEN}unzip is already installed.${NC}"
+        return 0
+    elif command -v 7z >/dev/null 2>&1; then
+        echo -e "${GREEN}7z is already installed.${NC}"
+        return 0
+    elif command -v busybox >/dev/null 2>&1; then
+        echo -e "${GREEN}busybox is already installed.${NC}"
+        return 0
+    fi
+    
+    echo -e "${YELLOW}No extraction utility found. Installing unzip...${NC}"
+    
+    case "$OS" in
+        "Ubuntu"|"Debian"|"Linux Mint")
+            run_with_sudo apt-get update
+            run_with_sudo apt-get install -y unzip
+            ;;
+        "Fedora"|"CentOS"|"Red Hat Enterprise Linux")
+            run_with_sudo dnf install -y unzip || run_with_sudo yum install -y unzip
+            ;;
+        "Arch Linux")
+            run_with_sudo pacman -Sy unzip
+            ;;
+        "Alpine Linux")
+            run_with_sudo apk add --no-cache unzip
+            ;;
+        "macOS"|"Darwin")
+            if command -v brew >/dev/null 2>&1; then
+                brew install unzip
+            else
+                echo -e "${RED}Homebrew not found. Please install Homebrew first: https://brew.sh/${NC}"
+                exit 1
+            fi
+            ;;
+        *)
+            echo -e "${RED}Unsupported OS for automatic unzip installation. Please install unzip, 7z, or busybox manually.${NC}"
+            exit 1
+            ;;
+    esac
+    
+    if command -v unzip >/dev/null 2>&1; then
+        echo -e "${GREEN}unzip installed successfully.${NC}"
+    else
+        echo -e "${RED}Failed to install unzip. Please install unzip, 7z, or busybox manually.${NC}"
+        exit 1
+    fi
+}
+
 # Function to detect OS
 detect_os() {
     if [ -f /etc/os-release ]; then
@@ -168,6 +219,7 @@ install_binary() {
 # Main execution
 detect_os
 install_curl
+install_extraction_utils
 install_rclone
 install_binary
 
