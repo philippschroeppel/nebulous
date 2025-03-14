@@ -625,7 +625,13 @@ impl ContainerPlatform for RunpodPlatform {
             // First check and install curl if needed
             let curl_install = "if ! command -v curl &> /dev/null; then apt-get update && apt-get install -y curl || (apk update && apk add --no-cache curl) || echo 'Failed to install curl'; fi";
             
-            let base_command = format!("{} && nebu sync --config /nebu/sync.yaml --interval-seconds 5 --create-if-missing --watch --background --block-once --config-from-env && {}", curl_install, cmd);
+            // Install nebu if not already installed
+            let nebu_install = "if ! command -v nebu &> /dev/null; then curl -s https://raw.githubusercontent.com/agentsea/nebulous/main/remote_install.sh | bash || echo 'Failed to install nebu'; fi";
+            
+            let base_command = format!("{} && {} && nebu --version && nebu sync --config /nebu/sync.yaml --interval-seconds 5 --create-if-missing --watch --background --block-once --config-from-env && {}", 
+                curl_install, 
+                nebu_install, 
+                cmd);
             
             // If restart policy is 'never', add command to delete the container after completion
             let full_command = if config.restart == "never" {

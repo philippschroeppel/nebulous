@@ -41,6 +41,26 @@ detect_os() {
     echo -e "${GREEN}Detected OS: $OS $VER${NC}"
 }
 
+# Function to check if sudo is available
+check_sudo() {
+    if command -v sudo >/dev/null 2>&1; then
+        echo -e "${GREEN}sudo is available.${NC}"
+        USE_SUDO=true
+    else
+        echo -e "${YELLOW}sudo is not available. Will attempt to install without sudo.${NC}"
+        USE_SUDO=false
+    fi
+}
+
+# Function to run a command with sudo if available
+run_with_sudo() {
+    if [ "$USE_SUDO" = true ]; then
+        sudo "$@"
+    else
+        "$@"
+    fi
+}
+
 # Function to check and install curl
 install_curl() {
     if command -v curl >/dev/null 2>&1; then
@@ -50,17 +70,17 @@ install_curl() {
         
         case "$OS" in
             "Ubuntu"|"Debian"|"Linux Mint")
-                sudo apt-get update
-                sudo apt-get install -y curl
+                run_with_sudo apt-get update
+                run_with_sudo apt-get install -y curl
                 ;;
             "Fedora"|"CentOS"|"Red Hat Enterprise Linux")
-                sudo dnf install -y curl || sudo yum install -y curl
+                run_with_sudo dnf install -y curl || run_with_sudo yum install -y curl
                 ;;
             "Arch Linux")
-                sudo pacman -Sy curl
+                run_with_sudo pacman -Sy curl
                 ;;
             "Alpine Linux")
-                apk add --no-cache curl
+                run_with_sudo apk add --no-cache curl
                 ;;
             "macOS"|"Darwin")
                 if command -v brew >/dev/null 2>&1; then
@@ -93,7 +113,11 @@ install_rclone() {
         echo -e "${YELLOW}rclone not found. Installing...${NC}"
         
         # Using rclone's install script which works across platforms
-        curl https://rclone.org/install.sh | sudo bash
+        if [ "$USE_SUDO" = true ]; then
+            curl https://rclone.org/install.sh | sudo bash
+        else
+            curl https://rclone.org/install.sh | bash
+        fi
         
         if command -v rclone >/dev/null 2>&1; then
             echo -e "${GREEN}rclone installed successfully.${NC}"
@@ -127,7 +151,13 @@ install_binary() {
     
     # Move to install directory with new name
     echo -e "${YELLOW}Installing binary to $INSTALL_DIR as $BINARY_NAME...${NC}"
-    sudo mv "$TMP_DIR/$ORIGINAL_BINARY_NAME" "$INSTALL_DIR/$BINARY_NAME"
+    
+    # Check if we have write permission to the install directory
+    if [ -w "$INSTALL_DIR" ] || [ "$USE_SUDO" = false ]; then
+        mv "$TMP_DIR/$ORIGINAL_BINARY_NAME" "$INSTALL_DIR/$BINARY_NAME"
+    else
+        run_with_sudo mv "$TMP_DIR/$ORIGINAL_BINARY_NAME" "$INSTALL_DIR/$BINARY_NAME"
+    fi
     
     # Clean up
     rm -rf "$TMP_DIR"
