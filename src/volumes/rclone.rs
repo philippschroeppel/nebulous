@@ -369,16 +369,24 @@ async fn start_sync_process(
     // Build the rclone command
     let mut cmd = TokioCommand::new("rclone");
 
+    // Normalize S3 paths
+    let source_path = normalize_s3_path(&path.source_path);
+    let destination_path = normalize_s3_path(&path.destination_path);
+
+    // Create source and destination directories if they don't exist
+    ensure_path_exists(&source_path).await?;
+    ensure_path_exists(&destination_path).await?;
+
     if path.bidirectional {
         // Use bisync for bidirectional sync
         cmd.arg("bisync");
-        cmd.arg(&path.source_path);
-        cmd.arg(&path.destination_path);
+        cmd.arg(&source_path);
+        cmd.arg(&destination_path);
     } else {
         // Use sync for unidirectional sync
         cmd.arg("sync");
-        cmd.arg(&path.source_path);
-        cmd.arg(&path.destination_path);
+        cmd.arg(&source_path);
+        cmd.arg(&destination_path);
     }
 
     // Add resync flag if needed and it's a bidirectional sync
@@ -408,6 +416,17 @@ async fn start_sync_process(
     let child = cmd.spawn()?;
 
     Ok(child)
+}
+
+/// Normalize an S3 path to ensure it uses the format expected by rclone (s3:bucket/path)
+fn normalize_s3_path(path: &str) -> String {
+    if path.starts_with("s3://") {
+        // Convert s3://bucket/path to s3:bucket/path
+        format!("s3:{}", &path[5..])
+    } else {
+        // Already in the correct format or not an S3 path
+        path.to_string()
+    }
 }
 
 /// Execute rclone bisync for all paths in the configuration
@@ -452,19 +471,25 @@ pub async fn execute_sync(
             path.destination_path
         );
 
-        // Verify source path exists if it's a local path
-        if !path.source_path.starts_with("s3:") && !Path::new(&path.source_path).exists() {
-            println!("Warning: Source path does not exist: {}", path.source_path);
-            continue;
-        }
+        // Normalize S3 paths
+        let source_path = normalize_s3_path(&path.source_path);
+        let destination_path = normalize_s3_path(&path.destination_path);
+
+        // Create source and destination directories if they don't exist
+        ensure_path_exists(&source_path).await?;
+        ensure_path_exists(&destination_path).await?;
 
         // Build the rclone command
         let mut cmd = Command::new("rclone");
 
+        // Normalize S3 paths
+        let source_path = normalize_s3_path(&path.source_path);
+        let destination_path = normalize_s3_path(&path.destination_path);
+
         if path.bidirectional {
             cmd.arg("bisync");
-            cmd.arg(&path.source_path);
-            cmd.arg(&path.destination_path);
+            cmd.arg(&source_path);
+            cmd.arg(&destination_path);
 
             // Add --resync flag if needed
             if path.resync {
@@ -475,8 +500,8 @@ pub async fn execute_sync(
             cmd.arg("--force");
         } else {
             cmd.arg("sync");
-            cmd.arg(&path.source_path);
-            cmd.arg(&path.destination_path);
+            cmd.arg(&source_path);
+            cmd.arg(&destination_path);
         }
 
         // Add common options
@@ -518,8 +543,8 @@ pub async fn execute_sync(
                 // Create a new command with --resync flag
                 let mut resync_cmd = Command::new("rclone");
                 resync_cmd.arg("bisync");
-                resync_cmd.arg(&path.source_path);
-                resync_cmd.arg(&path.destination_path);
+                resync_cmd.arg(&source_path);
+                resync_cmd.arg(&destination_path);
                 resync_cmd.arg("--resync");
                 resync_cmd.arg("--force");
                 resync_cmd.arg("--verbose");
@@ -533,7 +558,7 @@ pub async fn execute_sync(
                 if resync_output.status.success() {
                     println!(
                         "Resync successful between {} and {}",
-                        path.source_path, path.destination_path
+                        source_path, destination_path
                     );
                 } else {
                     let resync_error = String::from_utf8_lossy(&resync_output.stderr);
@@ -1029,19 +1054,25 @@ pub async fn execute_non_continuous_sync(
             path.destination_path
         );
 
-        // Verify source path exists if it's a local path
-        if !path.source_path.starts_with("s3:") && !Path::new(&path.source_path).exists() {
-            println!("Warning: Source path does not exist: {}", path.source_path);
-            continue;
-        }
+        // Normalize S3 paths
+        let source_path = normalize_s3_path(&path.source_path);
+        let destination_path = normalize_s3_path(&path.destination_path);
+
+        // Create source and destination directories if they don't exist
+        ensure_path_exists(&source_path).await?;
+        ensure_path_exists(&destination_path).await?;
 
         // Build the rclone command
         let mut cmd = Command::new("rclone");
 
+        // Normalize S3 paths
+        let source_path = normalize_s3_path(&path.source_path);
+        let destination_path = normalize_s3_path(&path.destination_path);
+
         if path.bidirectional {
             cmd.arg("bisync");
-            cmd.arg(&path.source_path);
-            cmd.arg(&path.destination_path);
+            cmd.arg(&source_path);
+            cmd.arg(&destination_path);
 
             if path.resync {
                 cmd.arg("--resync");
@@ -1051,8 +1082,8 @@ pub async fn execute_non_continuous_sync(
             cmd.arg("--force");
         } else {
             cmd.arg("sync");
-            cmd.arg(&path.source_path);
-            cmd.arg(&path.destination_path);
+            cmd.arg(&source_path);
+            cmd.arg(&destination_path);
         }
 
         // Add common options
@@ -1069,7 +1100,7 @@ pub async fn execute_non_continuous_sync(
         if output.status.success() {
             println!(
                 "Successfully synced between {} and {}",
-                path.source_path, path.destination_path
+                source_path, destination_path
             );
 
             // If this was a resync operation, mark it as completed
@@ -1099,8 +1130,8 @@ pub async fn execute_non_continuous_sync(
                 // Create a new command with --resync flag
                 let mut resync_cmd = Command::new("rclone");
                 resync_cmd.arg("bisync");
-                resync_cmd.arg(&path.source_path);
-                resync_cmd.arg(&path.destination_path);
+                resync_cmd.arg(&source_path);
+                resync_cmd.arg(&destination_path);
                 resync_cmd.arg("--resync");
                 resync_cmd.arg("--force");
                 resync_cmd.arg("--verbose");
@@ -1114,7 +1145,7 @@ pub async fn execute_non_continuous_sync(
                 if resync_output.status.success() {
                     println!(
                         "Resync successful between {} and {}",
-                        path.source_path, path.destination_path
+                        source_path, destination_path
                     );
                 } else {
                     let resync_error = String::from_utf8_lossy(&resync_output.stderr);
@@ -1141,18 +1172,24 @@ pub fn has_overlapping_s3_bidirectional_sync(
     config2: &VolumeConfig,
 ) -> bool {
     // Get all bidirectional paths with S3 sources from both configs
-    let config1_s3_paths: Vec<&str> = config1
+    let config1_s3_paths: Vec<String> = config1
         .paths
         .iter()
-        .filter(|path| path.bidirectional && path.source_path.starts_with("s3://"))
-        .map(|path| path.source_path.as_str())
+        .filter(|path| {
+            path.bidirectional
+                && (path.source_path.starts_with("s3://") || path.source_path.starts_with("s3:"))
+        })
+        .map(|path| normalize_s3_path(&path.source_path))
         .collect();
 
-    let config2_s3_paths: Vec<&str> = config2
+    let config2_s3_paths: Vec<String> = config2
         .paths
         .iter()
-        .filter(|path| path.bidirectional && path.source_path.starts_with("s3://"))
-        .map(|path| path.source_path.as_str())
+        .filter(|path| {
+            path.bidirectional
+                && (path.source_path.starts_with("s3://") || path.source_path.starts_with("s3:"))
+        })
+        .map(|path| normalize_s3_path(&path.source_path))
         .collect();
 
     // Check for overlapping paths
@@ -1320,4 +1357,70 @@ pub fn setup_rclone_config_from_env() -> Result<Option<std::fs::File>, Box<dyn E
     } else {
         Ok(None)
     }
+}
+
+/// Create a directory in S3 if it doesn't exist
+async fn create_s3_directory(path: &str) -> Result<(), Box<dyn Error>> {
+    // Extract bucket and prefix from s3:bucket/path format
+    let path = path.trim_start_matches("s3:");
+    let parts: Vec<&str> = path.splitn(2, '/').collect();
+
+    if parts.len() < 2 {
+        // Just a bucket name, no need to create anything
+        return Ok(());
+    }
+
+    let bucket = parts[0];
+    let prefix = parts[1];
+
+    // Use rclone to check if the directory exists
+    let check_cmd = TokioCommand::new("rclone")
+        .arg("lsf")
+        .arg(format!("s3:{}/{}", bucket, prefix))
+        .output()
+        .await?;
+
+    // If the command was successful and returned output, the directory exists
+    if check_cmd.status.success() && !check_cmd.stdout.is_empty() {
+        return Ok(());
+    }
+
+    println!("Creating S3 directory: s3:{}/{}", bucket, prefix);
+
+    // Create an empty directory marker object
+    // We'll create a temporary empty file locally
+    let temp_dir = tempfile::tempdir()?;
+    let temp_file_path = temp_dir.path().join(".rclone_directory_marker");
+    std::fs::write(&temp_file_path, "")?;
+
+    // Use rclone to copy the empty file to S3 as a directory marker
+    let create_cmd = TokioCommand::new("rclone")
+        .arg("copy")
+        .arg(&temp_file_path)
+        .arg(format!("s3:{}/{}/", bucket, prefix))
+        .output()
+        .await?;
+
+    if !create_cmd.status.success() {
+        let error = String::from_utf8_lossy(&create_cmd.stderr);
+        return Err(format!("Failed to create S3 directory: {}", error).into());
+    }
+
+    Ok(())
+}
+
+/// Ensure a path exists, creating it if necessary (works for both local and S3 paths)
+async fn ensure_path_exists(path: &str) -> Result<(), Box<dyn Error>> {
+    let normalized_path = normalize_s3_path(path);
+
+    if normalized_path.starts_with("s3:") {
+        // S3 path
+        create_s3_directory(&normalized_path).await?;
+    } else if !Path::new(&normalized_path).exists() {
+        // Local path
+        println!("Creating local directory: {}", normalized_path);
+        fs::create_dir_all(&normalized_path)?;
+    }
+
+    Ok(())
 }

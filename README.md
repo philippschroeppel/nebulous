@@ -7,7 +7,7 @@ Think of it as a Kubernetes that can span clouds with a focus on accelerated com
 ## Installation
 
 ```sh
-curl -fsSL -H "Cache-Control: no-cache" https://storage.googleapis.com/nebulous-rs/releases/install.sh | bash
+curl -fsSL -H "Cache-Control: no-cache" https://raw.githubusercontent.com/agentsea/nebulous/main/remote_install.sh | bash
 ```
 
 ## Usage
@@ -22,7 +22,7 @@ Create a container on runpod with 4 A100 GPUs
 kind: Container
 metadata:
   name: pytorch-test
-  namespace: nebu-test
+  namespace: foo
 image: pytorch/pytorch:latest
 command: nvidia-smi
 platform: runpod
@@ -76,27 +76,27 @@ List available platforms
 nebu get platforms
 ```
 
-Get the IP address of a container
+Get the IP address of a container [in progress]
 ```sh
 nebu get containers foo --ip
 ```
 
-SSH into a container
+SSH into a container [in progress]
 ```sh
 nebu ssh foo
 ```
 
-### Namespaces
-
-Namespaces provide a means to segregate groups of resources across clouds. Resources within a given namespace are network isolated using [Tailnet](https://tailscale.com/kb/1136/tailnet), and can be accessed by simply using thier name as the hostname e.g. `http://foo:8080`.
-
-### Services
-
-Services provide a means to expose containers on a stable IP address.
-
 ### Volumes
 
-Volumes provide a means to persist data accross clouds. Nebulous uses [Rclone](https://rclone.org/) to sync data between clouds backed by an object storage provider.
+Volumes provide a means to persist data accross clouds. Nebulous uses [rclone](https://rclone.org/) to sync data between clouds backed by an object storage provider.
+
+```yaml
+volumes:
+  - source: s3://foo/bar
+    destination: /quz/baz
+    bidirectional: true
+    continuous: true
+```
 
 ### Organizations
 
@@ -122,6 +122,45 @@ meters:
     currency: USD
     metric: runtime 
 ```
+
+### Clusters [in progress]
+
+Clusters provide a means of multi-node training/inference.
+
+```yaml
+kind: Cluster
+metadata:
+  name: pytorch-test
+  namespace: foo
+container:
+  image: pytorch/pytorch:latest
+  command: "echo $NODES && torchrun ..."
+  platform: runpod
+  env_vars:
+    - key: HELLO
+      value: world
+  volumes:
+    - source: s3://foo/bar
+      destination: /quz/baz
+      bidirectional: true
+      continuous: true
+  accelerators:
+    - "8:A100"
+num_nodes: 4
+```
+```sh
+nebu create cluster -f examples/cluster.yaml
+```
+
+Each container will get a `$NODES` env var which contains the IP addresses of the nodes in the cluster. Clusters always aim to schedule nodes as close to each other as possible, with as fast of networking as available.
+
+### Services [in progress]
+
+Services provide a means to expose containers on a stable IP address.
+
+### Namespaces [in progress]
+
+Namespaces provide a means to segregate groups of resources across clouds. Resources within a given namespace are network isolated using [Tailnet](https://tailscale.com/kb/1136/tailnet), and can be accessed by simply using thier name as the hostname e.g. `http://foo:8080`.
 
 ## Contributing
 

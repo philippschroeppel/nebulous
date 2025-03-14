@@ -1,6 +1,6 @@
 [package]
 name = "nebulous"
-version = "0.1.19"
+version = "0.1.20"
 edition = "2021"
 description = "A Rust library for nebulous operations"
 license = "MIT"
@@ -60,3 +60,4 @@ thiserror = "2.0.12"
 aws-config = "1.5.18"
 aws-sdk-sts = "1.62.0"
 aws-sdk-iam = "1.64.0"
+tempfile = "3.19.0"
