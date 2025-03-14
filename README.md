@@ -31,7 +31,7 @@ env_vars:
     value: world
 volumes:
   - source: s3://foo/bar
-    destination: /quz/baz
+    dest: /quz/baz
     bidirectional: true
     continuous: true
 accelerators:
@@ -93,7 +93,7 @@ Volumes provide a means to persist data accross clouds. Nebulous uses [rclone](h
 ```yaml
 volumes:
   - source: s3://foo/bar
-    destination: /quz/baz
+    dest: /quz/baz
     bidirectional: true
     continuous: true
 ```
@@ -113,7 +113,7 @@ nebu create container \
 
 ### Meters
 
-Nebulous natively supports metered billing through [OpenMeter](https://openmeter.cloud/) using the `meters` field.
+Metered billing is supported through [OpenMeter](https://openmeter.cloud/) using the `meters` field.
 
 ```yaml
 meters:
@@ -125,7 +125,7 @@ meters:
 
 ### Clusters [in progress]
 
-Clusters provide a means of multi-node training/inference.
+Clusters provide a means of multi-node training and inference.
 
 ```yaml
 kind: Cluster
@@ -141,7 +141,7 @@ container:
       value: world
   volumes:
     - source: s3://foo/bar
-      destination: /quz/baz
+      dest: /quz/baz
       bidirectional: true
       continuous: true
   accelerators:
@@ -152,7 +152,9 @@ num_nodes: 4
 nebu create cluster -f examples/cluster.yaml
 ```
 
-Each container will get a `$NODES` env var which contains the IP addresses of the nodes in the cluster. Clusters always aim to schedule nodes as close to each other as possible, with as fast of networking as available.
+Each container will get a `$NODES` env var which contains the IP addresses of the nodes in the cluster.   
+   
+Clusters always aim to schedule nodes as close to each other as possible, with as fast of networking as available.
 
 ### Services [in progress]
 

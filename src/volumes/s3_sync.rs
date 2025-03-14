@@ -11,8 +11,8 @@ pub struct SyncConfig {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SyncPath {
-    pub source_path: String,
-    pub destination_path: String,
+    pub source: String,
+    pub dest: String,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -24,7 +24,7 @@ pub enum SyncDirection {
 impl SyncPath {
     /// Determine the sync direction based on the source and destination paths
     pub fn get_direction(&self) -> SyncDirection {
-        if self.source_path.starts_with("s3://") {
+        if self.source.starts_with("s3://") {
             SyncDirection::DownloadFromS3
         } else {
             SyncDirection::UploadToS3
@@ -73,11 +73,8 @@ impl SyncConfig {
     }
 
     /// Add a new path to the sync configuration
-    pub fn add_path(&mut self, source_path: String, destination_path: String) {
-        self.paths.push(SyncPath {
-            source_path,
-            destination_path,
-        });
+    pub fn add_path(&mut self, source: String, dest: String) {
+        self.paths.push(SyncPath { source, dest });
     }
 
     /// Remove a path from the sync configuration by index
@@ -99,13 +96,7 @@ impl SyncConfig {
     pub fn list_paths(&self) -> Vec<(&String, &String, SyncDirection)> {
         self.paths
             .iter()
-            .map(|path| {
-                (
-                    &path.source_path,
-                    &path.destination_path,
-                    path.get_direction(),
-                )
-            })
+            .map(|path| (&path.source, &path.dest, path.get_direction()))
             .collect()
     }
 }
@@ -170,22 +161,22 @@ pub async fn execute_sync(
             "[{}/{}] Syncing {} to {} ({})",
             index + 1,
             config.paths.len(),
-            path.source_path,
-            path.destination_path,
+            path.source,
+            path.dest,
             direction_str
         );
 
         // Verify source path exists
-        let source_exists = if path.source_path.starts_with("s3://") {
+        let source_exists = if path.source.starts_with("s3://") {
             // For S3 paths, we can't easily check existence here
             // Could add an aws s3 ls check, but for now we'll assume it exists
             true
         } else {
-            Path::new(&path.source_path).exists()
+            Path::new(&path.source).exists()
         };
 
         if !source_exists {
-            println!("Warning: Source path does not exist: {}", path.source_path);
+            println!("Warning: Source path does not exist: {}", path.source);
             continue;
         }
 
@@ -194,15 +185,12 @@ pub async fn execute_sync(
         let output = Command::new("aws")
             .arg("s3")
             .arg("sync")
-            .arg(&path.source_path)
-            .arg(&path.destination_path)
+            .arg(&path.source)
+            .arg(&path.dest)
             .output()?;
 
         if output.status.success() {
-            println!(
-                "Successfully synced {} to {}",
-                path.source_path, path.destination_path
-            );
+            println!("Successfully synced {} to {}", path.source, path.dest);
         } else {
             let error = String::from_utf8_lossy(&output.stderr);
             println!("Failed to sync: {}", error);
@@ -252,8 +240,8 @@ pub fn create_example_config(path: &str) -> Result<(), Box<dyn Error>> {
 /// Add a new path to an existing sync configuration
 pub fn add_sync_path(
     config_path: &str,
-    source_path: String,
-    destination_path: String,
+    source: String,
+    dest: String,
 ) -> Result<(), Box<dyn Error>> {
     // Read the existing config or create a new one if it doesn't exist
     let mut config = if Path::new(config_path).exists() {
@@ -263,21 +251,21 @@ pub fn add_sync_path(
     };
 
     // Determine direction for display purposes
-    let direction_str = if source_path.starts_with("s3://") {
+    let direction_str = if source.starts_with("s3://") {
         "Download from S3"
     } else {
         "Upload to S3"
     };
 
     // Add the new path
-    config.add_path(source_path.clone(), destination_path.clone());
+    config.add_path(source.clone(), dest.clone());
 
     // Write the updated config back to the file
     config.write_to_file(config_path)?;
 
     println!(
         "Added sync path: {} -> {} ({})",
-        source_path, destination_path, direction_str
+        source, dest, direction_str
     );
     Ok(())
 }
@@ -291,8 +279,8 @@ pub fn remove_sync_path(config_path: &str, index: usize) -> Result<(), Box<dyn E
     let path_to_remove = if index < config.paths.len() {
         // Clone the strings to avoid the borrow conflict
         Some((
-            config.paths[index].source_path.clone(),
-            config.paths[index].destination_path.clone(),
+            config.paths[index].source.clone(),
+            config.paths[index].dest.clone(),
         ))
     } else {
         None

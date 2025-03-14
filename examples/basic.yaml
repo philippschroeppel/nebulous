@@ -11,8 +11,8 @@ env_vars:
   - key: HELLO
     value: world
 volumes:
-  - source_path: s3://nebulous-rs/test
-    destination_path: /nebu/test
+  - source: s3://nebulous-rs/test
+    dest: /nebu/test
     bidirectional: true
     continuous: true
 accelerators:
@@ -22,3 +22,4 @@ meters:
     unit: second
     metric: runtime
     currency: USD
+restart: Never

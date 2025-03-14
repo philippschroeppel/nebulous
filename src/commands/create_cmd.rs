@@ -25,8 +25,8 @@ pub async fn create_container(
         {
             Some(V1VolumeConfig {
                 paths: vec![V1VolumePath {
-                    source_path: source.clone(),
-                    destination_path: destination.clone(),
+                    source: source.clone(),
+                    dest: destination.clone(),
                     resync: command.volume_resync,
                     bidirectional: command.volume_bidirectional,
                     continuous: command.volume_continuous,

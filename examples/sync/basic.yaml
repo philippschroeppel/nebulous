@@ -1,0 +1,10 @@
+cache_dir: /nebu/cache
+paths:
+  - source: s3://nebulous-rs/test-dir1
+    dest: /test/test-dir1
+    bidirectional: true
+    resync: true
+    continuous: true
+symlinks:
+  - source: /test-dir1
+    symlink_path: /test-dir1-symlink

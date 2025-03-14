@@ -355,29 +355,29 @@ impl RunpodPlatform {
 
         for path in model {
             // Check if destination path is local (not starting with s3:// or other remote protocol)
-            let is_local_destination = !path.destination_path.starts_with("s3://")
-                && !path.destination_path.starts_with("gs://")
-                && !path.destination_path.starts_with("azure://");
+            let is_local_destination = !path.dest.starts_with("s3://")
+                && !path.dest.starts_with("gs://")
+                && !path.dest.starts_with("azure://");
 
-            let destination_path = if is_local_destination {
+            let dest = if is_local_destination {
                 // For local paths, we'll sync to cache directory instead
-                let path_without_leading_slash = path.destination_path.trim_start_matches('/');
+                let path_without_leading_slash = path.dest.trim_start_matches('/');
                 let cache_path = format!("{}/{}", cache_dir, path_without_leading_slash);
 
                 // Add a symlink from the cache path to the original destination path
                 symlinks.push(SymlinkConfig {
-                    source_path: cache_path.clone(),
-                    symlink_path: path.destination_path.clone(),
+                    source: cache_path.clone(),
+                    symlink_path: path.dest.clone(),
                 });
 
                 cache_path
             } else {
-                path.destination_path
+                path.dest
             };
 
             let volume_path = VolumePath {
-                source_path: path.source_path,
-                destination_path: destination_path,
+                source: path.source,
+                dest: dest,
                 resync: path.resync,
                 bidirectional: path.bidirectional,
                 continuous: path.continuous,

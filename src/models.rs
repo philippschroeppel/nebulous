@@ -127,8 +127,8 @@ pub struct V1VolumeConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct V1VolumePath {
-    pub source_path: String,
-    pub destination_path: String,
+    pub source: String,
+    pub dest: String,
     #[serde(default)]
     pub resync: bool,
     #[serde(default = "default_bidirectional")]

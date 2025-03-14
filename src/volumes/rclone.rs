@@ -21,14 +21,14 @@ pub struct VolumeConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SymlinkConfig {
-    pub source_path: String,
+    pub source: String,
     pub symlink_path: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct VolumePath {
-    pub source_path: String,
-    pub destination_path: String,
+    pub source: String,
+    pub dest: String,
     #[serde(default)]
     pub resync: bool,
     #[serde(default = "default_bidirectional")]
@@ -99,15 +99,15 @@ impl VolumeConfig {
     /// Add a new path to the sync configuration
     pub fn add_path(
         &mut self,
-        source_path: String,
-        destination_path: String,
+        source: String,
+        dest: String,
         resync: bool,
         bidirectional: bool,
         continuous: bool,
     ) {
         self.paths.push(VolumePath {
-            source_path,
-            destination_path,
+            source,
+            dest,
             resync,
             bidirectional,
             continuous,
@@ -135,8 +135,8 @@ impl VolumeConfig {
             .iter()
             .map(|path| {
                 (
-                    &path.source_path,
-                    &path.destination_path,
+                    &path.source,
+                    &path.dest,
                     path.resync,
                     path.bidirectional,
                     path.continuous,
@@ -148,31 +148,26 @@ impl VolumeConfig {
     /// Add a symlink configuration
     pub fn add_symlink_config(
         &mut self,
-        source_path: String,
+        source: String,
         symlink_path: String,
     ) -> Result<(), Box<dyn Error>> {
         // Check if the source path exists in the configuration
-        let source_exists = self
-            .paths
-            .iter()
-            .any(|path| path.source_path == source_path);
+        let source_exists = self.paths.iter().any(|path| path.source == source);
 
         if !source_exists {
             return Err(format!(
                 "Source path '{}' does not exist in the configuration",
-                source_path
+                source
             )
             .into());
         }
 
         // Check if we already have a symlink config for this source path
         for symlink_config in &self.symlinks {
-            if symlink_config.source_path == source_path
-                && symlink_config.symlink_path == symlink_path
-            {
+            if symlink_config.source == source && symlink_config.symlink_path == symlink_path {
                 return Err(format!(
                     "Symlink from '{}' to '{}' already exists",
-                    source_path, symlink_path
+                    source, symlink_path
                 )
                 .into());
             }
@@ -180,7 +175,7 @@ impl VolumeConfig {
 
         // Create a new symlink config
         self.symlinks.push(SymlinkConfig {
-            source_path,
+            source,
             symlink_path,
         });
 
@@ -190,38 +185,35 @@ impl VolumeConfig {
     /// Remove a symlink from the configuration
     pub fn remove_symlink(
         &mut self,
-        source_path: &str,
+        source: &str,
         symlink_path: &str,
     ) -> Result<(), Box<dyn Error>> {
-        let position = self.symlinks.iter().position(|config| {
-            config.source_path == source_path && config.symlink_path == symlink_path
-        });
+        let position = self
+            .symlinks
+            .iter()
+            .position(|config| config.source == source && config.symlink_path == symlink_path);
 
         if let Some(index) = position {
             self.symlinks.remove(index);
             return Ok(());
         }
 
-        Err(format!(
-            "Symlink from '{}' to '{}' not found",
-            source_path, symlink_path
-        )
-        .into())
+        Err(format!("Symlink from '{}' to '{}' not found", source, symlink_path).into())
     }
 
     /// List all symlinks in the configuration
     pub fn list_all_symlinks(&self) -> Vec<(&str, &str)> {
         self.symlinks
             .iter()
-            .map(|config| (config.source_path.as_str(), config.symlink_path.as_str()))
+            .map(|config| (config.source.as_str(), config.symlink_path.as_str()))
             .collect()
     }
 
     /// Get symlinks for a specific source path
-    pub fn get_symlinks_for_source(&self, source_path: &str) -> Vec<&str> {
+    pub fn get_symlinks_for_source(&self, source: &str) -> Vec<&str> {
         self.symlinks
             .iter()
-            .filter(|config| config.source_path == source_path)
+            .filter(|config| config.source == source)
             .map(|config| config.symlink_path.as_str())
             .collect()
     }
@@ -239,7 +231,7 @@ pub async fn execute_continuous_sync(
     );
     println!("Sync interval: {} seconds", interval_seconds);
 
-    // Map to track running processes: (source_path, destination_path) -> process
+    // Map to track running processes: (source, dest) -> process
     let mut running_processes: HashMap<(String, String), tokio::process::Child> = HashMap::new();
 
     loop {
@@ -271,9 +263,10 @@ pub async fn execute_continuous_sync(
         // Check for removed paths and stop their processes
         let mut paths_to_remove = Vec::new();
         for (path_key, process) in &mut running_processes {
-            let still_exists = current_config.paths.iter().any(|path| {
-                (&path.source_path, &path.destination_path) == (&path_key.0, &path_key.1)
-            });
+            let still_exists = current_config
+                .paths
+                .iter()
+                .any(|path| (&path.source, &path.dest) == (&path_key.0, &path_key.1));
 
             if !still_exists {
                 println!(
@@ -298,7 +291,7 @@ pub async fn execute_continuous_sync(
                 continue;
             }
 
-            let path_key = (path.source_path.clone(), path.destination_path.clone());
+            let path_key = (path.source.clone(), path.dest.clone());
 
             // Check if this path needs a new process (new path or resync requested)
             let needs_new_process = path.resync || !running_processes.contains_key(&path_key);
@@ -318,10 +311,7 @@ pub async fn execute_continuous_sync(
                 // Start a new process for this path
                 match start_sync_process(path, &current_config.cache_dir).await {
                     Ok(process) => {
-                        println!(
-                            "Started sync process for {} ⟷ {}",
-                            path.source_path, path.destination_path
-                        );
+                        println!("Started sync process for {} ⟷ {}", path.source, path.dest);
                         running_processes.insert(path_key, process);
 
                         // If this was a resync operation, mark it as completed
@@ -329,9 +319,7 @@ pub async fn execute_continuous_sync(
                             // Update the config to set resync to false
                             let mut updated_config = current_config.clone();
                             for p in &mut updated_config.paths {
-                                if p.source_path == path.source_path
-                                    && p.destination_path == path.destination_path
-                                {
+                                if p.source == path.source && p.dest == path.dest {
                                     p.resync = false;
                                 }
                             }
@@ -344,7 +332,7 @@ pub async fn execute_continuous_sync(
                     Err(e) => {
                         println!(
                             "Failed to start sync process for {} ⟷ {}: {}",
-                            path.source_path, path.destination_path, e
+                            path.source, path.dest, e
                         );
                     }
                 }
@@ -370,23 +358,23 @@ async fn start_sync_process(
     let mut cmd = TokioCommand::new("rclone");
 
     // Normalize S3 paths
-    let source_path = normalize_s3_path(&path.source_path);
-    let destination_path = normalize_s3_path(&path.destination_path);
+    let source = normalize_s3_path(&path.source);
+    let dest = normalize_s3_path(&path.dest);
 
     // Create source and destination directories if they don't exist
-    ensure_path_exists(&source_path).await?;
-    ensure_path_exists(&destination_path).await?;
+    ensure_path_exists(&source).await?;
+    ensure_path_exists(&dest).await?;
 
     if path.bidirectional {
         // Use bisync for bidirectional sync
         cmd.arg("bisync");
-        cmd.arg(&source_path);
-        cmd.arg(&destination_path);
+        cmd.arg(&source);
+        cmd.arg(&dest);
     } else {
         // Use sync for unidirectional sync
         cmd.arg("sync");
-        cmd.arg(&source_path);
-        cmd.arg(&destination_path);
+        cmd.arg(&source);
+        cmd.arg(&dest);
     }
 
     // Add resync flag if needed and it's a bidirectional sync
@@ -467,29 +455,29 @@ pub async fn execute_sync(
             index + 1,
             config.paths.len(),
             sync_type,
-            path.source_path,
-            path.destination_path
+            path.source,
+            path.dest
         );
 
         // Normalize S3 paths
-        let source_path = normalize_s3_path(&path.source_path);
-        let destination_path = normalize_s3_path(&path.destination_path);
+        let source = normalize_s3_path(&path.source);
+        let dest = normalize_s3_path(&path.dest);
 
         // Create source and destination directories if they don't exist
-        ensure_path_exists(&source_path).await?;
-        ensure_path_exists(&destination_path).await?;
+        ensure_path_exists(&source).await?;
+        ensure_path_exists(&dest).await?;
 
         // Build the rclone command
         let mut cmd = Command::new("rclone");
 
         // Normalize S3 paths
-        let source_path = normalize_s3_path(&path.source_path);
-        let destination_path = normalize_s3_path(&path.destination_path);
+        let source = normalize_s3_path(&path.source);
+        let dest = normalize_s3_path(&path.dest);
 
         if path.bidirectional {
             cmd.arg("bisync");
-            cmd.arg(&source_path);
-            cmd.arg(&destination_path);
+            cmd.arg(&source);
+            cmd.arg(&dest);
 
             // Add --resync flag if needed
             if path.resync {
@@ -500,8 +488,8 @@ pub async fn execute_sync(
             cmd.arg("--force");
         } else {
             cmd.arg("sync");
-            cmd.arg(&source_path);
-            cmd.arg(&destination_path);
+            cmd.arg(&source);
+            cmd.arg(&dest);
         }
 
         // Add common options
@@ -518,7 +506,7 @@ pub async fn execute_sync(
         if output.status.success() {
             println!(
                 "Successfully synced between {} and {}",
-                path.source_path, path.destination_path
+                path.source, path.dest
             );
 
             // If this was a resync operation, mark it as completed
@@ -543,8 +531,8 @@ pub async fn execute_sync(
                 // Create a new command with --resync flag
                 let mut resync_cmd = Command::new("rclone");
                 resync_cmd.arg("bisync");
-                resync_cmd.arg(&source_path);
-                resync_cmd.arg(&destination_path);
+                resync_cmd.arg(&source);
+                resync_cmd.arg(&dest);
                 resync_cmd.arg("--resync");
                 resync_cmd.arg("--force");
                 resync_cmd.arg("--verbose");
@@ -556,10 +544,7 @@ pub async fn execute_sync(
                 // Execute the resync command
                 let resync_output = resync_cmd.output()?;
                 if resync_output.status.success() {
-                    println!(
-                        "Resync successful between {} and {}",
-                        source_path, destination_path
-                    );
+                    println!("Resync successful between {} and {}", source, dest);
                 } else {
                     let resync_error = String::from_utf8_lossy(&resync_output.stderr);
                     println!("Resync failed: {}", resync_error);
@@ -615,8 +600,8 @@ pub fn create_example_config(path: &str) -> Result<(), Box<dyn Error>> {
 /// Add a new path to an existing sync configuration
 pub fn add_sync_path(
     config_path: &str,
-    source_path: String,
-    destination_path: String,
+    source: String,
+    dest: String,
     bidirectional: bool,
     continuous: bool,
 ) -> Result<(), Box<dyn Error>> {
@@ -630,8 +615,8 @@ pub fn add_sync_path(
     // Add the new path with resync set to true for initial bidirectional sync
     let resync = bidirectional; // Only set resync true if bidirectional
     config.add_path(
-        source_path.clone(),
-        destination_path.clone(),
+        source.clone(),
+        dest.clone(),
         resync,
         bidirectional,
         continuous,
@@ -649,7 +634,7 @@ pub fn add_sync_path(
 
     println!(
         "Added {} {} sync path between {} and {}",
-        sync_type, sync_mode, source_path, destination_path
+        sync_type, sync_mode, source, dest
     );
     Ok(())
 }
@@ -663,8 +648,8 @@ pub fn remove_sync_path(config_path: &str, index: usize) -> Result<(), Box<dyn E
     let path_to_remove = if index < config.paths.len() {
         // Clone the strings to avoid the borrow conflict
         Some((
-            config.paths[index].source_path.clone(),
-            config.paths[index].destination_path.clone(),
+            config.paths[index].source.clone(),
+            config.paths[index].dest.clone(),
         ))
     } else {
         None
@@ -732,8 +717,8 @@ pub fn add_symlink_to_path(
     let mut config = VolumeConfig::read_from_file(config_path)?;
 
     // Add the symlink to the configuration
-    let source_path = config.paths[path_index].source_path.clone();
-    config.add_symlink_config(source_path, symlink_path.to_string())?;
+    let source = config.paths[path_index].source.clone();
+    config.add_symlink_config(source, symlink_path.to_string())?;
 
     // Write the updated config back to the file
     config.write_to_file(config_path)?;
@@ -758,13 +743,13 @@ pub fn remove_symlink_from_path(
     if path_index >= config.paths.len() {
         return Err(format!("Path index {} out of bounds", path_index).into());
     }
-    let source_path = config.paths[path_index].source_path.clone();
+    let source = config.paths[path_index].source.clone();
 
     // Find all symlinks for this source path
     let matching_symlinks: Vec<_> = config
         .symlinks
         .iter()
-        .filter(|s| s.source_path == source_path)
+        .filter(|s| s.source == source)
         .collect();
 
     if symlink_index >= matching_symlinks.len() {
@@ -775,7 +760,7 @@ pub fn remove_symlink_from_path(
     let symlink_path = matching_symlinks[symlink_index].symlink_path.clone();
 
     // Remove the symlink
-    config.remove_symlink(&source_path, &symlink_path)?;
+    config.remove_symlink(&source, &symlink_path)?;
 
     // Write the updated config back to the file
     config.write_to_file(config_path)?;
@@ -796,10 +781,10 @@ pub fn list_symlinks_for_path(config_path: &str, path_index: usize) -> Result<()
     if path_index >= config.paths.len() {
         return Err(format!("Path index {} out of bounds", path_index).into());
     }
-    let source_path = &config.paths[path_index].source_path;
+    let source = &config.paths[path_index].source;
 
     // Get the symlinks for the specified path
-    let symlinks = config.get_symlinks_for_source(source_path);
+    let symlinks = config.get_symlinks_for_source(source);
 
     if symlinks.is_empty() {
         println!("No symlinks found for path index {}", path_index);
@@ -825,10 +810,10 @@ pub fn create_symlinks_from_config(config_path: &str) -> Result<(), Box<dyn Erro
     // Process each symlink configuration
     for symlink_config in &config.symlinks {
         // Skip remote paths
-        if symlink_config.source_path.contains(":") {
+        if symlink_config.source.contains(":") {
             println!(
                 "Skipping symlink for remote path: {}",
-                symlink_config.source_path
+                symlink_config.source
             );
             continue;
         }
@@ -870,23 +855,20 @@ pub fn create_symlinks_from_config(config_path: &str) -> Result<(), Box<dyn Erro
         let result = {
             #[cfg(unix)]
             {
-                std::os::unix::fs::symlink(
-                    &symlink_config.source_path,
-                    &symlink_config.symlink_path,
-                )
+                std::os::unix::fs::symlink(&symlink_config.source, &symlink_config.symlink_path)
             }
             #[cfg(windows)]
             {
-                match fs::metadata(&symlink_config.source_path) {
+                match fs::metadata(&symlink_config.source) {
                     Ok(metadata) => {
                         if metadata.is_dir() {
                             std::os::windows::fs::symlink_dir(
-                                &symlink_config.source_path,
+                                &symlink_config.source,
                                 &symlink_config.symlink_path,
                             )
                         } else {
                             std::os::windows::fs::symlink_file(
-                                &symlink_config.source_path,
+                                &symlink_config.source,
                                 &symlink_config.symlink_path,
                             )
                         }
@@ -900,14 +882,14 @@ pub fn create_symlinks_from_config(config_path: &str) -> Result<(), Box<dyn Erro
             Ok(_) => {
                 println!(
                     "Created symlink from {} to {}",
-                    symlink_config.source_path, symlink_config.symlink_path
+                    symlink_config.source, symlink_config.symlink_path
                 );
                 created_count += 1;
             }
             Err(e) => {
                 println!(
                     "Failed to create symlink from {} to {}: {}",
-                    symlink_config.source_path, symlink_config.symlink_path, e
+                    symlink_config.source, symlink_config.symlink_path, e
                 );
                 error_count += 1;
             }
@@ -924,38 +906,38 @@ pub fn create_symlinks_from_config(config_path: &str) -> Result<(), Box<dyn Erro
 /// Add a symlink to the configuration
 pub fn add_symlink(
     config_path: &str,
-    source_path: &str,
+    source: &str,
     symlink_path: &str,
 ) -> Result<(), Box<dyn Error>> {
     // Read the existing config
     let mut config = VolumeConfig::read_from_file(config_path)?;
 
     // Add the symlink to the configuration
-    config.add_symlink_config(source_path.to_string(), symlink_path.to_string())?;
+    config.add_symlink_config(source.to_string(), symlink_path.to_string())?;
 
     // Write the updated config back to the file
     config.write_to_file(config_path)?;
 
-    println!("Added symlink from {} to {}", source_path, symlink_path);
+    println!("Added symlink from {} to {}", source, symlink_path);
     Ok(())
 }
 
 /// Remove a symlink from the configuration
 pub fn remove_symlink(
     config_path: &str,
-    source_path: &str,
+    source: &str,
     symlink_path: &str,
 ) -> Result<(), Box<dyn Error>> {
     // Read the existing config
     let mut config = VolumeConfig::read_from_file(config_path)?;
 
     // Remove the symlink from the configuration
-    config.remove_symlink(source_path, symlink_path)?;
+    config.remove_symlink(source, symlink_path)?;
 
     // Write the updated config back to the file
     config.write_to_file(config_path)?;
 
-    println!("Removed symlink from {} to {}", source_path, symlink_path);
+    println!("Removed symlink from {} to {}", source, symlink_path);
     Ok(())
 }
 
@@ -972,29 +954,26 @@ pub fn list_symlinks(config_path: &str) -> Result<(), Box<dyn Error>> {
     }
 
     println!("Symlinks in the configuration:");
-    for (i, (source_path, symlink_path)) in all_symlinks.iter().enumerate() {
-        println!("[{}] {} -> {}", i, source_path, symlink_path);
+    for (i, (source, symlink_path)) in all_symlinks.iter().enumerate() {
+        println!("[{}] {} -> {}", i, source, symlink_path);
     }
 
     Ok(())
 }
 
 /// List symlinks for a specific source path
-pub fn list_symlinks_for_source(
-    config_path: &str,
-    source_path: &str,
-) -> Result<(), Box<dyn Error>> {
+pub fn list_symlinks_for_source(config_path: &str, source: &str) -> Result<(), Box<dyn Error>> {
     // Read the existing config
     let config = VolumeConfig::read_from_file(config_path)?;
 
-    let symlinks = config.get_symlinks_for_source(source_path);
+    let symlinks = config.get_symlinks_for_source(source);
 
     if symlinks.is_empty() {
-        println!("No symlinks found for source path: {}", source_path);
+        println!("No symlinks found for source path: {}", source);
         return Ok(());
     }
 
-    println!("Symlinks for source path: {}", source_path);
+    println!("Symlinks for source path: {}", source);
     for (i, symlink_path) in symlinks.iter().enumerate() {
         println!("[{}] {}", i, symlink_path);
     }
@@ -1050,29 +1029,29 @@ pub async fn execute_non_continuous_sync(
             index + 1,
             once_paths.len(),
             sync_type,
-            path.source_path,
-            path.destination_path
+            path.source,
+            path.dest
         );
 
         // Normalize S3 paths
-        let source_path = normalize_s3_path(&path.source_path);
-        let destination_path = normalize_s3_path(&path.destination_path);
+        let source = normalize_s3_path(&path.source);
+        let dest = normalize_s3_path(&path.dest);
 
         // Create source and destination directories if they don't exist
-        ensure_path_exists(&source_path).await?;
-        ensure_path_exists(&destination_path).await?;
+        ensure_path_exists(&source).await?;
+        ensure_path_exists(&dest).await?;
 
         // Build the rclone command
         let mut cmd = Command::new("rclone");
 
         // Normalize S3 paths
-        let source_path = normalize_s3_path(&path.source_path);
-        let destination_path = normalize_s3_path(&path.destination_path);
+        let source = normalize_s3_path(&path.source);
+        let dest = normalize_s3_path(&path.dest);
 
         if path.bidirectional {
             cmd.arg("bisync");
-            cmd.arg(&source_path);
-            cmd.arg(&destination_path);
+            cmd.arg(&source);
+            cmd.arg(&dest);
 
             if path.resync {
                 cmd.arg("--resync");
@@ -1082,8 +1061,8 @@ pub async fn execute_non_continuous_sync(
             cmd.arg("--force");
         } else {
             cmd.arg("sync");
-            cmd.arg(&source_path);
-            cmd.arg(&destination_path);
+            cmd.arg(&source);
+            cmd.arg(&dest);
         }
 
         // Add common options
@@ -1098,17 +1077,16 @@ pub async fn execute_non_continuous_sync(
         // Execute the command
         let output = cmd.output()?;
         if output.status.success() {
-            println!(
-                "Successfully synced between {} and {}",
-                source_path, destination_path
-            );
+            println!("Successfully synced between {} and {}", source, dest);
 
             // If this was a resync operation, mark it as completed
             if path.resync && path.bidirectional {
                 // Find the index in the original config
-                if let Some(original_index) = config.paths.iter().position(|p| {
-                    p.source_path == path.source_path && p.destination_path == path.destination_path
-                }) {
+                if let Some(original_index) = config
+                    .paths
+                    .iter()
+                    .position(|p| p.source == path.source && p.dest == path.dest)
+                {
                     // Read the config again to get the latest version
                     let mut updated_config = VolumeConfig::read_from_file(config_path)?;
                     if original_index < updated_config.paths.len() {
@@ -1130,8 +1108,8 @@ pub async fn execute_non_continuous_sync(
                 // Create a new command with --resync flag
                 let mut resync_cmd = Command::new("rclone");
                 resync_cmd.arg("bisync");
-                resync_cmd.arg(&source_path);
-                resync_cmd.arg(&destination_path);
+                resync_cmd.arg(&source);
+                resync_cmd.arg(&dest);
                 resync_cmd.arg("--resync");
                 resync_cmd.arg("--force");
                 resync_cmd.arg("--verbose");
@@ -1143,10 +1121,7 @@ pub async fn execute_non_continuous_sync(
                 // Execute the resync command
                 let resync_output = resync_cmd.output()?;
                 if resync_output.status.success() {
-                    println!(
-                        "Resync successful between {} and {}",
-                        source_path, destination_path
-                    );
+                    println!("Resync successful between {} and {}", source, dest);
                 } else {
                     let resync_error = String::from_utf8_lossy(&resync_output.stderr);
                     println!("Resync failed: {}", resync_error);
@@ -1177,9 +1152,9 @@ pub fn has_overlapping_s3_bidirectional_sync(
         .iter()
         .filter(|path| {
             path.bidirectional
-                && (path.source_path.starts_with("s3://") || path.source_path.starts_with("s3:"))
+                && (path.source.starts_with("s3://") || path.source.starts_with("s3:"))
         })
-        .map(|path| normalize_s3_path(&path.source_path))
+        .map(|path| normalize_s3_path(&path.source))
         .collect();
 
     let config2_s3_paths: Vec<String> = config2
@@ -1187,9 +1162,9 @@ pub fn has_overlapping_s3_bidirectional_sync(
         .iter()
         .filter(|path| {
             path.bidirectional
-                && (path.source_path.starts_with("s3://") || path.source_path.starts_with("s3:"))
+                && (path.source.starts_with("s3://") || path.source.starts_with("s3:"))
         })
-        .map(|path| normalize_s3_path(&path.source_path))
+        .map(|path| normalize_s3_path(&path.source))
         .collect();
 
     // Check for overlapping paths

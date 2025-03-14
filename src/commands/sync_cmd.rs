@@ -4,12 +4,12 @@ use std::error::Error;
 // Example config
 //---
 // paths:
-//   - source_path: "/path/to/local/directory1"
-//     destination_path: "s3://your-bucket/directory1"
-//   - source_path: "/path/to/local/directory2"
-//     destination_path: "s3://your-bucket/directory2"
-//   - source_path: "/path/to/local/file.txt"
-//     destination_path: "s3://your-bucket/file.txt"
+//   - source: "/path/to/local/directory1"
+//     dest: "s3://your-bucket/directory1"
+//   - source: "/path/to/local/directory2"
+//     dest: "s3://your-bucket/directory2"
+//   - source: "/path/to/local/file.txt"
+//     dest: "s3://your-bucket/file.txt"
 
 pub async fn execute_sync(
     config_path: String,
