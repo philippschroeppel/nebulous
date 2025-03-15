@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
 use std::collections::HashMap;
 
-use crate::models::{V1Container, V1ContainerStatus, V1EnvVar, V1Meter, V1VolumePath};
+use crate::models::{
+    V1Container, V1ContainerResources, V1ContainerStatus, V1EnvVar, V1Meter, V1VolumePath,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "containers")]
@@ -29,6 +31,7 @@ pub struct Model {
     pub labels: Option<Json>,
     pub meters: Option<Json>,
     pub queue: Option<String>,
+    pub resources: Option<Json>,
     pub restart: String,
     pub public_ip: Option<String>,
     pub private_ip: Option<String>,
@@ -104,6 +107,15 @@ impl Model {
         }
     }
 
+    /// Attempt to parse `resources` into a `V1ContainerResources`.
+    pub fn parse_resources(&self) -> Result<Option<V1ContainerResources>, serde_json::Error> {
+        if let Some(json_value) = &self.resources {
+            serde_json::from_value(json_value.clone()).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Construct a full V1Container from the current model row.
     /// Returns a serde_json Error if any JSON parsing in subfields fails.
     pub fn to_v1_container(&self) -> Result<V1Container, serde_json::Error> {
@@ -112,7 +124,7 @@ impl Model {
         let status = self.parse_status()?;
         let labels = self.parse_labels()?;
         let meters = self.parse_meters()?;
-
+        let resources = self.parse_resources()?;
         // Build metadata; fill with defaults or unwrap as needed
         let metadata = crate::models::V1ContainerMeta {
             name: self.name.clone(),
@@ -138,6 +150,7 @@ impl Model {
             restart: self.restart.clone(),
             queue: self.queue.clone(),
             status,
+            resources,
         };
 
         Ok(container)

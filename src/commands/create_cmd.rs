@@ -1,7 +1,7 @@
 use nebulous::config::GlobalConfig;
 use nebulous::models::{
-    RestartPolicy, V1ContainerMetaRequest, V1ContainerRequest, V1EnvVar, V1Meter, V1VolumeConfig,
-    V1VolumePath,
+    RestartPolicy, V1ContainerMetaRequest, V1ContainerRequest, V1ContainerResources, V1EnvVar,
+    V1Meter, V1VolumeConfig, V1VolumePath,
 };
 use reqwest::Client;
 use serde_json::Value;
@@ -84,6 +84,12 @@ pub async fn create_container(
             meters: meters,
             restart: command.restart.unwrap_or(RestartPolicy::Always.to_string()),
             queue: command.queue,
+            resources: Some(V1ContainerResources {
+                min_cpu: command.min_cpu,
+                min_memory: command.min_memory,
+                max_cpu: command.max_cpu,
+                max_memory: command.max_memory,
+            }),
         }
     };
 

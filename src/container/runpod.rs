@@ -896,6 +896,7 @@ impl ContainerPlatform for RunpodPlatform {
             })),
             restart: Set(config.restart.clone()),
             queue: Set(config.queue.clone()),
+            resources: Set(config.resources.clone().map(|resources| serde_json::json!(resources))),
             desired_status: Set(Some(ContainerStatus::Running.to_string())),
             public_ip: Set(None),
             private_ip: Set(None),
@@ -948,6 +949,7 @@ impl ContainerPlatform for RunpodPlatform {
                 message: None,
             }),
             restart: config.restart.clone(),
+            resources: config.resources.clone(),
         })
     }
 

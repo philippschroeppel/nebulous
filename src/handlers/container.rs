@@ -87,6 +87,9 @@ pub async fn get_container(
             .and_then(|v| serde_json::from_value(v).ok()),
         restart: container.restart,
         queue: container.queue,
+        resources: container
+            .resources
+            .and_then(|v| serde_json::from_value(v).ok()),
     };
 
     Ok(Json(out_container))
@@ -150,6 +153,7 @@ pub async fn list_containers(
             status: c.status.and_then(|v| serde_json::from_value(v).ok()),
             restart: c.restart,
             queue: c.queue,
+            resources: c.resources.and_then(|v| serde_json::from_value(v).ok()),
         })
         .collect();
 

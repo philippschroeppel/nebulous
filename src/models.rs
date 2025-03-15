@@ -48,6 +48,7 @@ pub struct V1ContainerRequest {
     pub command: Option<String>,
     pub volumes: Option<Vec<V1VolumePath>>,
     pub accelerators: Option<Vec<String>>,
+    pub resources: Option<V1ContainerResources>,
     pub meters: Option<Vec<V1Meter>>,
     #[serde(default = "default_restart")]
     pub restart: String,
@@ -70,6 +71,14 @@ impl fmt::Display for RestartPolicy {
             RestartPolicy::Never => write!(f, "Never"),
         }
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct V1ContainerResources {
+    pub min_cpu: Option<f64>,
+    pub min_memory: Option<f64>,
+    pub max_cpu: Option<f64>,
+    pub max_memory: Option<f64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -103,6 +112,7 @@ pub struct V1Container {
     pub meters: Option<Vec<V1Meter>>,
     pub restart: String,
     pub queue: Option<String>,
+    pub resources: Option<V1ContainerResources>,
     pub status: Option<V1ContainerStatus>,
 }
 // Add this function to provide a default kind value
@@ -124,6 +134,7 @@ pub struct V1UpdateContainer {
     pub meters: Option<Vec<V1Meter>>,
     pub restart: Option<String>,
     pub queue: Option<String>,
+    pub resources: Option<V1ContainerResources>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

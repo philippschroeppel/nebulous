@@ -519,6 +519,10 @@ impl ContainerPlatform for KubePlatform {
                                 controller_data: Set(None),
                                 public_ip: Set(None),
                                 private_ip: Set(None),
+                                resources: Set(config
+                                    .resources
+                                    .clone()
+                                    .map(|resources| serde_json::json!(resources))),
                                 labels: Set(config
                                     .metadata
                                     .as_ref()
@@ -594,6 +598,7 @@ impl ContainerPlatform for KubePlatform {
                 message: None,
             }),
             restart: config.restart.clone(),
+            resources: config.resources.clone(),
         })
     }
 

@@ -162,7 +162,9 @@ Services provide a means to expose containers on a stable IP address.
 
 ### Namespaces [in progress]
 
-Namespaces provide a means to segregate groups of resources across clouds. Resources within a given namespace are network isolated using [Tailnet](https://tailscale.com/kb/1136/tailnet), and can be accessed by simply using thier name as the hostname e.g. `http://foo:8080`.
+Namespaces provide a means to segregate groups of resources across clouds.   
+   
+Resources within a given namespace are network isolated using [Tailnet](https://tailscale.com/kb/1136/tailnet), and can be accessed by simply using thier name as the hostname e.g. `http://foo:8080`.
 
 ## Contributing
 

@@ -171,6 +171,22 @@ pub struct ContainerCommands {
     /// Queue to run the container in
     #[arg(long)]
     pub queue: Option<String>,
+
+    /// Minimum CPU
+    #[arg(long)]
+    pub min_cpu: Option<f64>,
+
+    /// Minimum memory
+    #[arg(long)]
+    pub min_memory: Option<f64>,
+
+    /// Maximum CPU
+    #[arg(long)]
+    pub max_cpu: Option<f64>,
+
+    /// Maximum memory
+    #[arg(long)]
+    pub max_memory: Option<f64>,
 }
 
 /// Parse a key-value pair in the format of KEY=VALUE
