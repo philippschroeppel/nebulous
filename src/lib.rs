@@ -3,6 +3,7 @@
 pub mod accelerator;
 pub mod auth;
 pub mod cli;
+pub mod clusters;
 pub mod config;
 pub mod container;
 pub mod db;

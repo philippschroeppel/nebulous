@@ -1,7 +1,7 @@
 // src/query.rs
 use crate::entities::containers;
 use crate::models::V1ContainerStatus;
-use sea_orm::sea_query::Expr;
+use sea_orm::sea_query::{Expr, Func};
 use sea_orm::Value;
 use sea_orm::*;
 use sea_orm::{ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter};
@@ -97,6 +97,8 @@ impl Query {
         db: &DatabaseConnection,
     ) -> Result<Vec<containers::Model>, DbErr> {
         use crate::container::base::ContainerStatus;
+        use sea_orm::sea_query::{Expr, Func};
+        use sea_orm::{Condition, Value};
 
         // Convert your set of active statuses to strings
         let active_statuses = vec![
@@ -110,20 +112,20 @@ impl Query {
             ContainerStatus::Created.to_string(),
         ];
 
-        // Fold the list of acceptable statuses into a single OR condition
-        // This checks the JSON column `status->>'status'`
-        let status_condition = active_statuses.iter().fold(Condition::any(), |cond, s| {
-            cond.add(Expr::cust_with_values(
-                "status->>'status' = ?",
-                vec![Value::String(Some(Box::new(s.to_string())))],
-            ))
-        });
+        // Build a condition for each status and combine them with OR
+        let mut status_condition = Condition::any();
+        for status in active_statuses {
+            status_condition = status_condition.add(Expr::cust_with_values(
+                "status->>'status' = $1",
+                [Value::from(status)],
+            ));
+        }
+
         containers::Entity::find()
             .filter(status_condition)
             .all(db)
             .await
     }
-
     /// Fetches all containers with a specific status
     pub async fn find_containers_by_status(
         db: &DatabaseConnection,

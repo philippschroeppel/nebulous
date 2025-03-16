@@ -1,6 +1,6 @@
 [package]
 name = "nebulous"
-version = "0.1.22"
+version = "0.1.23"
 edition = "2021"
 description = "A Rust library for nebulous operations"
 license = "MIT"
@@ -54,7 +54,7 @@ petname = "2.0.2"
 walkdir = "2.5.0"
 anyhow = "1.0.95"
 schemars = { version = "0.8.21", features = ["derive"] }
-runpod = "0.1.14"
+runpod = "0.1.19"
 axum-extra = { version = "0.10.0" }
 thiserror = "2.0.12"
 aws-config = "1.5.18"
@@ -63,3 +63,5 @@ aws-sdk-iam = "1.64.0"
 tempfile = "3.19.0"
 aes-gcm = "0.10.1"
 dashmap = "6.1.0"
+openmeter = "0.1.2"
+shell-quote = "0.7.2"

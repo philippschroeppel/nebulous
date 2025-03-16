@@ -129,8 +129,8 @@ pub struct ContainerCommands {
     pub volume_destination: Option<String>,
 
     /// Enable bidirectional sync for volume (default: true)
-    #[arg(long, default_value_t = true)]
-    pub volume_bidirectional: bool,
+    #[arg(long, default_value = "RCLONE_SYNC")]
+    pub volume_type: Option<String>,
 
     /// Enable continuous sync for volume (default: true)
     #[arg(long, default_value_t = true)]

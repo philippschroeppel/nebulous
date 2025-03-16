@@ -74,5 +74,15 @@ async fn create_tables(db: &DbPool) -> Result<(), DbErr> {
     )
     .await?;
 
+    // Create secrets table if it doesn't exist
+    db.execute(
+        db.get_database_backend().build(
+            schema
+                .create_table_from_entity(crate::entities::secrets::Entity)
+                .if_not_exists(),
+        ),
+    )
+    .await?;
+
     Ok(())
 }

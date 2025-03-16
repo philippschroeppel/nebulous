@@ -33,6 +33,25 @@ impl Mutation {
         container.update(db).await
     }
 
+    /// Mutation to update the container "pod IP"
+    pub async fn update_container_pod_ip(
+        db: &DatabaseConnection,
+        id: String,
+        pod_ip: Option<String>,
+    ) -> Result<containers::Model, DbErr> {
+        let container = containers::Entity::find_by_id(id)
+            .one(db)
+            .await?
+            .ok_or(DbErr::Custom("Container not found".to_string()))?;
+
+        let mut container: containers::ActiveModel = container.into();
+
+        container.private_ip = Set(pod_ip);
+        container.updated_at = Set(chrono::Utc::now().into());
+
+        container.update(db).await
+    }
+
     // Mutation to update only the container status
     pub async fn update_container_status(
         db: &DatabaseConnection,

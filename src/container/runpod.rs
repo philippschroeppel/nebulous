@@ -1,17 +1,22 @@
 use crate::accelerator::base::AcceleratorProvider;
 use crate::accelerator::runpod::RunPodProvider;
 use crate::container::base::{ContainerPlatform, ContainerStatus};
-use crate::models::{V1Container, V1ContainerRequest, V1UserProfile, V1VolumeConfig, V1VolumePath, V1ContainerStatus, RestartPolicy};
-use crate::volumes::rclone::{SymlinkConfig, VolumeConfig, VolumePath};
 use crate::entities::containers;
+use crate::models::{
+    RestartPolicy, V1Container, V1ContainerRequest, V1ContainerStatus, V1UserProfile,
+    V1VolumeConfig, V1VolumePath,
+};
+use crate::mutation::Mutation;
+use crate::volumes::rclone::{SymlinkConfig, VolumeConfig, VolumePath};
 use petname;
+use reqwest::{Error, StatusCode};
 use runpod::*;
 use sea_orm::{ActiveModelTrait, DatabaseConnection, Set};
+use shell_quote::{Bash, QuoteRefExt};
 use short_uuid::ShortUuid;
 use std::collections::HashMap;
-use crate::mutation::Mutation;
 use std::str::FromStr;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 /// A `TrainingPlatform` implementation that schedules training jobs on RunPod.
 #[derive(Clone)]
@@ -161,25 +166,29 @@ impl RunpodPlatform {
                         "[Runpod Controller] Initial database container for {}: {:?}",
                         container_id, container
                     );
-                    
+
                     // Fix: Parse the status JSON properly
-                    let status = container
-                        .as_ref()
-                        .and_then(|c| c.status.clone())
-                        .and_then(|status_json| {
-                            // Try to extract the status field from the JSON
-                            if let Some(status_obj) = status_json.as_object() {
-                                if let Some(status_value) = status_obj.get("status") {
-                                    if let Some(status_str) = status_value.as_str() {
-                                        return Some(ContainerStatus::from_str(status_str).unwrap_or(ContainerStatus::Pending));
+                    let status =
+                        container
+                            .as_ref()
+                            .and_then(|c| c.status.clone())
+                            .and_then(|status_json| {
+                                // Try to extract the status field from the JSON
+                                if let Some(status_obj) = status_json.as_object() {
+                                    if let Some(status_value) = status_obj.get("status") {
+                                        if let Some(status_str) = status_value.as_str() {
+                                            return Some(
+                                                ContainerStatus::from_str(status_str)
+                                                    .unwrap_or(ContainerStatus::Pending),
+                                            );
+                                        }
                                     }
                                 }
-                            }
-                            None
-                        });
-                        
+                                None
+                            });
+
                     let resource_name = container.as_ref().and_then(|c| c.resource_name.clone());
-        
+
                     (status, resource_name)
                 }
                 Err(e) => {
@@ -193,24 +202,35 @@ impl RunpodPlatform {
 
         info!("[Runpod Controller] Resource name: {:?}", resource_name);
         // Use resource_name from database if available, otherwise use the provided pod_id
-        let pod_id_to_watch = resource_name.clone().unwrap();
-        info!("[Runpod Controller] Using pod ID for watching: {}", pod_id_to_watch);
+        let pod_id_to_watch = resource_name.clone().unwrap_or_default();
+        info!(
+            "[Runpod Controller] Using pod ID for watching: {}",
+            pod_id_to_watch
+        );
 
         let mut consecutive_errors = 0;
         const MAX_ERRORS: usize = 5;
 
         // Poll the pod status every 20 seconds
+        let mut iteration_count = 0;
         loop {
+            iteration_count += 1;
+            debug!(
+                "[DEBUG:runpod.rs:watch] container={} iteration={}",
+                container_id, iteration_count
+            );
+
             match self.runpod_client.get_pod(&pod_id_to_watch).await {
                 Ok(pod_response) => {
+                    debug!(
+                        "[DEBUG:runpod.rs:watch] container={} got pod_response: {:?}",
+                        container_id, pod_response
+                    );
                     consecutive_errors = 0;
 
                     if let Some(pod_info) = pod_response.data {
-                        info!("[Runpod Controller] Pod {} info: {:?}", pod_id_to_watch, pod_info);
-
                         // Extract status information using desired_status field
                         let current_status = match pod_info.desired_status.as_str() {
-                            // ... existing status mapping code ...
                             "RUNNING" => ContainerStatus::Running,
                             "EXITED" => ContainerStatus::Completed,
                             "TERMINATED" => ContainerStatus::Stopped,
@@ -227,8 +247,14 @@ impl RunpodPlatform {
                             }
                         };
 
-                        info!("[Runpod Controller] Current RunPod status: {}", current_status);
-                        info!("[Runpod Controller] Last database status: {:?}", last_status);
+                        info!(
+                            "[Runpod Controller] Current RunPod status: {}",
+                            current_status
+                        );
+                        info!(
+                            "[Runpod Controller] Last database status: {:?}",
+                            last_status
+                        );
 
                         // If status changed, update the database
                         if last_status.as_ref() != Some(&current_status) {
@@ -248,7 +274,7 @@ impl RunpodPlatform {
 
                             // Update the database with the new status using the Mutation struct
                             match crate::mutation::Mutation::update_container_status(
-                                &db,
+                                db,
                                 container_id.to_string(),
                                 current_status.to_string(),
                                 None,
@@ -271,6 +297,17 @@ impl RunpodPlatform {
                                 }
                             }
 
+                            match crate::mutation::Mutation::update_container_pod_ip(
+                                db,
+                                container_id.to_string(),
+                                pod_info.public_ip,
+                            )
+                            .await
+                            {
+                                Ok(_) => {},
+                                Err(e) => error!("[Runpod Controller] Failed to update container pod IP in database: {}", e),
+                            }
+
                             // If the pod is in a terminal state, exit the loop
                             if current_status.is_inactive() {
                                 info!(
@@ -281,36 +318,66 @@ impl RunpodPlatform {
                             }
                         }
                     } else {
-                        error!("[Runpod Controller] No pod data returned for pod {:?}", resource_name);
+                        error!(
+                            "[Runpod Controller] No pod data returned for pod {:?}",
+                            resource_name
+                        );
 
                         // Check if pod was deleted or doesn't exist
                         match self.runpod_client.list_pods().await {
                             Ok(pods_list) => {
                                 if let Some(my_pods) = pods_list.data {
+                                    info!("[Runpod Controller] My pods: {:?}", my_pods);
                                     if !my_pods
                                         .pods
                                         .iter()
                                         .any(|p| &p.id == resource_name.as_ref().unwrap())
                                     {
                                         info!(
-                                            "[Runpod Controller] Pod {:?} no longer exists, marking job as failed",
+                                            "[Runpod Controller] Pod {:?} no longer exists, marking job as completed",
                                             resource_name
                                         );
 
                                         // Update job as failed in database
-                                        if let Err(e) =
-                                            crate::mutation::Mutation::update_container_status(
-                                                &db,
-                                                container_id.to_string(),
-                                                ContainerStatus::Failed.to_string(),
-                                                Some("Pod no longer exists".to_string()),
-                                            )
-                                            .await
-                                        {
-                                            error!(
-                                                "[Runpod Controller] Failed to update job status in database: {}",
-                                                e
-                                            );
+                                        if let Some(ref current_status) = last_status {
+                                            // If current status is non-terminal, allow an update to Completed
+                                            if !current_status.is_inactive() {
+                                                if let Err(e) = crate::mutation::Mutation::update_container_status(
+                                                    db,
+                                                    container_id.to_string(),
+                                                    ContainerStatus::Completed.to_string(),
+                                                    Some("Pod no longer exists".to_string()),
+                                                )
+                                                .await
+                                                {
+                                                    error!(
+                                                        "[Runpod Controller] Failed to update job status in database: {}",
+                                                        e
+                                                    );
+                                                }
+                                            } else {
+                                                // Already in a terminal state—don't overwrite it
+                                                info!(
+                                                    "[Runpod Controller] Container {} is already in terminal state ({:?}); not updating.",
+                                                    container_id, current_status
+                                                );
+                                            }
+                                        } else {
+                                            // If we have no prior status, treat it as if it’s not terminal
+                                            if let Err(e) =
+                                                crate::mutation::Mutation::update_container_status(
+                                                    db,
+                                                    container_id.to_string(),
+                                                    ContainerStatus::Completed.to_string(),
+                                                    Some("Pod no longer exists".to_string()),
+                                                )
+                                                .await
+                                            {
+                                                error!(
+                                                    "[Runpod Controller] Failed to update job status in database: {}",
+                                                    e
+                                                );
+                                            }
                                         }
 
                                         break;
@@ -321,16 +388,70 @@ impl RunpodPlatform {
                         }
                     }
                 }
+                // ------------------------------------------------
+                // handle 404 not found
+                // ------------------------------------------------
+                Err(e) if is_not_found(&e) => {
+                    error!(
+                        "[Runpod Controller] Pod {} not found (404). Assuming it is deleted.",
+                        pod_id_to_watch
+                    );
+
+                    // Check if container still exists in DB
+                    match crate::query::Query::find_container_by_id(db, container_id.to_string())
+                        .await
+                    {
+                        Ok(Some(_container)) => {
+                            // If the container row is still there, mark it "Stopped" or "Deleted"
+                            error!(
+                                "[Runpod Controller] Marking container {} as stopped",
+                                container_id
+                            );
+                            if let Err(update_err) =
+                                crate::mutation::Mutation::update_container_status(
+                                    db,
+                                    container_id.to_string(),
+                                    ContainerStatus::Stopped.to_string(),
+                                    Some("Pod was deleted or does not exist.".to_string()),
+                                )
+                                .await
+                            {
+                                error!(
+                                    "[Runpod Controller] Failed to update container status in database: {}",
+                                    update_err
+                                );
+                            }
+                        }
+                        Ok(None) => {
+                            info!(
+                                "[Runpod Controller] Container {} not found in DB (already removed). Nothing to update.",
+                                container_id
+                            );
+                        }
+                        Err(db_err) => {
+                            error!(
+                                "[Runpod Controller] Failed checking DB for container {}: {}",
+                                container_id, db_err
+                            );
+                        }
+                    }
+
+                    // Either way, we can exit this watch since the RunPod resource does not exist
+                    break;
+                }
                 Err(e) => {
                     error!("[Runpod Controller] Error fetching pod status: {}", e);
                     consecutive_errors += 1;
 
                     // If we've had too many consecutive errors, mark the job as failed
                     if consecutive_errors >= MAX_ERRORS {
-                        error!("[Runpod Controller] Too many consecutive errors, marking job as failed");
+                        error!(
+                            "[Runpod Controller] Too many consecutive errors, marking container {} as failed",
+                            container_id
+                        );
 
                         if let Err(e) = crate::mutation::Mutation::update_container_status(
-                            &db,
+                            db,
                             container_id.to_string(),
                             ContainerStatus::Failed.to_string(),
                             Some("Too many consecutive errors".to_string()),
@@ -347,14 +468,18 @@ impl RunpodPlatform {
                     }
                 }
             }
-
+            debug!(
+                "[DEBUG:runpod.rs:watch] container={} iteration={} sleeping 20s",
+                container_id, iteration_count
+            );
             // Wait before checking again
-            tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
         }
 
-        info!(
-            "[Runpod Controller] Finished watching pod {:?} for container {}",
-            resource_name, container_id
+        // Unreachable if loop never breaks. If you do break eventually:
+        debug!(
+            "[DEBUG:runpod.rs:watch] Exiting watch for container {}",
+            container_id
         );
         Ok(())
     }
@@ -390,8 +515,8 @@ impl RunpodPlatform {
                 source: path.source,
                 dest: dest,
                 resync: path.resync,
-                bidirectional: path.bidirectional,
                 continuous: path.continuous,
+                driver: path.driver,
             };
             volume_paths.push(volume_path);
         }
@@ -409,8 +534,13 @@ impl RunpodPlatform {
         db: &DatabaseConnection,
         model: containers::Model,
     ) -> Result<String, Box<dyn std::error::Error>> {
-
-        Mutation::update_container_status(db, model.id.clone(), ContainerStatus::Creating.to_string(), None).await?;
+        Mutation::update_container_status(
+            db,
+            model.id.clone(),
+            ContainerStatus::Creating.to_string(),
+            None,
+        )
+        .await?;
 
         info!("[Runpod Controller] Using name: {}", model.name);
         let gpu_types_response = match self.runpod_client.list_gpu_types_graphql().await {
@@ -452,9 +582,15 @@ impl RunpodPlatform {
                     gpu_type.id, gpu_type.display_name, memory_str
                 );
             }
-            info!("[Runpod Controller] Available GPU types: {:?}", available_gpu_types);
+            info!(
+                "[Runpod Controller] Available GPU types: {:?}",
+                available_gpu_types
+            );
         }
-        info!("[Runpod Controller] GPU types response: {:?}", gpu_types_response);
+        info!(
+            "[Runpod Controller] GPU types response: {:?}",
+            gpu_types_response
+        );
 
         // Parse accelerators if provided
         if let Some(accelerators) = &model.accelerators {
@@ -587,7 +723,8 @@ impl RunpodPlatform {
             Ok(Some(volumes)) => {
                 // We got a valid Vec of V1VolumePath. Proceed as before.
                 let volume_config = RunpodPlatform::determine_volumes_config(volumes);
-    
+                info!("[Runpod Controller] Volume config: {:?}", volume_config);
+
                 match serde_yaml::to_string(&volume_config) {
                     Ok(serialized_volumes) => {
                         env_vec.push(runpod::EnvVar {
@@ -597,7 +734,10 @@ impl RunpodPlatform {
                         info!("[Runpod Controller] Added NEBU_SYNC_CONFIG environment variable");
                     }
                     Err(e) => {
-                        error!("[Runpod Controller] Failed to serialize volumes configuration: {}", e);
+                        error!(
+                            "[Runpod Controller] Failed to serialize volumes configuration: {}",
+                            e
+                        );
                         // Continue without this env var rather than failing the whole operation
                     }
                 }
@@ -631,34 +771,16 @@ impl RunpodPlatform {
             }
             Err(e) => {
                 // A serialization error occurred while parsing
-                error!("[Runpod Controller] Failed to parse environment variables: {}", e);
+                error!(
+                    "[Runpod Controller] Failed to parse environment variables: {}",
+                    e
+                );
                 // Decide how you want to handle the error (return early, ignore, etc.)
             }
         }
         info!("[Runpod Controller] Environment variables: {:?}", env_vec);
 
-        let docker_command = model.command.clone().map(|cmd| {
-            // First check and install curl if needed
-            let curl_install = "if ! command -v curl &> /dev/null; then apt-get update && apt-get install -y curl || (apk update && apk add --no-cache curl) || echo 'Failed to install curl'; fi";
-            
-            // Install nebu if not already installed
-            let nebu_install = "if ! command -v nebu &> /dev/null; then curl -s https://raw.githubusercontent.com/agentsea/nebulous/main/remote_install.sh | bash || echo 'Failed to install nebu'; fi";
-            
-            let base_command = format!("{} && {} && nebu --version && nebu sync --config /nebu/sync.yaml --interval-seconds 5 --create-if-missing --watch --background --block-once --config-from-env && {}", 
-                curl_install, 
-                nebu_install, 
-                cmd);
-            
-            // If restart policy is 'never', add command to delete the container after completion
-            let full_command = if model.restart == RestartPolicy::Never.to_string() {
-                format!("{{ {}; }}; nebu delete containers {}", base_command, model.id)
-            } else {
-                base_command
-            };
-            
-            // Wrap the command with bash -c to ensure shell features work
-            format!("bash -c '{}'", full_command.replace("'", "'\\''"))
-        });
+        let docker_command = self.build_command(&model);
         info!("[Runpod Controller] Docker command: {:?}", docker_command);
 
         // 5) Create an on-demand instance instead of a spot instance
@@ -700,8 +822,15 @@ impl RunpodPlatform {
                         model.id, pod.id
                     );
 
-                    Mutation::update_container_resource_name(db, model.id.clone(), pod.id.clone()).await?;
-                    Mutation::update_container_status(db, model.id.clone(), ContainerStatus::Created.to_string(), None).await?;
+                    Mutation::update_container_resource_name(db, model.id.clone(), pod.id.clone())
+                        .await?;
+                    Mutation::update_container_status(
+                        db,
+                        model.id.clone(),
+                        ContainerStatus::Created.to_string(),
+                        None,
+                    )
+                    .await?;
                     pod.id
                 } else {
                     return Err(format!(
@@ -726,6 +855,68 @@ impl RunpodPlatform {
         );
 
         Ok(pod_id)
+    }
+
+    fn build_command(&self, model: &containers::Model) -> Option<Vec<String>> {
+        let cmd = model.command.clone()?;
+
+        // Statements to install curl if missing
+        let curl_install = r#"
+            echo "[DEBUG] Installing curl (if not present)..."
+            if ! command -v curl &> /dev/null; then
+                apt-get update && apt-get install -y curl \
+                || (apk update && apk add --no-cache curl) \
+                || echo 'Failed to install curl'
+            fi
+        "#;
+
+        // Statements to install nebu if missing
+        let nebu_install = r#"
+            echo "[DEBUG] Installing nebu (if not present)..."
+            if ! command -v nebu &> /dev/null; then
+                curl -s https://raw.githubusercontent.com/agentsea/nebulous/main/remote_install.sh | bash \
+                || echo 'Failed to install nebu'
+            fi
+        "#;
+
+        // Build the main set of commands without braces
+        let base_script = format!(
+            r#"
+    set -x
+    echo "[DEBUG] Starting setup..."
+    {curl_install}
+    echo "[DEBUG] Done installing curl..."
+    
+    {nebu_install}
+    echo "[DEBUG] Done installing nebu; checking version..."
+    nebu --version
+    
+    echo "[DEBUG] Invoking nebu sync..."
+    nebu sync --config /nebu/sync.yaml --interval-seconds 5 \
+        --create-if-missing --watch --background --block-once --config-from-env
+    
+    echo "[DEBUG] All done with base_command; now your user command: {cmd}"
+    {cmd}
+    "#,
+            curl_install = curl_install,
+            nebu_install = nebu_install,
+            cmd = cmd
+        );
+
+        // If the user wants "Never" to restart, append the cleanup
+        let final_script = if model.restart == RestartPolicy::Never.to_string() {
+            // Separate line so the shell sees it as a new command
+            format!("{base_script}\nnebu delete containers {}", model.id)
+        } else {
+            base_script
+        };
+
+        // A minimal approach to quoting in single quotes:
+        let escaped = final_script.replace('\'', "'\"'\"'");
+        let quoted_script = format!("{}", escaped);
+
+        // Return the final ["bash", "-c", "..."] command
+        Some(vec!["bash".to_string(), "-c".to_string(), quoted_script])
     }
 }
 
@@ -793,9 +984,15 @@ impl ContainerPlatform for RunpodPlatform {
                     gpu_type.id, gpu_type.display_name, memory_str
                 );
             }
-            info!("[Runpod Controller] Available GPU types: {:?}", available_gpu_types);
+            info!(
+                "[Runpod Controller] Available GPU types: {:?}",
+                available_gpu_types
+            );
         }
-        info!("[Runpod Controller] GPU types response: {:?}", gpu_types_response);
+        info!(
+            "[Runpod Controller] GPU types response: {:?}",
+            gpu_types_response
+        );
 
         // Parse accelerators if provided
         if let Some(accelerators) = &config.accelerators {
@@ -861,7 +1058,8 @@ impl ContainerPlatform for RunpodPlatform {
         let id = ShortUuid::generate().to_string();
         info!("[Runpod Controller] ID: {}", id);
 
-        self.store_agent_key_secret(db,user_profile, &id, owner_id).await?;
+        self.store_agent_key_secret(db, user_profile, &id, owner_id)
+            .await?;
 
         // Create the container record in the database
         let container = crate::entities::containers::ActiveModel {
@@ -891,12 +1089,16 @@ impl ContainerPlatform for RunpodPlatform {
             resource_name: Set(None),
             resource_namespace: Set(None),
             command: Set(config.command.clone()),
-            labels: Set(config.metadata.as_ref().and_then(|meta| {
-                meta.labels.clone().map(|labels| serde_json::json!(labels))
-            })),
+            labels: Set(config
+                .metadata
+                .as_ref()
+                .and_then(|meta| meta.labels.clone().map(|labels| serde_json::json!(labels)))),
             restart: Set(config.restart.clone()),
             queue: Set(config.queue.clone()),
-            resources: Set(config.resources.clone().map(|resources| serde_json::json!(resources))),
+            resources: Set(config
+                .resources
+                .clone()
+                .map(|resources| serde_json::json!(resources))),
             desired_status: Set(Some(ContainerStatus::Running.to_string())),
             public_ip: Set(None),
             private_ip: Set(None),
@@ -907,15 +1109,13 @@ impl ContainerPlatform for RunpodPlatform {
         };
 
         if let Err(e) = container.insert(db).await {
-            error!("[Runpod Controller] Failed to create container in database: {:?}", e);
-            return Err(
-                format!("Failed to create container in database: {:?}", e).into()
+            error!(
+                "[Runpod Controller] Failed to create container in database: {:?}",
+                e
             );
+            return Err(format!("Failed to create container in database: {:?}", e).into());
         } else {
-            info!(
-                "[Runpod Controller] Created container {} in database ",
-                id
-            );
+            info!("[Runpod Controller] Created container {} in database ", id);
         }
 
         Ok(V1Container {
@@ -958,30 +1158,49 @@ impl ContainerPlatform for RunpodPlatform {
         container: &containers::Model,
         db: &DatabaseConnection,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Ok(Some(parsed_status)) = container.parse_status() {
-            let status = parsed_status.status.unwrap_or(ContainerStatus::Invalid.to_string());
+        debug!(
+            "[DEBUG:runpod.rs:reconcile] Entering reconcile for container {}",
+            container.id
+        );
 
-            let status = ContainerStatus::from_str(&status).unwrap_or(ContainerStatus::Invalid);
+        if let Ok(Some(parsed_status)) = container.parse_status() {
+            let status_str = parsed_status
+                .status
+                .unwrap_or(ContainerStatus::Invalid.to_string());
+            debug!(
+                "[DEBUG:runpod.rs:reconcile] Container {} has status {}",
+                container.id, status_str
+            );
+
+            let status = ContainerStatus::from_str(&status_str).unwrap_or(ContainerStatus::Invalid);
 
             if status.needs_start() {
-                info!("[Runpod Controller] Container {} needs to be started", container.id);
+                info!(
+                    "[Runpod Controller] Container {} needs to be started",
+                    container.id
+                );
                 if let Some(ds) = &container.desired_status {
-
                     if ds == &ContainerStatus::Running.to_string() {
                         info!("[Runpod Controller] Container {} has a desired status of 'running', creating...", container.id);
                         self.create(db, container.clone()).await?;
                     }
-                }else {
+                } else {
                     info!("[Runpod Controller] Container {} does not have a desired status of 'running'", container.id);
                 }
             }
 
             if status.needs_watch() {
-                info!("[Runpod Controller] Container {} needs to be watched", container.id);
-                self.watch( db, container.clone()).await?;
+                info!(
+                    "[Runpod Controller] Container {} needs to be watched",
+                    container.id
+                );
+                self.watch(db, container.clone()).await?;
             }
         }
-
+        debug!(
+            "[DEBUG:runpod.rs:reconcile] Completed reconcile for container {}",
+            container.id
+        );
         Ok(())
     }
 
@@ -990,7 +1209,10 @@ impl ContainerPlatform for RunpodPlatform {
         id: &str,
         db: &DatabaseConnection,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        info!("[Runpod Controller] Attempting to delete container with name: {}", id);
+        info!(
+            "[Runpod Controller] Attempting to delete container with name: {}",
+            id
+        );
 
         // First, list all pods to find the one with our name
         match self.runpod_client.list_pods().await {
@@ -1051,4 +1273,9 @@ impl ContainerPlatform for RunpodPlatform {
         let provider = RunPodProvider::new();
         provider.accelerator_map().clone()
     }
+}
+
+/// Returns true if the given error indicates a 404 Not Found response.
+pub fn is_not_found(err: &reqwest::Error) -> bool {
+    err.status() == Some(reqwest::StatusCode::NOT_FOUND)
 }

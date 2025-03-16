@@ -1,11 +1,12 @@
 kind: Container
 metadata:
-  name: pytorch-test
+  name: pytorch-test1
   namespace: "nebu-test"
   labels:
     this: that
 image: "pytorch/pytorch:latest"
-command: "echo $HELLO > /nebu/test/test.txt && nvidia-smi > /nebu/test/nvidia-smi.txt && ls -l /nebu/test > /nebu/test/ls.txt && sleep infinity"
+# command: "echo $HELLO > /nebu/test/test.txt && nvidia-smi > /nebu/test/nvidia-smi.txt && ls -l /nebu/test > /nebu/test/ls.txt && sleep infinity"
+command: "sleep infinity"
 platform: runpod
 env_vars:
   - key: HELLO
@@ -13,7 +14,7 @@ env_vars:
 volumes:
   - source: s3://nebulous-rs/test
     dest: /nebu/test
-    bidirectional: true
+    driver: RCLONE_BISYNC
     continuous: true
 accelerators:
   - "1:A100_SXM"

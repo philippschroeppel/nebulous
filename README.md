@@ -30,9 +30,9 @@ env_vars:
   - key: HELLO
     value: world
 volumes:
-  - source: s3://foo/bar
-    dest: /quz/baz
-    bidirectional: true
+  - source: s3://nebulous-rs/test
+    dest: /nebu/test
+    volume_type: RCLONE_BISYNC
     continuous: true
 accelerators:
   - "4:A100"
@@ -92,9 +92,9 @@ Volumes provide a means to persist data accross clouds. Nebulous uses [rclone](h
 
 ```yaml
 volumes:
-  - source: s3://foo/bar
-    dest: /quz/baz
-    bidirectional: true
+  - source: s3://nebulous-rs/test
+    dest: /nebu/test
+    volume_type: RCLONE_BISYNC
     continuous: true
 ```
 
@@ -140,9 +140,9 @@ container:
     - key: HELLO
       value: world
   volumes:
-    - source: s3://foo/bar
-      dest: /quz/baz
-      bidirectional: true
+    - source: s3://nebulous-rs/test
+      dest: /nebu/test
+      volume_type: RCLONE_BISYNC
       continuous: true
   accelerators:
     - "8:A100"

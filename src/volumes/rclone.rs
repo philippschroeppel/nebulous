@@ -1,4 +1,4 @@
-use crate::models::{V1ContainerStatus, V1VolumeConfig};
+use crate::models::{V1ContainerStatus, V1VolumeDriver};
 use crate::query::Query;
 use sea_orm::{DatabaseConnection, DbErr};
 use serde::{Deserialize, Serialize};
@@ -31,15 +31,14 @@ pub struct VolumePath {
     pub dest: String,
     #[serde(default)]
     pub resync: bool,
-    #[serde(default = "default_bidirectional")]
-    pub bidirectional: bool,
     #[serde(default = "default_continuous")]
     pub continuous: bool,
+    #[serde(default = "default_volume_driver")]
+    pub driver: V1VolumeDriver,
 }
 
-// Add default functions for new fields
-fn default_bidirectional() -> bool {
-    true
+fn default_volume_driver() -> V1VolumeDriver {
+    V1VolumeDriver::RCLONE_SYNC
 }
 
 fn default_continuous() -> bool {
@@ -102,15 +101,15 @@ impl VolumeConfig {
         source: String,
         dest: String,
         resync: bool,
-        bidirectional: bool,
+        driver: V1VolumeDriver,
         continuous: bool,
     ) {
         self.paths.push(VolumePath {
             source,
             dest,
             resync,
-            bidirectional,
             continuous,
+            driver,
         });
     }
 
@@ -130,7 +129,7 @@ impl VolumeConfig {
     }
 
     /// List all paths in the sync configuration
-    pub fn list_paths(&self) -> Vec<(&String, &String, bool, bool, bool)> {
+    pub fn list_paths(&self) -> Vec<(&String, &String, bool, V1VolumeDriver, bool)> {
         self.paths
             .iter()
             .map(|path| {
@@ -138,7 +137,7 @@ impl VolumeConfig {
                     &path.source,
                     &path.dest,
                     path.resync,
-                    path.bidirectional,
+                    path.driver.clone(),
                     path.continuous,
                 )
             })
@@ -365,7 +364,7 @@ async fn start_sync_process(
     ensure_path_exists(&source).await?;
     ensure_path_exists(&dest).await?;
 
-    if path.bidirectional {
+    if path.driver == V1VolumeDriver::RCLONE_BISYNC {
         // Use bisync for bidirectional sync
         cmd.arg("bisync");
         cmd.arg(&source);
@@ -378,7 +377,7 @@ async fn start_sync_process(
     }
 
     // Add resync flag if needed and it's a bidirectional sync
-    if path.resync && path.bidirectional {
+    if path.resync && path.driver == V1VolumeDriver::RCLONE_BISYNC {
         cmd.arg("--resync");
     }
 
@@ -393,7 +392,7 @@ async fn start_sync_process(
     cmd.arg(cache_dir);
 
     // Add resilient mode for bidirectional sync
-    if path.bidirectional {
+    if path.driver == V1VolumeDriver::RCLONE_BISYNC {
         cmd.arg("--resilient");
 
         // Add --force flag to help with empty directory issues
@@ -444,7 +443,7 @@ pub async fn execute_sync(
 
     // Process each path
     for (index, path) in config.paths.iter().enumerate() {
-        let sync_type = if path.bidirectional {
+        let sync_type = if path.driver == V1VolumeDriver::RCLONE_BISYNC {
             "Bidirectional"
         } else {
             "Unidirectional"
@@ -474,7 +473,7 @@ pub async fn execute_sync(
         let source = normalize_s3_path(&path.source);
         let dest = normalize_s3_path(&path.dest);
 
-        if path.bidirectional {
+        if path.driver == V1VolumeDriver::RCLONE_BISYNC {
             cmd.arg("bisync");
             cmd.arg(&source);
             cmd.arg(&dest);
@@ -510,7 +509,7 @@ pub async fn execute_sync(
             );
 
             // If this was a resync operation, mark it as completed
-            if path.resync && path.bidirectional {
+            if path.resync && path.driver == V1VolumeDriver::RCLONE_BISYNC {
                 // Read the config again to get the latest version
                 let mut updated_config = VolumeConfig::read_from_file(&config_path)?;
                 if index < updated_config.paths.len() {
@@ -576,18 +575,18 @@ pub fn create_example_config(path: &str) -> Result<(), Box<dyn Error>> {
     config.add_path(
         "/path/to/local/directory1".to_string(),
         "s3:your-bucket/directory1".to_string(),
-        true, // Initial sync should use resync
-        true, // bidirectional
-        true, // continuous
+        true,                          // Initial sync should use resync
+        V1VolumeDriver::RCLONE_BISYNC, // bidirectional
+        true,                          // continuous
     );
 
     // Add example for unidirectional one-time sync
     config.add_path(
         "/path/to/local/directory2".to_string(),
         "s3:your-bucket/directory2".to_string(),
-        false, // No resync needed for unidirectional
-        false, // unidirectional
-        false, // one-time
+        false,                       // No resync needed for unidirectional
+        V1VolumeDriver::RCLONE_SYNC, // unidirectional
+        false,                       // one-time
     );
 
     // Write the config to the file
@@ -602,7 +601,7 @@ pub fn add_sync_path(
     config_path: &str,
     source: String,
     dest: String,
-    bidirectional: bool,
+    volume_type: V1VolumeDriver,
     continuous: bool,
 ) -> Result<(), Box<dyn Error>> {
     // Read the existing config or create a new one if it doesn't exist
@@ -613,19 +612,19 @@ pub fn add_sync_path(
     };
 
     // Add the new path with resync set to true for initial bidirectional sync
-    let resync = bidirectional; // Only set resync true if bidirectional
+    let resync = volume_type.clone() == V1VolumeDriver::RCLONE_BISYNC; // Only set resync true if bidirectional
     config.add_path(
         source.clone(),
         dest.clone(),
         resync,
-        bidirectional,
+        volume_type.clone(),
         continuous,
     );
 
     // Write the updated config back to the file
     config.write_to_file(config_path)?;
 
-    let sync_type = if bidirectional {
+    let sync_type = if volume_type.clone() == V1VolumeDriver::RCLONE_BISYNC {
         "bidirectional"
     } else {
         "unidirectional"
@@ -679,16 +678,16 @@ pub fn list_sync_paths(config_path: &str) -> Result<(), Box<dyn Error>> {
     }
 
     println!("Sync paths in {}:", config_path);
-    for (i, (source, destination, resync, bidirectional, continuous)) in
+    for (i, (source, destination, resync, volume_type, continuous)) in
         config.list_paths().iter().enumerate()
     {
-        let direction = if *bidirectional {
+        let direction = if *volume_type == V1VolumeDriver::RCLONE_BISYNC {
             "bidirectional"
         } else {
             "unidirectional"
         };
         let mode = if *continuous { "continuous" } else { "once" };
-        let resync_status = if *resync && *bidirectional {
+        let resync_status = if *resync && *volume_type == V1VolumeDriver::RCLONE_BISYNC {
             " (resync pending)"
         } else {
             ""
@@ -1018,7 +1017,7 @@ pub async fn execute_non_continuous_sync(
 
     // Process each non-continuous path
     for (index, path) in once_paths.iter().enumerate() {
-        let sync_type = if path.bidirectional {
+        let sync_type = if path.driver.clone() == V1VolumeDriver::RCLONE_BISYNC {
             "Bidirectional"
         } else {
             "Unidirectional"
@@ -1048,7 +1047,7 @@ pub async fn execute_non_continuous_sync(
         let source = normalize_s3_path(&path.source);
         let dest = normalize_s3_path(&path.dest);
 
-        if path.bidirectional {
+        if path.driver.clone() == V1VolumeDriver::RCLONE_BISYNC {
             cmd.arg("bisync");
             cmd.arg(&source);
             cmd.arg(&dest);
@@ -1080,7 +1079,7 @@ pub async fn execute_non_continuous_sync(
             println!("Successfully synced between {} and {}", source, dest);
 
             // If this was a resync operation, mark it as completed
-            if path.resync && path.bidirectional {
+            if path.resync && path.driver.clone() == V1VolumeDriver::RCLONE_BISYNC {
                 // Find the index in the original config
                 if let Some(original_index) = config
                     .paths
@@ -1151,7 +1150,7 @@ pub fn has_overlapping_s3_bidirectional_sync(
         .paths
         .iter()
         .filter(|path| {
-            path.bidirectional
+            path.driver.clone() == V1VolumeDriver::RCLONE_BISYNC
                 && (path.source.starts_with("s3://") || path.source.starts_with("s3:"))
         })
         .map(|path| normalize_s3_path(&path.source))
@@ -1161,7 +1160,7 @@ pub fn has_overlapping_s3_bidirectional_sync(
         .paths
         .iter()
         .filter(|path| {
-            path.bidirectional
+            path.driver.clone() == V1VolumeDriver::RCLONE_BISYNC
                 && (path.source.starts_with("s3://") || path.source.starts_with("s3:"))
         })
         .map(|path| normalize_s3_path(&path.source))

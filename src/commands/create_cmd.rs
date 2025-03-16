@@ -1,12 +1,13 @@
 use nebulous::config::GlobalConfig;
 use nebulous::models::{
     RestartPolicy, V1ContainerMetaRequest, V1ContainerRequest, V1ContainerResources, V1EnvVar,
-    V1Meter, V1VolumeConfig, V1VolumePath,
+    V1Meter, V1VolumeConfig, V1VolumeDriver, V1VolumePath,
 };
 use reqwest::Client;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::error::Error;
+use std::str::FromStr;
 
 pub async fn create_container(
     command: crate::cli::ContainerCommands,
@@ -29,8 +30,9 @@ pub async fn create_container(
                     source: source.clone(),
                     dest: destination.clone(),
                     resync: command.volume_resync,
-                    bidirectional: command.volume_bidirectional,
+                    driver: V1VolumeDriver::from_str(&command.volume_type.unwrap())?,
                     continuous: command.volume_continuous,
+                    ..Default::default()
                 }],
                 cache_dir: command.volume_cache_dir,
             })

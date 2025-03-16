@@ -3,7 +3,7 @@ use crate::query::Query;
 use crate::state::AppState;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use dashmap::DashMap;
 use once_cell::sync::Lazy;
@@ -38,7 +38,15 @@ impl ContainerController {
 
         match Query::find_all_active_containers(&self.app_state.db_pool).await {
             Ok(containers) => {
+                debug!(
+                    "[DEBUG:controller.rs:reconcile] Found {} containers to reconcile",
+                    containers.len()
+                );
                 for container in containers {
+                    debug!(
+                        "[DEBUG:controller.rs:reconcile] Inspecting container {}",
+                        container.id
+                    );
                     // Attempt to parse `controller_data` as `ReconcilerData`.
                     let mut existing_data =
                         match container.parse_controller_data::<ReconcilerData>() {
@@ -46,10 +54,19 @@ impl ContainerController {
                             _ => ReconcilerData { thread_id: None },
                         };
 
+                    debug!(
+                        "[DEBUG:controller.rs:reconcile] Existing thread_id = {:?}",
+                        existing_data.thread_id,
+                    );
+
                     // If there's already a thread_id, check if it's still alive.
                     if let Some(thread_id) = &existing_data.thread_id {
                         if let Some(handle_ref) = CONTAINER_RECON_TASKS.get(thread_id) {
                             // If handle still running, skip starting a new one.
+                            debug!(
+                                "[DEBUG:controller.rs:reconcile] handle_ref.is_finished() = {}",
+                                handle_ref.is_finished()
+                            );
                             if !handle_ref.is_finished() {
                                 info!(
                                     "[Container Controller] Container {} has a running reconcile thread; skipping.",
@@ -57,15 +74,28 @@ impl ContainerController {
                                 );
                                 continue;
                             } else {
-                                // The task has finished; remove from map so we can start a fresh one.
-                                CONTAINER_RECON_TASKS.remove(thread_id);
-                                info!(
-                                    "[Container Controller] Container {} had a finished reconcile thread; spawning new one.",
-                                    container.id
+                                debug!(
+                                    "[DEBUG:controller.rs] handle_ref.is_finished() = false; dropping ref",
                                 );
+                                // Drop the read reference to avoid deadlock
+                                drop(handle_ref);
+
+                                debug!(
+                                    "[DEBUG:controller.rs] Removing finished thread_id = {} from map",
+                                    thread_id
+                                );
+
+                                // Now remove from the map
+                                let removed = CONTAINER_RECON_TASKS.remove(thread_id);
+                                debug!("[DEBUG:controller.rs] remove(...) returned: {:?}", removed);
                             }
                         }
                     }
+
+                    debug!(
+                        "[DEBUG:controller.rs:reconcile] Spawning a new reconcile task for container {}",
+                        container.id
+                    );
 
                     // Otherwise, we spawn a fresh task.
                     let new_thread_id = Uuid::new_v4().to_string();
@@ -96,6 +126,10 @@ impl ContainerController {
                                 "[Container Controller] Reconciling container {} in background task",
                                 container_clone.id
                             );
+                            debug!(
+                                "[DEBUG:controller.rs:spawn] Calling platform.reconcile for container {}",
+                                container_clone.id
+                            );
                             // If your platform_factory is async, call it here.
                             let platform_name = container_clone
                                 .platform
@@ -104,10 +138,14 @@ impl ContainerController {
                             let platform =
                                 crate::container::factory::platform_factory(platform_name);
                             platform.reconcile(&container_clone, &db_pool).await;
+                            debug!(
+                                "[DEBUG:controller.rs:spawn] Returned from platform.reconcile for container {}",
+                                container_clone.id
+                            );
                             info!(
                                 "[Container Controller] Container {} reconcile task finished.",
                                 container_clone.id
-                            );
+                            )
                         }
                     });
 
@@ -122,6 +160,7 @@ impl ContainerController {
                 );
             }
         }
+        debug!("[DEBUG:controller.rs:reconcile] Finished single reconcile pass");
     }
 
     /// Helper to save the updated `controller_data` back into the DB.
@@ -150,7 +189,13 @@ impl ContainerController {
 
         tokio::spawn(async move {
             let controller = ContainerController::new(app_state_clone);
-            controller.reconcile().await;
+
+            // Create an infinite loop to continuously reconcile containers
+            loop {
+                controller.reconcile().await;
+                // Add a delay between reconciliation cycles
+                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            }
         })
     }
 }

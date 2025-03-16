@@ -20,15 +20,26 @@ pub async fn execute_sync(
     block_once: bool,
     config_from_env: bool,
 ) -> Result<(), Box<dyn Error>> {
-    // Get config path from environment variable if sync_from_env is true
-    let config_path = if config_from_env {
-        std::env::var("NEBU_SYNC_CONFIG").unwrap_or_else(|_| {
-            println!("Warning: NEBU_SYNC_CONFIG environment variable not set, using provided config path");
-            config_path
-        })
-    } else {
-        config_path
-    };
+    // If config_from_env is true, attempt to read from NEBU_SYNC_CONFIG
+    // and write the contents to the config_path file.
+    if config_from_env {
+        match std::env::var("NEBU_SYNC_CONFIG") {
+            Ok(env_config) => {
+                if let Err(e) = std::fs::write(&config_path, &env_config) {
+                    eprintln!(
+                        "Warning: Failed to write config from environment variable to {}: {}",
+                        config_path, e
+                    );
+                }
+            }
+            Err(_) => {
+                println!(
+                    "Warning: NEBU_SYNC_CONFIG environment variable not set, using provided config path: {}",
+                    config_path
+                );
+            }
+        }
+    }
 
     // Setup rclone configuration from environment variables if available
     // Keep the temp file alive for the duration of the function
@@ -63,7 +74,7 @@ pub async fn execute_sync(
                 "sync",
                 "--config",
                 &config_path,
-                "--interval",
+                "--interval-seconds",
                 &interval_str,
                 "--watch",
                 create_arg,

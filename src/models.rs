@@ -144,21 +144,47 @@ pub struct V1VolumeConfig {
     pub cache_dir: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
+pub enum V1VolumeDriver {
+    #[default]
+    RCLONE_SYNC,
+    RCLONE_BISYNC,
+    RCLONE_MOUNT,
+}
+
+impl std::str::FromStr for V1VolumeDriver {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "RCLONE_BISYNC" => Ok(V1VolumeDriver::RCLONE_BISYNC),
+            "RCLONE_SYNC" => Ok(V1VolumeDriver::RCLONE_SYNC),
+            "RCLONE_MOUNT" => Ok(V1VolumeDriver::RCLONE_MOUNT),
+            _ => Err("Unrecognized VolumeType"),
+        }
+    }
+}
+
+impl fmt::Display for V1VolumeDriver {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_string())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct V1VolumePath {
     pub source: String,
     pub dest: String,
     #[serde(default)]
     pub resync: bool,
-    #[serde(default = "default_bidirectional")]
-    pub bidirectional: bool,
     #[serde(default = "default_continuous")]
     pub continuous: bool,
+    #[serde(default = "default_volume_driver")]
+    pub driver: V1VolumeDriver,
 }
 
-// Add default functions for new fields
-fn default_bidirectional() -> bool {
-    true
+fn default_volume_driver() -> V1VolumeDriver {
+    V1VolumeDriver::RCLONE_SYNC
 }
 
 fn default_continuous() -> bool {
