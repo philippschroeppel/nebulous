@@ -8,6 +8,9 @@ use std::error::Error;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use std::process::Stdio;
+use tokio::io::AsyncBufReadExt;
+use tokio::io::BufReader;
 use tokio::process::Command as TokioCommand;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -259,6 +262,36 @@ pub async fn execute_continuous_sync(
             }
         };
 
+        {
+            let mut finished = vec![];
+            for (path_key, child) in &mut running_processes {
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        println!(
+                            "Rclone subprocess for {} ⟷ {} exited with code: {:?}",
+                            path_key.0,
+                            path_key.1,
+                            status.code()
+                        );
+                        finished.push(path_key.clone());
+                    }
+                    Ok(None) => {
+                        // Child is still running
+                    }
+                    Err(e) => {
+                        println!(
+                            "Error checking status of {} ⟷ {}: {}",
+                            path_key.0, path_key.1, e
+                        );
+                    }
+                }
+            }
+            // Remove any that have exited
+            for f in finished {
+                running_processes.remove(&f);
+            }
+        }
+
         // Check for removed paths and stop their processes
         let mut paths_to_remove = Vec::new();
         for (path_key, process) in &mut running_processes {
@@ -402,7 +435,39 @@ async fn start_sync_process(
     }
 
     // Spawn the process
-    let child = cmd.spawn()?;
+
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+
+    let mut child = cmd.spawn()?;
+
+    // NEW: Hook up tasks to read the child’s stdout/stderr
+    if let Some(stdout) = child.stdout.take() {
+        let source_clone = path.source.clone();
+        let dest_clone = path.dest.clone();
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(stdout).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                println!(
+                    "[rclone stdout: {} ⟷ {}] {}",
+                    source_clone, dest_clone, line
+                );
+            }
+        });
+    }
+    if let Some(stderr) = child.stderr.take() {
+        let source_clone = path.source.clone();
+        let dest_clone = path.dest.clone();
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                println!(
+                    "[rclone stderr: {} ⟷ {}] {}",
+                    source_clone, dest_clone, line
+                );
+            }
+        });
+    }
 
     Ok(child)
 }

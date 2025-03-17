@@ -202,7 +202,6 @@ impl RunpodPlatform {
                         "container_id": container_id,
                         "currency": meter.currency,
                         "cost": meter.cost,
-                        "owner_id": owner_id,
                         "unit": meter.unit,
                     })
                 }
@@ -214,7 +213,6 @@ impl RunpodPlatform {
                         "container_id": container_id,
                         "currency": meter.currency,
                         "cost": meter.cost,
-                        "owner_id": owner_id,
                         "unit": meter.unit,
                     })
                 }
@@ -226,7 +224,7 @@ impl RunpodPlatform {
                 source: "nebulous-runpod-controller".to_string(),
                 specversion: "1.0".to_string(),
                 r#type: meter.metric.clone(),
-                subject: container_id.clone(),
+                subject: owner_id.clone(),
                 time: Some(chrono::Utc::now().to_rfc3339()),
                 dataschema: None,
                 datacontenttype: Some("application/json".to_string()),
@@ -930,7 +928,7 @@ impl RunpodPlatform {
             image_name: Some(model.image.clone()),
             docker_args: None,
             docker_entrypoint: docker_command.clone(),
-            ports: Some("8000/tcp, 8080/http".to_string()),
+            ports: Some(vec!["8000/tcp".to_string(), "8080/http".to_string()]),
             // volume_mount_path: Some("/nebu/cache".to_string()),
             volume_mount_path: None,
             env: env_vec,
