@@ -393,7 +393,7 @@ async fn start_sync_process(
 
     // Add resilient mode for bidirectional sync
     if path.driver == V1VolumeDriver::RCLONE_BISYNC {
-        cmd.arg("--resilient");
+        // cmd.arg("--resilient");
 
         // Add --force flag to help with empty directory issues
         cmd.arg("--force");
