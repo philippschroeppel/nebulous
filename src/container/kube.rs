@@ -523,7 +523,7 @@ impl ContainerPlatform for KubePlatform {
                                 queue: Set(config.queue.clone()),
                                 desired_status: Set(Some("pending".to_string())),
                                 controller_data: Set(None),
-                                public_ip: Set(None),
+                                public_addr: Set(None),
                                 private_ip: Set(None),
                                 resources: Set(config
                                     .resources

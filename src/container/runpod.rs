@@ -148,7 +148,13 @@ impl RunpodPlatform {
     }
 
     /// Report metrics to OpenMeter for a running container
-    async fn report_meters(&self, container_id: String, seconds: u64, meters: &serde_json::Value) {
+    async fn report_meters(
+        &self,
+        container_id: String,
+        seconds: u64,
+        meters: &serde_json::Value,
+        owner_id: String,
+    ) {
         // Parse the meters from the container model
         let meters_vec: Vec<V1Meter> = match serde_json::from_value(meters.clone()) {
             Ok(parsed) => parsed,
@@ -195,7 +201,9 @@ impl RunpodPlatform {
                         "metric": meter.metric,
                         "container_id": container_id,
                         "currency": meter.currency,
-                        "cost": meter.cost
+                        "cost": meter.cost,
+                        "owner_id": owner_id,
+                        "unit": meter.unit,
                     })
                 }
                 // Add other metric types as needed
@@ -205,7 +213,9 @@ impl RunpodPlatform {
                         "metric": meter.metric,
                         "container_id": container_id,
                         "currency": meter.currency,
-                        "cost": meter.cost
+                        "cost": meter.cost,
+                        "owner_id": owner_id,
+                        "unit": meter.unit,
                     })
                 }
             };
@@ -347,8 +357,13 @@ impl RunpodPlatform {
                         // Handle metering if container has meters defined and status is Running
                         if current_status == ContainerStatus::Running {
                             if let Some(meters) = &container.meters {
-                                self.report_meters(container_id.clone(), pause_seconds, meters)
-                                    .await;
+                                self.report_meters(
+                                    container_id.clone(),
+                                    pause_seconds,
+                                    meters,
+                                    container.owner_id.clone(),
+                                )
+                                .await;
                             }
                         }
 
@@ -915,7 +930,7 @@ impl RunpodPlatform {
             image_name: Some(model.image.clone()),
             docker_args: None,
             docker_entrypoint: docker_command.clone(),
-            ports: Some("8000".to_string()),
+            ports: Some("8000/tcp, 8080/http".to_string()),
             // volume_mount_path: Some("/nebu/cache".to_string()),
             volume_mount_path: None,
             env: env_vec,
@@ -1224,7 +1239,7 @@ impl ContainerPlatform for RunpodPlatform {
                 .map(|resources| serde_json::json!(resources))),
             desired_status: Set(Some(ContainerStatus::Running.to_string())),
             ssh_keys: Set(config.ssh_keys.clone().map(|keys| serde_json::json!(keys))),
-            public_ip: Set(None),
+            public_addr: Set(None),
             private_ip: Set(None),
             created_by: Set(Some(owner_id.to_string())),
             updated_at: Set(chrono::Utc::now().into()),

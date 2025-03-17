@@ -46,7 +46,7 @@ impl Mutation {
 
         let mut container: containers::ActiveModel = container.into();
 
-        container.private_ip = Set(pod_ip);
+        container.public_addr = Set(pod_ip);
         container.updated_at = Set(chrono::Utc::now().into());
 
         container.update(db).await

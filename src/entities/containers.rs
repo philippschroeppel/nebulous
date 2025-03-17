@@ -33,7 +33,7 @@ pub struct Model {
     pub queue: Option<String>,
     pub resources: Option<Json>,
     pub restart: String,
-    pub public_ip: Option<String>,
+    pub public_addr: Option<String>,
     pub private_ip: Option<String>,
     pub created_by: Option<String>,
     pub desired_status: Option<String>,
