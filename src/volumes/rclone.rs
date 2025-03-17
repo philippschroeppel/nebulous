@@ -369,6 +369,8 @@ async fn start_sync_process(
         cmd.arg("bisync");
         cmd.arg(&source);
         cmd.arg(&dest);
+
+        cmd.arg("--resync");
     } else {
         // Use sync for unidirectional sync
         cmd.arg("sync");
@@ -1052,9 +1054,7 @@ pub async fn execute_non_continuous_sync(
             cmd.arg(&source);
             cmd.arg(&dest);
 
-            if path.resync {
-                cmd.arg("--resync");
-            }
+            cmd.arg("--resync");
 
             // Add --force flag to help with empty directory issues
             cmd.arg("--force");

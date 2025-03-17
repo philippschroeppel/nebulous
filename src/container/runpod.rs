@@ -3,7 +3,7 @@ use crate::accelerator::runpod::RunPodProvider;
 use crate::container::base::{ContainerPlatform, ContainerStatus};
 use crate::entities::containers;
 use crate::models::{
-    RestartPolicy, V1Container, V1ContainerRequest, V1ContainerStatus, V1UserProfile,
+    RestartPolicy, V1Container, V1ContainerRequest, V1ContainerStatus, V1Meter, V1UserProfile,
     V1VolumeConfig, V1VolumePath,
 };
 use crate::mutation::Mutation;
@@ -16,6 +16,7 @@ use shell_quote::{Bash, QuoteRefExt};
 use short_uuid::ShortUuid;
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::time::Duration;
 use tracing::{debug, error, info};
 
 /// A `TrainingPlatform` implementation that schedules training jobs on RunPod.
@@ -146,6 +147,100 @@ impl RunpodPlatform {
         Ok(volume_id)
     }
 
+    /// Report metrics to OpenMeter for a running container
+    async fn report_meters(&self, container_id: String, seconds: u64, meters: &serde_json::Value) {
+        // Parse the meters from the container model
+        let meters_vec: Vec<V1Meter> = match serde_json::from_value(meters.clone()) {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                error!("[Runpod Controller] Failed to parse meters: {}", e);
+                return;
+            }
+        };
+
+        if meters_vec.is_empty() {
+            return;
+        }
+
+        // Get OpenMeter configuration from environment
+        let openmeter_url = match std::env::var("OPENMETER_URL") {
+            Ok(url) => url,
+            Err(_) => {
+                error!("[Runpod Controller] OPENMETER_URL environment variable not set");
+                return;
+            }
+        };
+
+        let openmeter_token = match std::env::var("OPENMETER_TOKEN") {
+            Ok(token) => token,
+            Err(_) => {
+                error!("[Runpod Controller] OPENMETER_TOKEN environment variable not set");
+                return;
+            }
+        };
+
+        // Create OpenMeter client
+        let meter_client = openmeter::MeterClient::new(openmeter_url, openmeter_token);
+
+        // Create and send events for each meter
+        for meter in meters_vec {
+            let event_id = format!("container-{}-{}", container_id, uuid::Uuid::new_v4());
+
+            // Create event data based on meter type
+            let data = match meter.metric.as_str() {
+                "runtime" => {
+                    // For runtime, we'll report 1 unit (e.g., 1 minute of runtime)
+                    serde_json::json!({
+                        "value": seconds as f64,
+                        "metric": meter.metric,
+                        "container_id": container_id,
+                        "currency": meter.currency,
+                        "cost": meter.cost
+                    })
+                }
+                // Add other metric types as needed
+                _ => {
+                    serde_json::json!({
+                        "value": seconds as f64,
+                        "metric": meter.metric,
+                        "container_id": container_id,
+                        "currency": meter.currency,
+                        "cost": meter.cost
+                    })
+                }
+            };
+
+            // Create CloudEvent
+            let cloud_event = openmeter::CloudEvent {
+                id: event_id,
+                source: "nebulous-runpod-controller".to_string(),
+                specversion: "1.0".to_string(),
+                r#type: meter.metric.clone(),
+                subject: container_id.clone(),
+                time: Some(chrono::Utc::now().to_rfc3339()),
+                dataschema: None,
+                datacontenttype: Some("application/json".to_string()),
+                data: Some(data),
+            };
+
+            // Send the event to OpenMeter
+            match meter_client.ingest_events(&[cloud_event]).await {
+                Ok(_) => {
+                    debug!(
+                        "[Runpod Controller] Successfully reported meter {} for container {}",
+                        meter.metric, container_id
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        "[Runpod Controller] Failed to report meter {} for container {}: {}",
+                        meter.metric, container_id, e
+                    );
+                }
+            }
+        }
+    }
+
     /// Watch a pod and update its status in the database
     pub async fn watch(
         &self,
@@ -157,6 +252,8 @@ impl RunpodPlatform {
             container.id
         );
         let container_id = container.id.to_string();
+        let pause_seconds = 5;
+        let duration = Duration::from_secs(pause_seconds);
 
         // Get initial status from database
         let (mut last_status, resource_name) =
@@ -246,6 +343,14 @@ impl RunpodPlatform {
                                 ContainerStatus::Pending
                             }
                         };
+
+                        // Handle metering if container has meters defined and status is Running
+                        if current_status == ContainerStatus::Running {
+                            if let Some(meters) = &container.meters {
+                                self.report_meters(container_id.clone(), pause_seconds, meters)
+                                    .await;
+                            }
+                        }
 
                         info!(
                             "[Runpod Controller] Current RunPod status: {}",
@@ -483,7 +588,7 @@ impl RunpodPlatform {
                 container_id, iteration_count
             );
             // Wait before checking again
-            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            tokio::time::sleep(duration).await;
         }
 
         // Unreachable if loop never breaks. If you do break eventually:
