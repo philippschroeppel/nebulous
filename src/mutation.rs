@@ -56,8 +56,10 @@ impl Mutation {
     pub async fn update_container_status(
         db: &DatabaseConnection,
         id: String,
-        status: String,
+        status: Option<String>,
         message: Option<String>,
+        accelerator: Option<String>,
+        public_ip: Option<String>,
     ) -> Result<containers::Model, DbErr> {
         let container = containers::Entity::find_by_id(id)
             .one(db)
@@ -66,14 +68,33 @@ impl Mutation {
 
         let mut container: containers::ActiveModel = container.into();
 
-        let status = V1ContainerStatus {
-            status: Some(status),
-            message: message,
+        // 1. Parse any existing status from the database
+        let mut existing_status = match &container.status {
+            ActiveValue::Set(Some(val)) => {
+                serde_json::from_value::<V1ContainerStatus>(val.clone()).unwrap_or_default()
+            }
+            _ => V1ContainerStatus::default(),
         };
 
-        container.status = Set(Some(json!(status).into()));
+        // 2. Merge in only the new fields
+        if let Some(s) = status {
+            existing_status.status = Some(s);
+        }
+        if let Some(m) = message {
+            existing_status.message = Some(m);
+        }
+        if let Some(a) = accelerator {
+            existing_status.accelerator = Some(a);
+        }
+        if let Some(ip) = public_ip {
+            existing_status.public_ip = Some(ip);
+        }
+
+        // 3. Store the merged status back as JSON
+        container.status = Set(Some(serde_json::json!(existing_status)));
         container.updated_at = Set(chrono::Utc::now().into());
 
+        // 4. Update in the database
         container.update(db).await
     }
 

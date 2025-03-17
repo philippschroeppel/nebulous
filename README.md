@@ -2,7 +2,7 @@
 
 A cross-cloud container orchestrator
 
-Think of it as a Kubernetes that can span clouds with a focus on accelerated compute and AI workloads. Performant and lightweight via Rust.
+Think of it as a Kubernetes that can span clouds with a focus on accelerated compute and AI workloads. Ships as a single binary, performant and lightweight via Rust.
 
 ## Installation
 
@@ -32,7 +32,7 @@ env_vars:
 volumes:
   - source: s3://nebulous-rs/test
     dest: /nebu/test
-    volume_type: RCLONE_BISYNC
+    driver: RCLONE_BISYNC
     continuous: true
 accelerators:
   - "4:A100"
@@ -86,6 +86,16 @@ SSH into a container [in progress]
 nebu ssh foo
 ```
 
+### Queues
+
+Containers can be assigned to a FIFO queue, which will block them from starting until the queue is free.
+
+```yaml
+image: pytorch/pytorch:latest
+queue: actor-critic-training
+...
+```
+
 ### Volumes
 
 Volumes provide a means to persist data accross clouds. Nebulous uses [rclone](https://rclone.org/) to sync data between clouds backed by an object storage provider.
@@ -94,7 +104,7 @@ Volumes provide a means to persist data accross clouds. Nebulous uses [rclone](h
 volumes:
   - source: s3://nebulous-rs/test
     dest: /nebu/test
-    volume_type: RCLONE_BISYNC
+    driver: RCLONE_BISYNC
     continuous: true
 ```
 
@@ -142,7 +152,7 @@ container:
   volumes:
     - source: s3://nebulous-rs/test
       dest: /nebu/test
-      volume_type: RCLONE_BISYNC
+      driver: RCLONE_BISYNC
       continuous: true
   accelerators:
     - "8:A100"

@@ -75,6 +75,8 @@ pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
         prettytable::Cell::new("NAME"),
         prettytable::Cell::new("STATUS"),
         prettytable::Cell::new("CREATED"),
+        prettytable::Cell::new("ACCELERATOR"),
+        prettytable::Cell::new("PUBLIC IP"),
     ]));
 
     let empty_vec = Vec::new();
@@ -101,6 +103,20 @@ pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
                 .unwrap_or("N/A");
             let status = container_obj
                 .get("status")
+                .and_then(Value::as_object)
+                .and_then(|status_obj| status_obj.get("status"))
+                .and_then(Value::as_str)
+                .unwrap_or("N/A");
+            let accelerator = container_obj
+                .get("status")
+                .and_then(Value::as_object)
+                .and_then(|status_obj| status_obj.get("accelerator"))
+                .and_then(Value::as_str)
+                .unwrap_or("N/A");
+            let public_ip = container_obj
+                .get("status")
+                .and_then(Value::as_object)
+                .and_then(|status_obj| status_obj.get("public_ip"))
                 .and_then(Value::as_str)
                 .unwrap_or("N/A");
 
@@ -122,6 +138,8 @@ pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
                 prettytable::Cell::new(name),
                 prettytable::Cell::new(status),
                 prettytable::Cell::new(&created),
+                prettytable::Cell::new(accelerator),
+                prettytable::Cell::new(public_ip),
             ]));
         }
     }

@@ -1,4 +1,5 @@
 // src/query.rs
+use crate::container::base::ContainerStatus;
 use crate::entities::containers;
 use crate::models::V1ContainerStatus;
 use sea_orm::sea_query::{Expr, Func};
@@ -135,5 +136,46 @@ impl Query {
             .filter(containers::Column::Status.eq(status.to_string()))
             .all(db)
             .await
+    }
+
+    /// Return true if no other containers in the same queue
+    /// are in an active or running state. Otherwise false.
+    pub async fn is_queue_free(
+        db: &DatabaseConnection,
+        queue_name: &str,
+        this_container_id: &str,
+    ) -> Result<bool, DbErr> {
+        // Define which statuses qualify as "active/running"
+        // i.e., statuses that imply the container is still going or starting
+        let active_like_statuses = vec![
+            ContainerStatus::Defined.to_string(),
+            ContainerStatus::Creating.to_string(),
+            ContainerStatus::Created.to_string(),
+            ContainerStatus::Queued.to_string(),
+            ContainerStatus::Pending.to_string(),
+            ContainerStatus::Running.to_string(),
+            ContainerStatus::Restarting.to_string(),
+        ];
+
+        // Build a condition that checks if (status->>'status') is in one of these
+        let mut active_condition = Condition::any();
+        for status_str in active_like_statuses {
+            active_condition = active_condition.add(Expr::cust_with_values(
+                "status->>'status' = $1",
+                [Value::from(status_str)],
+            ));
+        }
+
+        // We'll find if there's any other record in the same queue
+        // that is in an active/running state
+        // (i.e., ignoring this_container_id in case it's already in that queue).
+        let another_active_container = containers::Entity::find()
+            .filter(containers::Column::Queue.eq(queue_name))
+            .filter(containers::Column::Id.ne(this_container_id))
+            .filter(active_condition)
+            .one(db)
+            .await?;
+
+        Ok(another_active_container.is_none())
     }
 }

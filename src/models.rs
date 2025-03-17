@@ -53,6 +53,7 @@ pub struct V1ContainerRequest {
     #[serde(default = "default_restart")]
     pub restart: String,
     pub queue: Option<String>,
+    pub ssh_keys: Option<Vec<V1SSHKey>>,
 }
 
 pub enum RestartPolicy {
@@ -97,6 +98,15 @@ pub struct V1ContainerMeta {
 pub struct V1ContainerStatus {
     pub status: Option<String>,
     pub message: Option<String>,
+    pub accelerator: Option<String>,
+    pub public_ip: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct V1SSHKey {
+    pub public_key: Option<String>,
+    pub public_key_secret: Option<String>,
+    pub copy_local: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -114,6 +124,7 @@ pub struct V1Container {
     pub queue: Option<String>,
     pub resources: Option<V1ContainerResources>,
     pub status: Option<V1ContainerStatus>,
+    pub ssh_keys: Option<Vec<V1SSHKey>>,
 }
 // Add this function to provide a default kind value
 fn default_container_kind() -> String {

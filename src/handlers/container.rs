@@ -90,6 +90,9 @@ pub async fn get_container(
         resources: container
             .resources
             .and_then(|v| serde_json::from_value(v).ok()),
+        ssh_keys: container
+            .ssh_keys
+            .and_then(|v| serde_json::from_value(v).ok()),
     };
 
     Ok(Json(out_container))
@@ -154,6 +157,7 @@ pub async fn list_containers(
             restart: c.restart,
             queue: c.queue,
             resources: c.resources.and_then(|v| serde_json::from_value(v).ok()),
+            ssh_keys: c.ssh_keys.and_then(|v| serde_json::from_value(v).ok()),
         })
         .collect();
 

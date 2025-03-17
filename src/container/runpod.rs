@@ -276,8 +276,10 @@ impl RunpodPlatform {
                             match crate::mutation::Mutation::update_container_status(
                                 db,
                                 container_id.to_string(),
-                                current_status.to_string(),
+                                Some(current_status.to_string()),
                                 None,
+                                None,
+                                pod_info.public_ip.clone(),
                             )
                             .await
                             {
@@ -300,7 +302,7 @@ impl RunpodPlatform {
                             match crate::mutation::Mutation::update_container_pod_ip(
                                 db,
                                 container_id.to_string(),
-                                pod_info.public_ip,
+                                pod_info.public_ip.clone(),
                             )
                             .await
                             {
@@ -345,8 +347,10 @@ impl RunpodPlatform {
                                                 if let Err(e) = crate::mutation::Mutation::update_container_status(
                                                     db,
                                                     container_id.to_string(),
-                                                    ContainerStatus::Completed.to_string(),
+                                                    Some(ContainerStatus::Completed.to_string()),
                                                     Some("Pod no longer exists".to_string()),
+                                                    None,
+                                                    None,
                                                 )
                                                 .await
                                                 {
@@ -368,8 +372,10 @@ impl RunpodPlatform {
                                                 crate::mutation::Mutation::update_container_status(
                                                     db,
                                                     container_id.to_string(),
-                                                    ContainerStatus::Completed.to_string(),
+                                                    Some(ContainerStatus::Completed.to_string()),
                                                     Some("Pod no longer exists".to_string()),
+                                                    None,
+                                                    None,
                                                 )
                                                 .await
                                             {
@@ -411,8 +417,10 @@ impl RunpodPlatform {
                                 crate::mutation::Mutation::update_container_status(
                                     db,
                                     container_id.to_string(),
-                                    ContainerStatus::Stopped.to_string(),
+                                    Some(ContainerStatus::Stopped.to_string()),
                                     Some("Pod was deleted or does not exist.".to_string()),
+                                    None,
+                                    None,
                                 )
                                 .await
                             {
@@ -453,8 +461,10 @@ impl RunpodPlatform {
                         if let Err(e) = crate::mutation::Mutation::update_container_status(
                             db,
                             container_id.to_string(),
-                            ContainerStatus::Failed.to_string(),
+                            Some(ContainerStatus::Failed.to_string()),
                             Some("Too many consecutive errors".to_string()),
+                            None,
+                            None,
                         )
                         .await
                         {
@@ -537,7 +547,9 @@ impl RunpodPlatform {
         Mutation::update_container_status(
             db,
             model.id.clone(),
-            ContainerStatus::Creating.to_string(),
+            Some(ContainerStatus::Creating.to_string()),
+            None,
+            None,
             None,
         )
         .await?;
@@ -561,6 +573,7 @@ impl RunpodPlatform {
         };
 
         let mut runpod_gpu_type_id: String = "NVIDIA_TESLA_T4".to_string(); // Default value
+        let mut nebu_gpu_type_id: String = "NVIDIA_TESLA_T4".to_string(); // Default value
         let mut requested_gpu_count = 1; // Default value
         let mut datacenter_id = String::from("US"); // Default value
         let mut available_gpu_types = Vec::new();
@@ -614,6 +627,7 @@ impl RunpodPlatform {
                                     // This accelerator is available, use it
                                     requested_gpu_count = count;
                                     runpod_gpu_type_id = runpod_gpu_name.clone();
+                                    nebu_gpu_type_id = parts[1].to_string();
                                     found_valid_accelerator = true;
 
                                     info!(
@@ -827,8 +841,10 @@ impl RunpodPlatform {
                     Mutation::update_container_status(
                         db,
                         model.id.clone(),
-                        ContainerStatus::Created.to_string(),
+                        Some(ContainerStatus::Created.to_string()),
                         None,
+                        Some(nebu_gpu_type_id),
+                        pod.public_ip,
                     )
                     .await?;
                     pod.id
@@ -1079,7 +1095,9 @@ impl ContainerPlatform for RunpodPlatform {
             memory_request: Set(None),
             status: Set(Some(serde_json::json!(V1ContainerStatus {
                 status: Some(ContainerStatus::Defined.to_string()),
-                message: None
+                message: None,
+                accelerator: None,
+                public_ip: None,
             }))),
             platform: Set(Some("runpod".to_string())),
             meters: Set(config
@@ -1100,6 +1118,7 @@ impl ContainerPlatform for RunpodPlatform {
                 .clone()
                 .map(|resources| serde_json::json!(resources))),
             desired_status: Set(Some(ContainerStatus::Running.to_string())),
+            ssh_keys: Set(config.ssh_keys.clone().map(|keys| serde_json::json!(keys))),
             public_ip: Set(None),
             private_ip: Set(None),
             created_by: Set(Some(owner_id.to_string())),
@@ -1144,9 +1163,12 @@ impl ContainerPlatform for RunpodPlatform {
             accelerators: config.accelerators.clone(),
             meters: config.meters.clone(),
             queue: config.queue.clone(),
+            ssh_keys: config.ssh_keys.clone(),
             status: Some(V1ContainerStatus {
                 status: Some(ContainerStatus::Defined.to_string()),
                 message: None,
+                accelerator: None,
+                public_ip: None,
             }),
             restart: config.restart.clone(),
             resources: config.resources.clone(),
@@ -1162,6 +1184,47 @@ impl ContainerPlatform for RunpodPlatform {
             "[DEBUG:runpod.rs:reconcile] Entering reconcile for container {}",
             container.id
         );
+
+        // If this container is assigned to a queue,
+        // ensure no other container in that same queue is running/active.
+        if let Some(queue_name) = &container.queue {
+            // We check if the queue is free. We'll skip starting if not free.
+            let queue_is_free =
+                crate::query::Query::is_queue_free(db, queue_name, &container.id).await?;
+            if !queue_is_free {
+                // The queue is blocked by another container.
+                // Optionally move this container to "Queued" status, or just do nothing.
+                info!(
+                    "[Runpod Controller] Container {} is blocked by an active container in queue '{}'; skipping start.",
+                    container.id, queue_name
+                );
+
+                // If you'd like to explicitly set the container status to Queued in DB:
+                // (Only do this if not already in some other terminal or running state.)
+                if let Ok(Some(parsed_status)) = container.parse_status() {
+                    let current_status = parsed_status.status.unwrap_or_default();
+                    // If it's not already queued (or in a terminal state), set to queued:
+                    if current_status != ContainerStatus::Queued.to_string()
+                        && !ContainerStatus::from_str(&current_status)
+                            .unwrap_or(ContainerStatus::Invalid)
+                            .is_inactive()
+                    {
+                        crate::mutation::Mutation::update_container_status(
+                            db,
+                            container.id.clone(),
+                            Some(ContainerStatus::Queued.to_string()),
+                            Some("Blocked by another running container in queue".to_string()),
+                            None,
+                            None,
+                        )
+                        .await
+                        .map_err(|e| format!("Failed to set container to Queued: {}", e))?;
+                    }
+                }
+
+                return Ok(()); // do not proceed to create or watch
+            }
+        }
 
         if let Ok(Some(parsed_status)) = container.parse_status() {
             let status_str = parsed_status
@@ -1236,7 +1299,9 @@ impl ContainerPlatform for RunpodPlatform {
                                 if let Err(e) = crate::mutation::Mutation::update_container_status(
                                     &db,
                                     id.clone().to_string(),
-                                    ContainerStatus::Stopped.to_string(),
+                                    Some(ContainerStatus::Stopped.to_string()),
+                                    None,
+                                    None,
                                     None,
                                 )
                                 .await

@@ -6,7 +6,7 @@ use serde_json::Value as Json;
 use std::collections::HashMap;
 
 use crate::models::{
-    V1Container, V1ContainerResources, V1ContainerStatus, V1EnvVar, V1Meter, V1VolumePath,
+    V1Container, V1ContainerResources, V1ContainerStatus, V1EnvVar, V1Meter, V1SSHKey, V1VolumePath,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
@@ -38,6 +38,7 @@ pub struct Model {
     pub created_by: Option<String>,
     pub desired_status: Option<String>,
     pub controller_data: Option<Json>,
+    pub ssh_keys: Option<Json>,
     pub updated_at: DateTimeWithTimeZone,
     pub created_at: DateTimeWithTimeZone,
 }
@@ -116,6 +117,15 @@ impl Model {
         }
     }
 
+    /// Attempt to parse `ssh_keys` into a vector of `V1SSHKey`.
+    pub fn parse_ssh_keys(&self) -> Result<Option<Vec<V1SSHKey>>, serde_json::Error> {
+        if let Some(json_value) = &self.ssh_keys {
+            serde_json::from_value(json_value.clone()).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Construct a full V1Container from the current model row.
     /// Returns a serde_json Error if any JSON parsing in subfields fails.
     pub fn to_v1_container(&self) -> Result<V1Container, serde_json::Error> {
@@ -125,6 +135,8 @@ impl Model {
         let labels = self.parse_labels()?;
         let meters = self.parse_meters()?;
         let resources = self.parse_resources()?;
+        let ssh_keys = self.parse_ssh_keys()?;
+
         // Build metadata; fill with defaults or unwrap as needed
         let metadata = crate::models::V1ContainerMeta {
             name: self.name.clone(),
@@ -151,6 +163,7 @@ impl Model {
             queue: self.queue.clone(),
             status,
             resources,
+            ssh_keys,
         };
 
         Ok(container)

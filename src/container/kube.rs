@@ -187,7 +187,9 @@ impl KubePlatform {
                         match crate::mutation::Mutation::update_container_status(
                             &db,
                             container_id.to_string(),
-                            current_status.clone(),
+                            Some(current_status.clone()),
+                            None,
+                            None,
                             None,
                         )
                         .await
@@ -227,8 +229,10 @@ impl KubePlatform {
                         if let Err(e) = crate::mutation::Mutation::update_container_status(
                             &db,
                             container_id.to_string(),
-                            "failed".to_string(),
+                            Some("failed".to_string()),
                             Some("Too many consecutive errors".to_string()),
+                            None,
+                            None,
                         )
                         .await
                         {
@@ -503,7 +507,9 @@ impl ContainerPlatform for KubePlatform {
                                 memory_request: Set(None),
                                 status: Set(Some(serde_json::json!(V1ContainerStatus {
                                     status: Some(ContainerStatus::Pending.to_string()),
-                                    message: None
+                                    message: None,
+                                    accelerator: None,
+                                    public_ip: None,
                                 }))),
                                 meters: Set(config
                                     .meters
@@ -528,6 +534,10 @@ impl ContainerPlatform for KubePlatform {
                                     .as_ref()
                                     .and_then(|meta| meta.labels.clone())
                                     .map(|labels| serde_json::json!(labels))),
+                                ssh_keys: Set(config
+                                    .ssh_keys
+                                    .clone()
+                                    .map(|keys| serde_json::json!(keys))),
                                 created_by: Set(Some("kubernetes".to_string())),
                                 updated_at: Set(chrono::Utc::now().into()),
                                 created_at: Set(chrono::Utc::now().into()),
@@ -593,9 +603,12 @@ impl ContainerPlatform for KubePlatform {
             accelerators: config.accelerators.clone(),
             meters: config.meters.clone(),
             queue: config.queue.clone(),
+            ssh_keys: config.ssh_keys.clone(),
             status: Some(V1ContainerStatus {
                 status: Some(ContainerStatus::Pending.to_string()),
                 message: None,
+                accelerator: None,
+                public_ip: None,
             }),
             restart: config.restart.clone(),
             resources: config.resources.clone(),

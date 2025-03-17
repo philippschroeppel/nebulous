@@ -92,6 +92,7 @@ pub async fn create_container(
                 max_cpu: command.max_cpu,
                 max_memory: command.max_memory,
             }),
+            ssh_keys: None,
         }
     };
 
