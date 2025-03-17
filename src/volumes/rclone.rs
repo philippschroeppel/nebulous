@@ -381,15 +381,15 @@ async fn start_sync_process(
         cmd.arg("--resync");
     }
 
-    cmd.arg("--create-empty-src-dirs");
+    // cmd.arg("--create-empty-src-dirs");
 
-    // Add common options
-    cmd.arg("--verbose");
-    cmd.arg("--fast-list");
+    // // Add common options
+    // cmd.arg("--verbose");
+    // cmd.arg("--fast-list");
 
-    // Add cache directory
-    cmd.arg("--cache-dir");
-    cmd.arg(cache_dir);
+    // // Add cache directory
+    // cmd.arg("--cache-dir");
+    // cmd.arg(cache_dir);
 
     // Add resilient mode for bidirectional sync
     if path.driver == V1VolumeDriver::RCLONE_BISYNC {
@@ -492,13 +492,13 @@ pub async fn execute_sync(
         }
 
         // Add common options
-        cmd.arg("--verbose");
-        cmd.arg("--fast-list");
-        cmd.arg("--create-empty-src-dirs");
+        // cmd.arg("--verbose");
+        // cmd.arg("--fast-list");
+        // cmd.arg("--create-empty-src-dirs");
 
-        // Add cache directory
-        cmd.arg("--cache-dir");
-        cmd.arg(&config.cache_dir);
+        // // Add cache directory
+        // cmd.arg("--cache-dir");
+        // cmd.arg(&config.cache_dir);
 
         // Execute the command
         let output = cmd.output()?;
@@ -534,11 +534,11 @@ pub async fn execute_sync(
                 resync_cmd.arg(&dest);
                 resync_cmd.arg("--resync");
                 resync_cmd.arg("--force");
-                resync_cmd.arg("--verbose");
-                resync_cmd.arg("--fast-list");
-                resync_cmd.arg("--create-empty-src-dirs");
-                resync_cmd.arg("--cache-dir");
-                resync_cmd.arg(&config.cache_dir);
+                // resync_cmd.arg("--verbose");
+                // resync_cmd.arg("--fast-list");
+                // resync_cmd.arg("--create-empty-src-dirs");
+                // resync_cmd.arg("--cache-dir");
+                // resync_cmd.arg(&config.cache_dir);
 
                 // Execute the resync command
                 let resync_output = resync_cmd.output()?;
@@ -1065,13 +1065,13 @@ pub async fn execute_non_continuous_sync(
         }
 
         // Add common options
-        cmd.arg("--verbose");
-        cmd.arg("--fast-list");
-        cmd.arg("--create-empty-src-dirs");
+        // cmd.arg("--verbose");
+        // cmd.arg("--fast-list");
+        // cmd.arg("--create-empty-src-dirs");
 
         // Add cache directory
-        cmd.arg("--cache-dir");
-        cmd.arg(&config.cache_dir);
+        // cmd.arg("--cache-dir");
+        // cmd.arg(&config.cache_dir);
 
         // Execute the command
         let output = cmd.output()?;
@@ -1111,11 +1111,11 @@ pub async fn execute_non_continuous_sync(
                 resync_cmd.arg(&dest);
                 resync_cmd.arg("--resync");
                 resync_cmd.arg("--force");
-                resync_cmd.arg("--verbose");
-                resync_cmd.arg("--fast-list");
-                resync_cmd.arg("--create-empty-src-dirs");
-                resync_cmd.arg("--cache-dir");
-                resync_cmd.arg(&config.cache_dir);
+                // resync_cmd.arg("--verbose");
+                // resync_cmd.arg("--fast-list");
+                // resync_cmd.arg("--create-empty-src-dirs");
+                // resync_cmd.arg("--cache-dir");
+                // resync_cmd.arg(&config.cache_dir);
 
                 // Execute the resync command
                 let resync_output = resync_cmd.output()?;
