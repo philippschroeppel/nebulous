@@ -25,6 +25,18 @@ pub async fn execute_sync(
     if config_from_env {
         match std::env::var("NEBU_SYNC_CONFIG") {
             Ok(env_config) => {
+                // Create parent directories if they don't exist
+                if let Some(parent) = std::path::Path::new(&config_path).parent() {
+                    if !parent.exists() {
+                        if let Err(e) = std::fs::create_dir_all(parent) {
+                            eprintln!(
+                                "Warning: Failed to create directory for config file {}: {}",
+                                config_path, e
+                            );
+                        }
+                    }
+                }
+
                 if let Err(e) = std::fs::write(&config_path, &env_config) {
                     eprintln!(
                         "Warning: Failed to write config from environment variable to {}: {}",

@@ -91,6 +91,7 @@ nebu ssh foo
 Containers can be assigned to a FIFO queue, which will block them from starting until the queue is free.
 
 ```yaml
+kind: Container
 image: pytorch/pytorch:latest
 queue: actor-critic-training
 ...
@@ -98,7 +99,7 @@ queue: actor-critic-training
 
 ### Volumes
 
-Volumes provide a means to persist data accross clouds. Nebulous uses [rclone](https://rclone.org/) to sync data between clouds backed by an object storage provider.
+Volumes provide a means to persist and sync data accross clouds. Nebulous uses [rclone](https://rclone.org/) to sync data between clouds backed by an object storage provider.
 
 ```yaml
 volumes:
