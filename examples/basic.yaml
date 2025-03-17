@@ -12,9 +12,9 @@ env_vars:
   - key: HELLO
     value: world
 volumes:
-  - source: s3://nebulous-rs/test
-    dest: /nebu/test
-    driver: RCLONE_BISYNC
+  - source: s3://nebulous-rs/test11
+    dest: /nebu/test11
+    driver: RCLONE_SYNC
     continuous: true
 accelerators:
   - "1:A100_SXM"

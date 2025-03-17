@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .await?;
         }
         Commands::Create { command } => match command {
-            CreateCommands::Container { command } => {
+            CreateCommands::Containers { command } => {
                 // Add debug output to help diagnose the issue
                 println!("Attempting to create container with command");
 

@@ -79,7 +79,7 @@ pub enum Commands {
 #[derive(Subcommand)]
 pub enum CreateCommands {
     /// Create a container.
-    Container {
+    Containers {
         #[command(flatten)]
         command: ContainerCommands,
     },
@@ -151,6 +151,10 @@ pub struct ContainerCommands {
     /// Meters of the container
     #[arg(long)]
     pub meter_cost: Option<f64>,
+
+    /// Meter cost plus
+    #[arg(long)]
+    pub meter_cost_plus: Option<f64>,
 
     /// Meter unit of the container
     #[arg(long)]

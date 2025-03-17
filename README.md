@@ -32,7 +32,7 @@ env_vars:
 volumes:
   - source: s3://nebulous-rs/test
     dest: /nebu/test
-    driver: RCLONE_BISYNC
+    driver: RCLONE_SYNC
     continuous: true
 accelerators:
   - "4:A100"
@@ -105,7 +105,7 @@ Volumes provide a means to persist and sync data accross clouds. Nebulous uses [
 volumes:
   - source: s3://nebulous-rs/test
     dest: /nebu/test
-    driver: RCLONE_BISYNC
+    driver: RCLONE_SYNC
     continuous: true
 ```
 
@@ -134,6 +134,17 @@ meters:
     metric: runtime 
 ```
 
+Cost plus is supported through the `costp` field.
+
+```yaml
+meters:
+    costp: 10
+    unit: second
+    currency: USD
+    metric: runtime 
+```
+This configuration will add 10% to the cost of the container.
+
 ### Clusters [in progress]
 
 Clusters provide a means of multi-node training and inference.
@@ -153,7 +164,7 @@ container:
   volumes:
     - source: s3://nebulous-rs/test
       dest: /nebu/test
-      driver: RCLONE_BISYNC
+      driver: RCLONE_SYNC
       continuous: true
   accelerators:
     - "8:A100"

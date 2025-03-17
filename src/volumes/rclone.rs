@@ -441,7 +441,6 @@ async fn start_sync_process(
 
     let mut child = cmd.spawn()?;
 
-    // NEW: Hook up tasks to read the child’s stdout/stderr
     if let Some(stdout) = child.stdout.take() {
         let source_clone = path.source.clone();
         let dest_clone = path.dest.clone();

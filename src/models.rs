@@ -13,7 +13,8 @@ pub struct V1ErrorResponse {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct V1Meter {
-    pub cost: f64,
+    pub cost: Option<f64>,
+    pub costp: Option<f64>,
     pub currency: String,
     pub unit: String,
     pub metric: String,

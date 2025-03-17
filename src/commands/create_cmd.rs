@@ -53,17 +53,17 @@ pub async fn create_container(
             .label
             .map(|label_vec| label_vec.into_iter().collect::<HashMap<String, String>>());
 
-        let meters = if let Some(meter_cost) = command.meter_cost {
+        let meters = if command.meter_cost.is_some() || command.meter_cost_plus.is_some() {
             Some(vec![V1Meter {
-                cost: meter_cost,
-                unit: command.meter_unit.unwrap_or_default(),
-                metric: command.meter_metric.unwrap_or_default(),
-                currency: command.meter_currency.unwrap_or_default(),
+                cost: command.meter_cost,
+                costp: command.meter_cost_plus,
+                unit: command.meter_unit.clone().unwrap_or_default(),
+                metric: command.meter_metric.clone().unwrap_or_default(),
+                currency: command.meter_currency.clone().unwrap_or_default(),
             }])
         } else {
             None
         };
-
         if command.image.is_none() {
             return Err("Image is required".into());
         }

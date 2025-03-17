@@ -17,7 +17,7 @@ use short_uuid::ShortUuid;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 /// A `TrainingPlatform` implementation that schedules training jobs on RunPod.
 #[derive(Clone)]
@@ -154,6 +154,7 @@ impl RunpodPlatform {
         seconds: u64,
         meters: &serde_json::Value,
         owner_id: String,
+        base_cost_per_hr: Option<f64>,
     ) {
         // Parse the meters from the container model
         let meters_vec: Vec<V1Meter> = match serde_json::from_value(meters.clone()) {
@@ -190,6 +191,40 @@ impl RunpodPlatform {
 
         // Create and send events for each meter
         for meter in meters_vec {
+            // Determine final cost using cost plus cost percentage if present.
+            let cost_value = if let Some(costp) = meter.costp {
+                // If costp is specified (percentage field), we need a base cost to add to.
+                if let Some(base_cost) = meter.cost {
+                    if base_cost == 0.0 {
+                        // Print a warning if the base cost is zero
+                        warn!(
+                        "[Runpod Controller] cost=0.0 but costp={}% was supplied for metric '{}'. Final cost would still be 0.0.",
+                        costp, meter.metric
+                    );
+                    }
+                    // e.g., if user sets cost=1.0 and costp=10.0, final cost=1.1
+                    base_cost + (base_cost * costp / 100.0)
+                } else {
+                    // If no base cost is provided but costp is provided,
+                    // treat it as "percentage of 0" -> 0
+                    warn!(
+                    "[Runpod Controller] costp={}% provided but cost=None for metric '{}', using 0",
+                    costp, meter.metric
+                );
+                    0.0
+                }
+            } else if let Some(c) = meter.cost {
+                // cost provided, no costp
+                c
+            } else {
+                // if neither cost nor costp is present, log a warning and skip this meter
+                warn!(
+                    "[Runpod Controller] No cost or costp provided for meter '{}', skipping.",
+                    meter.metric
+                );
+                continue;
+            };
+
             let event_id = format!("container-{}-{}", container_id, uuid::Uuid::new_v4());
 
             // Create event data based on meter type
@@ -201,7 +236,7 @@ impl RunpodPlatform {
                         "metric": meter.metric,
                         "container_id": container_id,
                         "currency": meter.currency,
-                        "cost": meter.cost,
+                        "cost": cost_value,
                         "unit": meter.unit,
                     })
                 }
@@ -212,7 +247,7 @@ impl RunpodPlatform {
                         "metric": meter.metric,
                         "container_id": container_id,
                         "currency": meter.currency,
-                        "cost": meter.cost,
+                        "cost": cost_value,
                         "unit": meter.unit,
                     })
                 }
@@ -360,6 +395,7 @@ impl RunpodPlatform {
                                     pause_seconds,
                                     meters,
                                     container.owner_id.clone(),
+                                    Some(pod_info.cost_per_hr),
                                 )
                                 .await;
                             }
