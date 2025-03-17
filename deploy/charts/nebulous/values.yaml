@@ -1,0 +1,127 @@
+namespaceOverride: ""
+
+image:
+  repository: "us-docker.pkg.dev/agentsea-dev/nebulous/server"
+  tag: "latest"
+  pullPolicy: "IfNotPresent"
+
+serviceAccount:
+  create: true
+  name: ""
+
+service:
+  name: ""
+  port: 3000
+
+ingress:
+  enabled: false
+
+  host: ""
+  className: "alb"
+  annotations: { }
+
+local:
+  enabled: false
+
+messageQueue:
+  type: "redis"
+
+encryptionKey:
+  secretName: ""
+  secretKey: ""
+
+  # Create an encryption key secret
+  create: true
+  encodedValue: "xQ5DTNJzwhqI01X+K0WXlCwl2CEzrhFNxF2ZYPyhweE="
+
+storage:
+  huggingfaceCache:
+    claimName: "huggingface-cache-pvc"
+
+    createPersistentVolumeClaim: true
+    size: "100Gi"
+    storageClassName: ""
+
+  adapter:
+    claimName: "adapter-pvc"
+
+    createPersistentVolumeClaim: true
+    size: "100Gi"
+    storageClassName: ""
+
+  dataset:
+    claimName: "dataset-pvc"
+
+    createPersistentVolumeClaim: true
+    size: "100Gi"
+    storageClassName: ""
+
+  model:
+    claimName: "model-pvc"
+
+    createPersistentVolumeClaim: true
+    size: "1000Gi"
+    storageClassName: ""
+
+# Databases
+
+postgres:
+  host: ""
+  port: 5432
+
+  database: "nebulous"
+
+  user: "nebulous"
+  password: "nebulous"
+
+  # Create a Postgres deployment and service
+  create: false
+  persistence:
+    enabled: false
+    claimName: "postgres-pvc"
+
+    createPersistentVolumeClaim: false
+    size: "100Gi"
+    storageClassName: ""
+
+redis:
+  host: ""
+  port: 6379
+
+  database: 0
+
+  password: ""
+
+  # Create a Redis deployment and service
+  create: false
+
+  ingress:
+    enabled: false
+
+    host: ""
+    className: "alb"
+    annotations: { }
+
+# Providers
+
+aws:
+  enabled: false
+
+  accessKeyId: ""
+  secretAccessKey: ""
+
+  secret:
+    name: ""
+    keys:
+      accessKeyId: ""
+      secretAccessKey: ""
+
+runpod:
+  enabled: false
+
+  apiKey: ""
+
+  secret:
+    name: ""
+    keys:
+      apiKey: ""

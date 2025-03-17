@@ -1,0 +1,10 @@
+{{- if .Values.encryptionKey.create }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "nebulous.encryptionKeySecretName" . }}
+  namespace: {{ include "nebulous.namespace" . }}
+type: Opaque
+data:
+  {{ include "nebulous.encryptionKeySecretKey" . }}: {{ .Values.encryptionKey.encodedValue }}
+{{- end }}

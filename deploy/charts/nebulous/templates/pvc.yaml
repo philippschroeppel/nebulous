@@ -1,0 +1,67 @@
+{{- if default true .Values.storage.huggingfaceCache.createPersistentVolumeClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "nebulous.huggingfaceCachePVCName" . }}
+  namespace: {{ include "nebulous.namespace" . }}
+spec:
+  {{- with .Values.storage.huggingfaceCache.storageClassName }}
+  storageClassName: {{.}}
+  {{- end }}
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: {{ default "300Gi" .Values.storage.huggingfaceCache.size}}
+---
+{{- end }}
+{{- if default true .Values.storage.adapter.createPersistentVolumeClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "nebulous.adapterPVCName" . }}
+  namespace: {{ include "nebulous.namespace" . }}
+spec:
+  {{- with .Values.storage.adapter.storageClassName }}
+  storageClassName: {{.}}
+  {{- end }}
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: {{ default "300Gi" .Values.storage.adapter.size}}
+---
+{{- end }}
+{{- if default true .Values.storage.dataset.createPersistentVolumeClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "nebulous.datasetPVCName" . }}
+  namespace: {{ include "nebulous.namespace" . }}
+spec:
+  {{- with .Values.storage.dataset.storageClassName }}
+  storageClassName: {{.}}
+  {{- end }}
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: {{ default "300Gi" .Values.storage.dataset.size}}
+---
+{{- end }}
+{{- if default true .Values.storage.model.createPersistentVolumeClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "nebulous.modelPVCName" . }}
+  namespace: {{ include "nebulous.namespace" . }}
+spec:
+  {{- with .Values.storage.model.storageClassName }}
+  storageClassName: {{.}}
+  {{- end }}
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: {{ default "1000Gi" .Values.storage.model.size}}
+{{- end }}

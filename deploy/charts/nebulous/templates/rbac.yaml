@@ -1,0 +1,30 @@
+{{- if .Values.local.enabled -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-local-role
+  namespace: {{ include "nebulous.namespace" . }}
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "delete", "update"]
+  - apiGroups: [""]
+    resources: ["pods", "services", "secrets", "persistentvolumeclaims", "pods/log"]
+    verbs: ["create", "get", "list", "watch", "delete", "update"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/status"]
+    verbs: ["create", "get", "list", "watch", "delete", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-local-binding
+  namespace: {{ include "nebulous.namespace" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "nebulous.serviceAccountName" . }}
+roleRef:
+  kind: Role
+  name: {{ .Release.Name }}-local-role
+  apiGroup: rbac.authorization.k8s.io
+{{- end}}

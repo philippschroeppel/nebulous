@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-server
+  namespace: {{ include "nebulous.namespace" . }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-server
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-server
+    spec:
+      serviceAccountName: {{ include "nebulous.serviceAccountName" . }}
+      containers:
+        - name: nebulous-server
+          image: "{{- .Values.image.repository }}:{{- .Values.image.tag }}"
+          {{- with .Values.image.pullPolicy }}
+          imagePullPolicy: {{.}}
+          {{- end }}
+          ports:
+            - containerPort: 3000
+          env:
+            - name: SECRET_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nebulous.encryptionKeySecretName" . }}
+                  key: {{ include "nebulous.encryptionKeySecretKey" . }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: connection_string
+            - name: MESSAGE_QUEUE_TYPE
+              value: {{ include "nebulous.messageQueueType" . }}
+            {{- if eq (include "nebulous.messageQueueType"  . ) "redis" }}
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: host
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: password
+            - name: RUST_LOG
+              value: debug
+            {{- end }}
+          volumeMounts:
+            - name: huggingface-cache-pvc
+              mountPath: /huggingface
+            - name: adapter-pvc
+              mountPath: /adapters
+            - name: dataset-pvc
+              mountPath: /datasets
+            - name: model-pvc
+              mountPath: /models
+      volumes:
+        - name: huggingface-cache-pvc
+          persistentVolumeClaim:
+            claimName: {{ include "nebulous.huggingfaceCachePVCName" . }}
+        - name: adapter-pvc
+          persistentVolumeClaim:
+            claimName: {{ include "nebulous.adapterPVCName" . }}
+        - name: dataset-pvc
+          persistentVolumeClaim:
+            claimName: {{ include "nebulous.datasetPVCName" . }}
+        - name: model-pvc
+          persistentVolumeClaim:
+            claimName: {{ include "nebulous.modelPVCName" . }}

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nebulous.serviceName" . }}
+  namespace: {{ include "nebulous.namespace" . }}
+spec:
+  selector:
+    app: {{ .Release.Name }}-app
+  ports:
+    - protocol: TCP
+      port: {{ include "nebulous.servicePort" . }}
+      targetPort: 3000
+  type: ClusterIP

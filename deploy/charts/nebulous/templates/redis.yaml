@@ -1,0 +1,85 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redis-secret
+  namespace: {{ include "nebulous.namespace" . }}
+type: Opaque
+data:
+  host: {{ printf "redis://%s:%s" (include "redis.host" .) (include "redis.port" .) | b64enc }}
+  password: {{ include "redis.password" . | b64enc }}
+{{- if .Values.redis.create }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: {{ include "nebulous.namespace" . }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:latest
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              exec redis-server --requirepass "$REDIS_PASSWORD"
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: password
+          ports:
+            - containerPort: 6379
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: {{ include "nebulous.namespace" . }}
+spec:
+  selector:
+    app: redis
+  ports:
+    - protocol: TCP
+      port: {{ include "redis.port" . }}
+      targetPort: 6379
+  type: ClusterIP
+{{- if .Values.redis.ingress.enabled -}}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  {{- with .Values.redis.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  name: {{ include "redis.serviceName" . }}
+  namespace: {{ include "nebulous.namespace" . }}
+spec:
+  {{- with .Values.redis.ingress.className }}
+  ingressClassName: {{.}}
+  {{- end }}
+  rules:
+    - host: {{- .Values.redis.ingress.host }}
+      http:
+        paths:
+          - backend:
+              service:
+                name: {{ include "redis.serviceName" . }}
+                port:
+                  number: {{ include "redis.port" . }}
+            path: /
+            pathType: Prefix
+{{- end }}
+{{- end }}
