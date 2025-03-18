@@ -49,6 +49,25 @@ spec:
                   name: {{ default "redis-secret" .Values.redis.secret.name }}
                   key: {{ default "password" .Values.redis.secret.keys.password }}
             {{- end }}
+            {{- if .Values.providers.aws.enabled }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "providers.aws.secretName" . }}
+                  key: {{ include "providers.aws.accessKeyIdSecretKey" . }}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "providers.aws.secretName" . }}
+                  key: {{ include "providers.aws.secretAccessKeySecretKey" . }}
+            {{- end }}
+            {{- if .Values.providers.runpod.enabled }}
+            - name: RUNPOD_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "providers.runpod.secretName" . }}
+                  key: {{ include "providers.runpod.apiKeySecretKey" . }}
+            {{- end }}
             - name: RUST_LOG
               value: debug
           volumeMounts:

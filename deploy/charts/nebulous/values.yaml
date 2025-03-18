@@ -1,6 +1,7 @@
 # -- Override the namespace. Defaults to the Helm release's namespace.
 namespaceOverride: ""
 
+## Nebulous configuration
 image:
   repository: ""
   pullPolicy: "IfNotPresent"
@@ -46,6 +47,7 @@ encryptionKey:
   # -- The 32 byte encryption key encoded in base64. Required if 'create' is true. Not recommended for production.
   encodedValue: ""
 
+## Storage configuration
 storage:
   huggingfaceCache:
     claimName: "huggingface-cache-pvc"
@@ -75,8 +77,7 @@ storage:
     size: "1000Gi"
     storageClassName: ""
 
-# Databases
-
+## Database configuration
 postgres:
   host: ""
   port: 5432
@@ -137,26 +138,28 @@ redis:
     className: ""
     annotations: { }
 
-# Providers
+## Provider configuration
+providers:
+  aws:
+    enabled: false
 
-aws:
-  enabled: false
-
-  accessKeyId: ""
-  secretAccessKey: ""
-
-  secret:
-    name: ""
-    keys:
+    auth:
       accessKeyId: ""
       secretAccessKey: ""
 
-runpod:
-  enabled: false
+    secret:
+      name: ""
+      keys:
+        accessKeyId: ""
+        secretAccessKey: ""
 
-  apiKey: ""
+  runpod:
+    enabled: false
 
-  secret:
-    name: ""
-    keys:
+    auth:
       apiKey: ""
+
+    secret:
+      name: ""
+      keys:
+        apiKey: ""

@@ -138,3 +138,23 @@ redis
 {{- required ".Values.redis.password is required" .Values.redis.auth.password }}
 {{- end }}
 {{- end }}
+
+{{- define "providers.aws.secretName" -}}
+{{- default "aws-secret" .Values.providers.aws.secret.name }}
+{{- end }}
+
+{{- define "providers.aws.accessKeyIdSecretKey" -}}
+{{- default "AWS_ACCESS_KEY_ID" .Values.providers.aws.secret.keys.accessKeyId }}
+{{- end }}
+
+{{- define "providers.aws.secretAccessKeySecretKey" -}}
+{{- default "AWS_SECRET_ACCESS_KEY" .Values.providers.aws.secret.keys.secretAccessKey }}
+{{- end }}
+
+{{- define "providers.runpod.secretName" -}}
+{{- default "runpod-secret" .Values.providers.runpod.secret.name }}
+{{- end }}
+
+{{- define "providers.runpod.apiKeySecretKey" -}}
+{{- default "RUNPOD_API_KEY" .Values.providers.runpod.secret.keys.apiKey }}
+{{- end }}
