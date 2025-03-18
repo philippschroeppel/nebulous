@@ -1,4 +1,4 @@
-{{- if default false .Values.local.enabled -}}
+{{- if default false .Values.local.enabled }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
