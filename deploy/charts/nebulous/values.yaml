@@ -17,6 +17,8 @@ service:
   name: ""
   # -- The port of the Kubernetes Service.
   port: 3000
+  # -- Annotations to add to the Kubernetes Service.
+  annotations: { }
 
 ingress:
   # -- If enabled, create an Ingress resource.
@@ -39,7 +41,7 @@ messageQueue:
 encryptionKey:
   # -- The name of the secret containing the 32 byte encryption key.
   secretName: ""
-    # -- The key in the secret containing the encryption key.
+  # -- The key in the secret containing the encryption key.
   secretKey: ""
 
   # -- If enabled, create an encryption key secret. Not recommended for production.
@@ -157,9 +159,12 @@ providers:
     enabled: false
 
     auth:
+      # -- The Runpod API key.
       apiKey: ""
 
     secret:
+      # -- The name of the secret containing the API key. If set, takes precedence over 'auth'.
       name: ""
       keys:
+        # -- The key in the secret containing the API key. Defaults to RUNPOD_API_KEY.
         apiKey: ""
