@@ -21,7 +21,7 @@ impl PlatformType {
         db: &DatabaseConnection,
         user_profile: &V1UserProfile,
         owner_id: &str,
-    ) -> Result<V1Container, Box<dyn Error>> {
+    ) -> Result<V1Container, Box<dyn Error + Send + Sync>> {
         match self {
             PlatformType::Runpod(platform) => {
                 platform.declare(request, db, user_profile, owner_id).await
@@ -36,14 +36,41 @@ impl PlatformType {
         &self,
         container: &containers::Model,
         db: &DatabaseConnection,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         match self {
             PlatformType::Runpod(platform) => platform.reconcile(container, db).await,
             PlatformType::Kube(platform) => platform.reconcile(container, db).await,
         }
     }
 
-    pub async fn delete(&self, id: &str, db: &DatabaseConnection) -> Result<(), Box<dyn Error>> {
+    pub async fn logs(
+        &self,
+        container_id: &str,
+        db: &DatabaseConnection,
+    ) -> Result<String, Box<dyn Error + Send + Sync>> {
+        match self {
+            PlatformType::Runpod(platform) => platform.logs(container_id, db).await,
+            PlatformType::Kube(platform) => platform.logs(container_id, db).await,
+        }
+    }
+
+    pub async fn exec(
+        &self,
+        container_id: &str,
+        command: &str,
+        db: &DatabaseConnection,
+    ) -> Result<String, Box<dyn Error + Send + Sync>> {
+        match self {
+            PlatformType::Runpod(platform) => platform.exec(container_id, command, db).await,
+            PlatformType::Kube(platform) => platform.exec(container_id, command, db).await,
+        }
+    }
+
+    pub async fn delete(
+        &self,
+        id: &str,
+        db: &DatabaseConnection,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         match self {
             PlatformType::Runpod(platform) => platform.delete(id, db).await,
             PlatformType::Kube(platform) => platform.delete(id, db).await,

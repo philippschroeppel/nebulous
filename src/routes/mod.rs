@@ -1,6 +1,7 @@
 use crate::handlers::{
-    create_container, delete_container, get_container, health_handler, list_containers,
-    root_handler,
+    create_container, create_secret, delete_container, delete_secret, fetch_container_logs,
+    get_container, get_secret, health_handler, list_containers, list_secrets, root_handler,
+    update_secret,
 };
 use crate::middleware::auth_middleware;
 use crate::state::AppState;
@@ -24,6 +25,12 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
         .route(
             "/v1/containers/:id",
             get(get_container).delete(delete_container),
+        )
+        .route("/v1/containers/:id/logs", get(fetch_container_logs))
+        .route("/secrets", get(list_secrets).post(create_secret))
+        .route(
+            "/secrets/:id",
+            get(get_secret).put(update_secret).delete(delete_secret),
         )
         // Apply the authentication middleware to private routes
         .layer(middleware::from_fn_with_state(

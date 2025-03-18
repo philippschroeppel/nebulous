@@ -1,6 +1,7 @@
 // src/query.rs
 use crate::container::base::ContainerStatus;
 use crate::entities::containers;
+use crate::entities::secrets;
 use crate::models::V1ContainerStatus;
 use sea_orm::sea_query::{Expr, Func};
 use sea_orm::Value;
@@ -177,5 +178,79 @@ impl Query {
             .await?;
 
         Ok(another_active_container.is_none())
+    }
+
+    /// Fetch and decrypt `(private_key, public_key)` for a container by ID.
+    /// Returns a tuple of `Option<String>` for (private_key, public_key).
+    pub async fn get_ssh_keypair(
+        db: &DatabaseConnection,
+        container_id: &str,
+    ) -> Result<(Option<String>, Option<String>), DbErr> {
+        let private_secret_id = format!("ssh-private-key-{}", container_id);
+        let public_secret_id = format!("ssh-public-key-{}", container_id);
+
+        // Fetch both secrets at once
+        let secrets_records = secrets::Entity::find()
+            .filter(
+                secrets::Column::Id
+                    .is_in(vec![private_secret_id.clone(), public_secret_id.clone()]),
+            )
+            .all(db)
+            .await?;
+
+        let mut private_key: Option<String> = None;
+        let mut public_key: Option<String> = None;
+
+        // Decrypt each record, matching by ID
+        for record in secrets_records {
+            match record.id.as_str() {
+                x if x == private_secret_id => {
+                    private_key = Some(record.decrypt_value().map_err(|e| {
+                        DbErr::Custom(format!(
+                            "Failed to decrypt SSH private key for container {container_id}: {e}"
+                        ))
+                    })?);
+                }
+                x if x == public_secret_id => {
+                    public_key = Some(record.decrypt_value().map_err(|e| {
+                        DbErr::Custom(format!(
+                            "Failed to decrypt SSH public key for container {container_id}: {e}"
+                        ))
+                    })?);
+                }
+                _ => {}
+            }
+        }
+
+        Ok((private_key, public_key))
+    }
+
+    /// Find a single secret by ID and ensure that the user is an owner
+    pub async fn find_secret_by_id_and_owners(
+        db: &DatabaseConnection,
+        id: &str,
+        owner_ids: &[&str],
+    ) -> Result<secrets::Model, DbErr> {
+        let result = secrets::Entity::find()
+            .filter(secrets::Column::Id.eq(id))
+            .filter(secrets::Column::OwnerId.is_in(owner_ids.iter().copied()))
+            .one(db)
+            .await?;
+
+        result.ok_or(DbErr::RecordNotFound(format!(
+            "Secret with id '{}' not found for the specified owners",
+            id
+        )))
+    }
+
+    /// Fetch all secrets for a given list of owners
+    pub async fn find_secrets_by_owners(
+        db: &DatabaseConnection,
+        owner_ids: &[&str],
+    ) -> Result<Vec<secrets::Model>, DbErr> {
+        secrets::Entity::find()
+            .filter(secrets::Column::OwnerId.is_in(owner_ids.iter().copied()))
+            .all(db)
+            .await
     }
 }

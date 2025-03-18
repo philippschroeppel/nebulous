@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             commands::serve_cmd::execute(host, port).await?;
         }
         Commands::Sync { command } => match command {
-            SyncCommands::Volume {
+            SyncCommands::Volumes {
                 config,
                 interval_seconds,
                 create_if_missing,

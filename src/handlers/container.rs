@@ -9,6 +9,7 @@ use crate::models::{
 use tracing::info;
 
 // Adjust the crate paths below to match your own project structure:
+use crate::container::factory::PlatformType;
 use crate::mutation::Mutation;
 use crate::org::get_organization_names;
 use crate::query::Query;
@@ -246,4 +247,48 @@ pub async fn delete_container(
 
     // Return just a 200 OK status code
     Ok(StatusCode::OK)
+}
+
+pub async fn fetch_container_logs(
+    State(state): State<AppState>,
+    Extension(user_profile): Extension<V1UserProfile>,
+    Path(id): Path<String>,
+) -> Result<Json<String>, (StatusCode, Json<serde_json::Value>)> {
+    let db_pool = &state.db_pool;
+
+    // Collect owner IDs from user_profile to use in your `Query` call
+    let mut owner_ids: Vec<String> = user_profile
+        .organizations
+        .as_ref()
+        .map(|orgs| orgs.keys().cloned().collect())
+        .unwrap_or_default();
+
+    // Add user email if necessary for ownership checks
+    owner_ids.push(user_profile.email.clone());
+    let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
+
+    // Find the container in the DB, ensuring the user has permission
+    let container = Query::find_container_by_id_and_owners(db_pool, &id, &owner_id_refs)
+        .await
+        .map_err(|err| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Database error: {}", err) })),
+            )
+        })?;
+
+    let platform = platform_factory(container.platform.unwrap().clone());
+
+    // Use the helper function to fetch logs
+    let logs = platform
+        .logs(&container.id.to_string(), db_pool)
+        .await
+        .map_err(|err| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to get logs: {}", err) })),
+            )
+        })?;
+
+    Ok(Json(logs))
 }

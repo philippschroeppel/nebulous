@@ -54,7 +54,7 @@ pub enum Commands {
 #[derive(Subcommand)]
 pub enum SyncCommands {
     /// Sync a volume.
-    Volume {
+    Volumes {
         /// Path to the YAML configuration file.
         #[arg(short, long)]
         config: String,

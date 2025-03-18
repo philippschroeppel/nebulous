@@ -1,6 +1,6 @@
 [package]
 name = "nebulous"
-version = "0.1.32"
+version = "0.1.33"
 edition = "2021"
 description = "A Rust library for nebulous operations"
 license = "MIT"
@@ -65,3 +65,5 @@ aes-gcm = "0.10.1"
 dashmap = "6.1.0"
 openmeter = "0.1.2"
 shell-quote = "0.7.2"
+ring = "0.17.14"
+ssh2 = "0.9.5"

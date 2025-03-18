@@ -277,7 +277,7 @@ impl ContainerPlatform for KubePlatform {
         db: &DatabaseConnection,
         user_profile: &V1UserProfile,
         owner_id: &str,
-    ) -> Result<V1Container, Box<dyn std::error::Error>> {
+    ) -> Result<V1Container, Box<dyn std::error::Error + Send + Sync>> {
         let name = config
             .metadata
             .as_ref()
@@ -622,15 +622,32 @@ impl ContainerPlatform for KubePlatform {
         &self,
         container: &containers::Model,
         db: &DatabaseConnection,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
+    }
+
+    async fn exec(
+        &self,
+        container_id: &str,
+        command: &str,
+        db: &DatabaseConnection,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        Ok("".to_string())
+    }
+
+    async fn logs(
+        &self,
+        container_id: &str,
+        db: &DatabaseConnection,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        Ok("".to_string())
     }
 
     async fn delete(
         &self,
         id: &str,
         db: &DatabaseConnection,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
 

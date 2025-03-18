@@ -145,6 +145,23 @@ meters:
 ```
 This configuration will add 10% to the cost of the container.
 
+### Processors
+
+Processors are containers that work off data streams and are autoscaled based on the back-pressure. Streams are provided by [Redis Streams](https://redis.io/docs/latest/develop/data-types/streams/).
+
+```yaml
+kind: Processor
+streams:
+  - name: foo:bar:baz
+container:
+  image: quz/processor:latest
+  command: "redis-cli XREAD COUNT 10 STREAMS foo:bar:baz"
+  accelerators:
+    - "1:A100"
+min_workers: 1
+max_workers: 10
+```
+
 ### Clusters [in progress]
 
 Clusters provide a means of multi-node training and inference.
@@ -176,7 +193,24 @@ nebu create cluster -f examples/cluster.yaml
 
 Each container will get a `$NODES` env var which contains the IP addresses of the nodes in the cluster.   
    
-Clusters always aim to schedule nodes as close to each other as possible, with as fast of networking as available.
+Clusters always aim to schedule nodes as close to each other as possible, with as fast of networking as available.   
+   
+Processors also work with Clusters.
+
+```yaml
+kind: Processor
+streams:
+  - name: foo:bar:baz
+cluster:
+  container:
+    image: quz/processor:latest
+    command: "redis-cli XREAD COUNT 10 STREAMS foo:bar:baz"
+    accelerators:
+      - "1:A100"
+  num_nodes: 4
+min_workers: 1
+max_workers: 10
+```
 
 ### Services [in progress]
 

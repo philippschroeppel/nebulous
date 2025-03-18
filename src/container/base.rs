@@ -140,19 +140,32 @@ pub trait ContainerPlatform {
         db: &DatabaseConnection,
         user_profile: &V1UserProfile,
         owner_id: &str,
-    ) -> Result<V1Container, Box<dyn std::error::Error>>;
+    ) -> Result<V1Container, Box<dyn std::error::Error + Send + Sync>>;
 
     async fn reconcile(
         &self,
         container: &containers::Model,
         db: &DatabaseConnection,
-    ) -> Result<(), Box<dyn std::error::Error>>;
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+    async fn exec(
+        &self,
+        container_id: &str,
+        command: &str,
+        db: &DatabaseConnection,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>>;
+
+    async fn logs(
+        &self,
+        container_id: &str,
+        db: &DatabaseConnection,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>>;
 
     async fn delete(
         &self,
         id: &str,
         db: &DatabaseConnection,
-    ) -> Result<(), Box<dyn std::error::Error>>;
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     fn accelerator_map(&self) -> HashMap<String, String>;
 
@@ -204,7 +217,7 @@ pub trait ContainerPlatform {
     async fn get_agent_key(
         &self,
         user_profile: &V1UserProfile,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let config = crate::config::GlobalConfig::read().unwrap();
 
         let create_agent_key_request = V1CreateAgentKeyRequest {
@@ -231,7 +244,7 @@ pub trait ContainerPlatform {
         user_profile: &V1UserProfile,
         container_id: &str,
         owner_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use crate::entities::secrets;
         use sea_orm::{EntityTrait, Set};
 
@@ -244,6 +257,7 @@ pub trait ContainerPlatform {
             "container-reconciler".to_string(),
             &agent_key,
             Some(owner_id.to_string()),
+            None,
         )?;
 
         // Convert to active model for insertion
@@ -253,6 +267,7 @@ pub trait ContainerPlatform {
             owner_id: Set(secret.owner_id),
             encrypted_value: Set(secret.encrypted_value),
             nonce: Set(secret.nonce),
+            labels: Set(None),
             created_by: Set(secret.created_by),
             updated_at: Set(secret.updated_at),
             created_at: Set(secret.created_at),
@@ -263,7 +278,7 @@ pub trait ContainerPlatform {
             .exec(db)
             .await
             .map_err(|e| {
-                Box::<dyn std::error::Error>::from(format!(
+                Box::<dyn std::error::Error + Send + Sync>::from(format!(
                     "Failed to store agent key secret: {}",
                     e
                 ))

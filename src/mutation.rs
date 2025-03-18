@@ -1,4 +1,5 @@
 use crate::entities::containers;
+use crate::entities::secrets;
 use crate::models::{V1ContainerStatus, V1UpdateContainer};
 use sea_orm::prelude::Json;
 use sea_orm::*;
@@ -185,5 +186,108 @@ impl Mutation {
         }
 
         Ok(result)
+    }
+
+    /// Store a container's SSH keypair (private & public) in the `secrets` table.
+    /// Returns tuples (private_key_secret, public_key_secret).
+    pub async fn store_ssh_keypair(
+        db: &DatabaseConnection,
+        container_id: &str,
+        private_key: &str,
+        public_key: &str,
+        owner_id: &str,
+    ) -> Result<(secrets::Model, secrets::Model), Box<dyn std::error::Error + Send + Sync>> {
+        // 1) Create unique IDs for the secrets (you can pick your own naming).
+        let private_secret_id = format!("ssh-private-key-{}", container_id);
+        let public_secret_id = format!("ssh-public-key-{}", container_id);
+
+        // 2) Build the ActiveModels for each secret.
+        //    The `secrets::Model::new()` will automatically encrypt the `value`.
+        let private_secret_model = secrets::Model::new(
+            private_secret_id.clone(),
+            format!("SSH private key for container {}", container_id),
+            owner_id.to_string(),
+            private_key,
+            Some(owner_id.to_string()),
+            None, // Labels optional
+        )
+        .map_err(|e| {
+            format!(
+                "Error creating new secret model for private key [{}]: {e}",
+                private_secret_id
+            )
+        })?;
+
+        let public_secret_model = secrets::Model::new(
+            public_secret_id.clone(),
+            format!("SSH public key for container {}", container_id),
+            owner_id.to_string(),
+            public_key,
+            Some(owner_id.to_string()),
+            None, // Labels optional
+        )
+        .map_err(|e| {
+            format!(
+                "Error creating new secret model for public key [{}]: {e}",
+                public_secret_id
+            )
+        })?;
+
+        // 3) Insert each secret into the DB.
+        // (If you need upsert behavior, you'd adjust accordingly.)
+        let private_inserted = secrets::ActiveModel::from(private_secret_model)
+            .insert(db)
+            .await
+            .map_err(|e| format!("Failed to store private key: {e}"))?;
+
+        let public_secret_active_model = secrets::ActiveModel::from(public_secret_model);
+        let public_inserted = public_secret_active_model
+            .insert(db)
+            .await
+            .map_err(|e| format!("Failed to store SSH public key: {e}"))?;
+
+        Ok((private_inserted, public_inserted))
+    }
+
+    /// Update an existing secret by re-encrypting if `new_value` is provided.
+    pub async fn update_secret(
+        db: &DatabaseConnection,
+        secret: secrets::Model,
+        new_name: Option<String>,
+        new_value: Option<String>,
+        new_labels: Option<serde_json::Value>,
+    ) -> Result<secrets::Model, DbErr> {
+        let mut active_model = secrets::ActiveModel::from(secret);
+
+        // If a new name is provided
+        if let Some(name) = new_name {
+            active_model.name = Set(name);
+        }
+
+        // If a new value is provided, re-encrypt
+        if let Some(value) = new_value {
+            let (encrypted_value, nonce) =
+                secrets::Model::encrypt_value(&value).map_err(|e| DbErr::Custom(e))?;
+            active_model.encrypted_value = Set(encrypted_value);
+            active_model.nonce = Set(nonce);
+        }
+
+        // If new labels are provided
+        if let Some(lbls) = new_labels {
+            active_model.labels = Set(Some(lbls.into()));
+        }
+
+        // Always update updated_at
+        active_model.updated_at = Set(chrono::Utc::now().into());
+
+        active_model.update(db).await
+    }
+
+    /// Delete a secret by ID
+    pub async fn delete_secret(
+        db: &DatabaseConnection,
+        id: String,
+    ) -> Result<sea_orm::DeleteResult, DbErr> {
+        secrets::Entity::delete_by_id(id).exec(db).await
     }
 }

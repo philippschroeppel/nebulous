@@ -17,6 +17,7 @@ pub struct Model {
     pub owner_id: String,
     pub encrypted_value: String,
     pub nonce: String, // Store the nonce used for encryption
+    pub labels: Option<Json>,
     pub created_by: Option<String>,
     pub updated_at: DateTimeWithTimeZone,
     pub created_at: DateTimeWithTimeZone,
@@ -102,6 +103,7 @@ impl Model {
         owner_id: String,
         value: &str,
         created_by: Option<String>,
+        labels: Option<Json>,
     ) -> Result<Self, String> {
         let (encrypted_value, nonce) = Self::encrypt_value(value)?;
         let now = chrono::Utc::now().into();
@@ -112,6 +114,7 @@ impl Model {
             owner_id,
             encrypted_value,
             nonce,
+            labels,
             created_by,
             updated_at: now,
             created_at: now,

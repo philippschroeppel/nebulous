@@ -6,10 +6,14 @@ use crate::models::{
     RestartPolicy, V1Container, V1ContainerRequest, V1ContainerStatus, V1Meter, V1UserProfile,
     V1VolumeConfig, V1VolumePath,
 };
-use crate::mutation::Mutation;
+use crate::mutation::{self, Mutation};
 use crate::volumes::rclone::{SymlinkConfig, VolumeConfig, VolumePath};
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine as _;
 use petname;
 use reqwest::{Error, StatusCode};
+use ring::rand::SystemRandom;
+use ring::signature::{Ed25519KeyPair, KeyPair};
 use runpod::*;
 use sea_orm::{ActiveModelTrait, DatabaseConnection, Set};
 use shell_quote::{Bash, QuoteRefExt};
@@ -74,7 +78,7 @@ impl RunpodPlatform {
     async fn ensure_network_volumes(
         &self,
         datacenter_id: &str,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         // Define the single required volume with its size
         let volume_name = "nebu"; // TODO: this needs to be per owner
         let size_gb = 500;
@@ -317,7 +321,7 @@ impl RunpodPlatform {
         &self,
         db: &DatabaseConnection,
         container: containers::Model,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         info!(
             "[Runpod Controller] Starting to watch pod for container {}",
             container.id
@@ -417,6 +421,35 @@ impl RunpodPlatform {
 
                         // Handle metering if container has meters defined and status is Running
                         if current_status == ContainerStatus::Running {
+                            // 1) Check for /done.txt in the container
+                            if container.restart.to_lowercase() == RestartPolicy::Never.to_string()
+                            {
+                                match self.check_done_file(&container_id, db).await {
+                                    Ok(true) => {
+                                        info!(
+                                    "[Runpod Controller] /done.txt found for container {} -> deleting container",
+                                    container_id
+                                );
+                                        if let Err(del_err) = self.delete(&container_id, db).await {
+                                            error!(
+                                            "[Runpod Controller] Error deleting container {}: {}",
+                                            container_id, del_err
+                                        );
+                                        }
+                                        // Once deleted, no further watch is needed
+                                        break;
+                                    }
+                                    Ok(false) => {
+                                        // Not done yet, keep going
+                                    }
+                                    Err(check_err) => {
+                                        error!(
+                                    "[Runpod Controller] Error checking done file on container {}: {}",
+                                    container_id, check_err
+                                );
+                                    }
+                                }
+                            }
                             if let Some(meters) = &container.meters {
                                 self.report_meters(
                                     container_id.clone(),
@@ -725,7 +758,7 @@ impl RunpodPlatform {
         &self,
         db: &DatabaseConnection,
         model: containers::Model,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         Mutation::update_container_status(
             db,
             model.id.clone(),
@@ -747,7 +780,7 @@ impl RunpodPlatform {
                     error!("[Runpod Controller] HTTP Status: {}", status);
                 }
 
-                return Err(Box::<dyn std::error::Error>::from(format!(
+                return Err(Box::<dyn std::error::Error + Send + Sync>::from(format!(
                     "Error fetching GPU types: {:?}",
                     e
                 )));
@@ -841,7 +874,7 @@ impl RunpodPlatform {
                         "[Runpod Controller] None of the requested accelerator types are available. Available types: {:?}",
                         available_gpu_types
                     );
-                    return Err(Box::<dyn std::error::Error>::from(
+                    return Err(Box::<dyn std::error::Error + Send + Sync>::from(
                         "None of the requested accelerator types are available on RunPod"
                             .to_string(),
                     ));
@@ -908,7 +941,23 @@ impl RunpodPlatform {
         //         ))
         //     })?;
 
+        // --- ADDED: Generate SSH key pair and store the private key as a secret ---
+        let (ssh_private_key, ssh_public_key) = Self::generate_ssh_key()?;
+        mutation::Mutation::store_ssh_keypair(
+            db,
+            &model.id,
+            &ssh_private_key,
+            &ssh_public_key,
+            &model.owner_id,
+        )
+        .await?;
+
         let mut env_vec = Vec::new();
+
+        env_vec.push(runpod::EnvVar {
+            key: "RUNPOD_SSH_PUBLIC_KEY".to_string(),
+            value: ssh_public_key,
+        });
 
         for (key, value) in self.get_common_env_vars(&model, db).await {
             env_vec.push(runpod::EnvVar { key, value });
@@ -1062,6 +1111,48 @@ impl RunpodPlatform {
         Ok(pod_id)
     }
 
+    /// Generates an Ed25519 SSH key pair using ring, returning `(private_key, public_key)`
+    /// in OpenSSH-compatible formats.
+    ///
+    /// Example public key format (typical):
+    /// ```text
+    /// ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA...
+    /// ```
+    ///
+    /// Example private key format (with headers):
+    /// ```text
+    /// -----BEGIN OPENSSH PRIVATE KEY-----
+    /// AAAAB3NzaC1yc2...
+    /// -----END OPENSSH PRIVATE KEY-----
+    /// ```
+    fn generate_ssh_key() -> Result<(String, String), Box<dyn std::error::Error + Send + Sync>> {
+        // 1) Generate the keypair
+        let rng = SystemRandom::new();
+        let pkcs8_bytes = Ed25519KeyPair::generate_pkcs8(&rng)
+            .map_err(|e| format!("Failed to generate pkcs8: {:?}", e))?;
+        let keypair = Ed25519KeyPair::from_pkcs8(pkcs8_bytes.as_ref())
+            .map_err(|e| format!("Failed to parse Ed25519 keypair: {:?}", e))?;
+
+        // 2) Format public key as "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA..."
+        let ssh_public_key = format!(
+            "ssh-ed25519 {}",
+            STANDARD.encode(keypair.public_key().as_ref())
+        );
+
+        // 3) Convert the raw pkcs8_bytes to an OpenSSH PRIVATE KEY block
+        let mut encoded_private_key = Vec::new();
+        encoded_private_key.extend_from_slice(b"-----BEGIN OPENSSH PRIVATE KEY-----\n");
+        encoded_private_key.extend_from_slice(STANDARD.encode(pkcs8_bytes.as_ref()).as_bytes());
+        encoded_private_key.extend_from_slice(b"\n-----END OPENSSH PRIVATE KEY-----\n");
+
+        // 4) Convert binary to UTF-8
+        let ssh_private_key = String::from_utf8(encoded_private_key)
+            .map_err(|e| format!("Failed converting private key to UTF-8: {:?}", e))?;
+
+        // Return them as (private_key, public_key)
+        Ok((ssh_private_key, ssh_public_key))
+    }
+
     fn build_command(&self, model: &containers::Model) -> Option<Vec<String>> {
         use shell_quote::{Bash, QuoteRefExt};
 
@@ -1086,9 +1177,13 @@ impl RunpodPlatform {
             fi
         "#;
 
+        let log_file = "/nebu_container.log";
+
         let base_script = format!(
             r#"
     set -x
+    exec > >(tee -a {log_file}) 2>&1
+
     echo "[DEBUG] Starting setup..."
     {curl_install}
     echo "[DEBUG] Done installing curl..."
@@ -1098,7 +1193,7 @@ impl RunpodPlatform {
     nebu --version
     
     echo "[DEBUG] Invoking nebu sync..."
-    nebu sync --config /nebu/sync.yaml --interval-seconds 5 \
+    nebu sync volumes --config /nebu/sync.yaml --interval-seconds 5 \
         --create-if-missing --watch --background --block-once --config-from-env
     
     echo "[DEBUG] All done with base_command; now your user command: {cmd}"
@@ -1109,21 +1204,93 @@ impl RunpodPlatform {
             cmd = cmd
         );
 
-        // If the user wants "Never" to restart, append cleanup
-        let final_script = if model.restart == RestartPolicy::Never.to_string() {
-            format!("{base_script}\nnebu delete containers {}", model.id)
+        // 2) Always wait for final sync
+        let wait_script = r#"
+&& echo "[DEBUG] Waiting for final sync..."
+&& nebu sync wait --config /nebu/sync.yaml --poll-interval 5
+"#;
+
+        // 3) Only if restart == Never, mark done and loop forever
+        let never_script = if model.restart == RestartPolicy::Never.to_string() {
+            r#"
+&& echo "[DEBUG] Writing /done.txt..."
+&& echo "done" > /done.txt
+&& while true; do
+    echo ">>>all done"
+    sleep 3
+done
+"#
         } else {
-            base_script
+            ""
         };
+
+        // 4) Combine them into our final script
+        let final_script = format!(
+            r#"{base_script}
+{wait_script}
+{never_script}
+"#,
+            base_script = base_script,
+            wait_script = wait_script,
+            never_script = never_script
+        );
+
+        info!("[Runpod Controller] Final script: {}", final_script);
 
         // Use shell_quote to safely escape the script for Bash:
         // The Bash type will produce something like $'...' for special chars.
         // Then we pass that as the third argument to ["bash", "-c", ...].
         // For example:
-        let quoted_script: String = final_script.quoted(Bash);
-        info!("[Runpod Controller] Quoted script: {}", quoted_script);
+        // let quoted_script: String = final_script.quoted(Bash);
+        // info!("[Runpod Controller] Quoted script: {}", quoted_script);
 
-        Some(vec!["bash".to_string(), "-c".to_string(), quoted_script])
+        // Some(vec!["bash".to_string(), "-c".to_string(), quoted_script])
+        // Some(vec!["sleep".to_string(), "99999999".to_string()])
+        Some(vec!["bash".to_string(), "-c".to_string(), final_script])
+    }
+
+    /// Checks if `/done.txt` exists in the container. Returns `Ok(true)` if found, `Ok(false)` otherwise.
+    pub async fn check_done_file(
+        &self,
+        container_id: &str,
+        db: &DatabaseConnection,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        // 1) Fetch the container from the database
+        let container_model =
+            match crate::query::Query::find_container_by_id(db, container_id.to_string()).await? {
+                Some(model) => model,
+                None => return Err(format!("Container {} not found", container_id).into()),
+            };
+
+        // 2) Retrieve the RunPod Pod ID (stored in container.resource_name)
+        let resource_name = container_model
+            .resource_name
+            .ok_or_else(|| format!("No resource_name found for container {}", container_id))?;
+
+        // 3) Fetch the SSH key pair from the database
+        let (maybe_private_key, maybe_public_key) =
+            crate::query::Query::get_ssh_keypair(db, &container_model.id).await?;
+
+        let ssh_private_key = maybe_private_key
+            .ok_or_else(|| format!("No SSH private key found for container {}", container_id))?;
+        let _ssh_public_key = maybe_public_key
+            .ok_or_else(|| format!("No SSH public key found for container {}", container_id))?;
+
+        // 4) Form a command that checks existence of /done.txt
+        //    - On success, it prints '1', otherwise '0'
+        let cmd = "test -f /done.txt && echo 1 || echo 0";
+
+        // 5) Execute the command over SSH
+        let output = crate::ssh::exec::exec_ssh_command(
+            "ssh.runpod.io",
+            &resource_name,
+            &ssh_private_key,
+            cmd,
+        )?;
+
+        // 6) If output contains "1", the file exists, otherwise it doesn't
+        let file_exists = output.trim() == "1";
+        Ok(file_exists)
     }
 }
 
@@ -1142,7 +1309,7 @@ impl ContainerPlatform for RunpodPlatform {
         db: &DatabaseConnection,
         user_profile: &V1UserProfile,
         owner_id: &str,
-    ) -> Result<V1Container, Box<dyn std::error::Error>> {
+    ) -> Result<V1Container, Box<dyn std::error::Error + Send + Sync>> {
         let name = config
             .metadata
             .as_ref()
@@ -1162,7 +1329,7 @@ impl ContainerPlatform for RunpodPlatform {
                     error!("[Runpod Controller] HTTP Status: {}", status);
                 }
 
-                return Err(Box::<dyn std::error::Error>::from(format!(
+                return Err(Box::<dyn std::error::Error + Send + Sync>::from(format!(
                     "Error fetching GPU types: {:?}",
                     e
                 )));
@@ -1255,7 +1422,7 @@ impl ContainerPlatform for RunpodPlatform {
                         "[Runpod Controller] None of the requested accelerator types are available. Available types: {:?}",
                         available_gpu_types
                     );
-                    return Err(Box::<dyn std::error::Error>::from(
+                    return Err(Box::<dyn std::error::Error + Send + Sync>::from(
                         "None of the requested accelerator types are available on RunPod"
                             .to_string(),
                     ));
@@ -1374,7 +1541,7 @@ impl ContainerPlatform for RunpodPlatform {
         &self,
         container: &containers::Model,
         db: &DatabaseConnection,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         debug!(
             "[DEBUG:runpod.rs:reconcile] Entering reconcile for container {}",
             container.id
@@ -1462,11 +1629,93 @@ impl ContainerPlatform for RunpodPlatform {
         Ok(())
     }
 
+    async fn exec(
+        &self,
+        container_id: &str,
+        command: &str,
+        db: &DatabaseConnection,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        // 1) Fetch the container from the database
+        let container_model =
+            match crate::query::Query::find_container_by_id(db, container_id.to_string()).await? {
+                Some(model) => model,
+                None => return Err(format!("Container {} not found", container_id).into()),
+            };
+
+        // 2) Retrieve the RunPod Pod ID (stored in container.resource_name)
+        let resource_name = container_model
+            .resource_name
+            .ok_or_else(|| format!("No resource_name found for container {}", container_id))?;
+
+        let (maybe_private_key, maybe_public_key) =
+            crate::query::Query::get_ssh_keypair(db, &container_model.id).await?;
+
+        // Now each is an Option<String>. You can handle them individually:
+        let ssh_private_key = maybe_private_key
+            .ok_or_else(|| format!("No SSH private key found for container {}", container_id))?;
+        let _ssh_public_key = maybe_public_key
+            .ok_or_else(|| format!("No SSH public key found for container {}", container_id))?;
+
+        // Then call exec_ssh_command or whatever you need:
+        let output = crate::ssh::exec::exec_ssh_command(
+            "ssh.runpod.io",
+            &resource_name,
+            &ssh_private_key,
+            command,
+        )?;
+
+        // For now, just log the result; adapt as needed
+        tracing::info!("[Runpod Controller] SSH command output:\n{}", output);
+
+        Ok(output)
+    }
+
+    async fn logs(
+        &self,
+        container_id: &str,
+        db: &DatabaseConnection,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let log_file = "/nebu_container.log";
+
+        // 1) Fetch the container from the database
+        let container_model =
+            match crate::query::Query::find_container_by_id(db, container_id.to_string()).await? {
+                Some(model) => model,
+                None => return Err(format!("Container {} not found", container_id).into()),
+            };
+
+        // 2) Retrieve the RunPod Pod ID (stored in container.resource_name)
+        let resource_name = container_model
+            .resource_name
+            .ok_or_else(|| format!("No resource_name found for container {}", container_id))?;
+
+        // 3) Fetch the SSH key pair from the database
+        let (maybe_private_key, maybe_public_key) =
+            crate::query::Query::get_ssh_keypair(db, &container_model.id).await?;
+
+        let ssh_private_key = maybe_private_key
+            .ok_or_else(|| format!("No SSH private key found for container {}", container_id))?;
+        let _ssh_public_key = maybe_public_key
+            .ok_or_else(|| format!("No SSH public key found for container {}", container_id))?;
+
+        // 4) SSH into the container and retrieve the log file
+        //    Modify this as needed (for tailing, for instance).
+        let command = format!("cat {}", log_file);
+        let output = crate::ssh::exec::exec_ssh_command(
+            "ssh.runpod.io",
+            &resource_name,
+            &ssh_private_key,
+            &command,
+        )?;
+
+        Ok(output)
+    }
+
     async fn delete(
         &self,
         id: &str,
         db: &DatabaseConnection,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         info!(
             "[Runpod Controller] Attempting to delete container with name: {}",
             id
