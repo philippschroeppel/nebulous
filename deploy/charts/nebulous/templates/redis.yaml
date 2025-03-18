@@ -1,3 +1,4 @@
+{{- if or (not .Values.redis.secret) .Values.redis.create }}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -7,9 +8,10 @@ metadata:
     {{- include "common.labels" . | nindent 4 }}
 type: Opaque
 data:
-  host: {{ printf "redis://%s:%s/%s" (include "redis.host" .) (include "redis.port" .) (include "redis.database" . ) | b64enc }}
+  connection_string: {{ printf "redis://%s:%s/%s" (include "redis.host" .) (include "redis.port" .) (include "redis.database" . ) | b64enc }}
   password: {{ include "redis.password" . | b64enc }}
 ---
+{{- end }}
 {{- if default false .Values.redis.create }}
 apiVersion: apps/v1
 kind: Deployment
@@ -30,7 +32,7 @@ spec:
     spec:
       containers:
         - name: redis
-          image: redis:latest
+          image: "redis:{{ default "latest" .Values.redis.imageTag }}"
           command:
             - /bin/sh
             - -c
@@ -41,8 +43,8 @@ spec:
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: redis-secret
-                  key: password
+                  name: {{ default "redis-secret" .Values.redis.secret.name }}
+                  key: {{ default "password" .Values.redis.secret.keys.password }}
           ports:
             - containerPort: 6379
 ---

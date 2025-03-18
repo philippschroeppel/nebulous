@@ -1,19 +1,24 @@
+# -- Override the namespace. Defaults to the Helm release's namespace.
 namespaceOverride: ""
 
 image:
   repository: ""
-  tag: ""
   pullPolicy: "IfNotPresent"
+  # -- The nebulous image tag. Defaults to the chart's appVersion.
+  tag: ""
 
 serviceAccount:
   create: true
+  # -- The name of the service account to use. Required if 'create' is false.
   name: ""
 
 service:
   name: ""
+  # -- The port of the Kubernetes Service.
   port: 3000
 
 ingress:
+  # -- If enabled, create an Ingress resource.
   enabled: false
 
   host: ""
@@ -21,17 +26,24 @@ ingress:
   annotations: { }
 
 local:
+  # -- If enabled, nebulous can run Pods in the local cluster.
   enabled: false
+  # -- The namespace to launch Pods in. Defaults to the Helm release's namespace.
+  namespace: ""
 
 messageQueue:
+  # -- The message queue type. Defaults to "redis", the currently only supported value.
   type: "redis"
 
 encryptionKey:
+  # -- The name of the secret containing the 32 byte encryption key.
   secretName: ""
+    # -- The key in the secret containing the encryption key.
   secretKey: ""
 
-  # Create an encryption key secret
+  # -- If enabled, create an encryption key secret. Not recommended for production.
   create: true
+  # -- The 32 byte encryption key encoded in base64. Required if 'create' is true. Not recommended for production.
   encodedValue: ""
 
 storage:
@@ -71,15 +83,26 @@ postgres:
 
   database: "nebulous"
 
-  user: "nebulous"
-  password: "nebulous"
+  auth:
+    user: "nebulous"
+    password: "nebulous"
 
-  # Create a Postgres deployment and service
+  secret:
+    # -- Name of the secret with the Postgres connection string. Takes precedence over 'auth'. Ignored if 'create' is true.
+    name: ""
+    keys:
+      connection_string: ""
+
+  # -- If enabled, create a Postgres deployment and service. Not recommended for production.
   create: false
+  # -- The postgres image tag. Defaults to "latest".
+  imageTag: ""
   persistence:
+    # -- If enabled, use a PersistentVolumeClaim for the Postgres data.
     enabled: false
     claimName: ""
 
+    # -- If true, create a new PersistentVolumeClaim for the Postgres data.
     createPersistentVolumeClaim: false
     size: "100Gi"
     storageClassName: ""
@@ -88,15 +111,26 @@ redis:
   host: ""
   port: 6379
 
+  # -- The Redis database number. Defaults to 0.
   database: 0
 
-  password: ""
+  auth:
+    password: ""
 
-  # Create a Redis deployment and service
+  secret:
+    # -- Name of the secret with the Redis connection string and password. Takes precedence over 'auth'. Ignored if 'create' is true.
+    name: ""
+    keys:
+      connection_string: ""
+      password: ""
+
+  # -- If enabled, create a Redis deployment and service. Not recommended for production.
   create: false
-  image: ""
+  # -- The redis image tag. Defaults to "latest".
+  imageTag: ""
 
   ingress:
+    # -- If enabled, create an Ingress resource for the Redis service.
     enabled: false
 
     host: ""

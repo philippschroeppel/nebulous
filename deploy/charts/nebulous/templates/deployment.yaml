@@ -33,24 +33,24 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: postgres-secret
-                  key: connection_string
+                  name: {{ default "postgres-secret" .Values.postgres.secret.name }}
+                  key: {{ default "connection_string" .Values.postgres.secret.keys.connection_string }}
             - name: MESSAGE_QUEUE_TYPE
               value: {{ include "nebulous.messageQueueType" . }}
             {{- if eq (include "nebulous.messageQueueType"  . ) "redis" }}
             - name: REDIS_URL
               valueFrom:
                 secretKeyRef:
-                  name: redis-secret
-                  key: host
+                  name: {{ default "redis-secret" .Values.redis.secret.name }}
+                  key: {{ default "connection_string" .Values.redis.secret.keys.connection_string }}
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: redis-secret
-                  key: password
+                  name: {{ default "redis-secret" .Values.redis.secret.name }}
+                  key: {{ default "password" .Values.redis.secret.keys.password }}
+            {{- end }}
             - name: RUST_LOG
               value: debug
-            {{- end }}
           volumeMounts:
             - name: huggingface-cache-pvc
               mountPath: /huggingface

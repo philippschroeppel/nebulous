@@ -89,17 +89,17 @@ postgres
 
 {{- define "postgres.user" -}}
 {{- if .Values.postgres.create }}
-{{- default "nebulous" .Values.postgres.user }}
+{{- default "nebulous" .Values.postgres.auth.user }}
 {{- else }}
-{{- required ".Values.postgres.user is required" .Values.postgres.user }}
+{{- required ".Values.postgres.user is required" .Values.postgres.auth.user }}
 {{- end }}
 {{- end }}
 
 {{- define "postgres.password" -}}
 {{- if .Values.postgres.create }}
-{{- default "nebulous" .Values.postgres.password }}
+{{- default "nebulous" .Values.postgres.auth.password }}
 {{- else }}
-{{- required ".Values.postgres.password is required" .Values.postgres.password }}
+{{- required ".Values.postgres.password is required" .Values.postgres.auth.password }}
 {{- end }}
 {{- end }}
 
@@ -133,8 +133,8 @@ redis
 
 {{- define "redis.password" -}}
 {{- if .Values.redis.create }}
-{{- default "nebulous" .Values.redis.password }}
+{{- default "nebulous" .Values.redis.auth.password }}
 {{- else }}
-{{- required ".Values.redis.password is required" .Values.redis.password }}
+{{- required ".Values.redis.password is required" .Values.redis.auth.password }}
 {{- end }}
 {{- end }}

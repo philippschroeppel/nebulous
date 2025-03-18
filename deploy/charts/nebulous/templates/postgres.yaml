@@ -1,3 +1,4 @@
+{{- if or (not .Values.postgres.secret) .Values.postgres.create }}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -9,6 +10,7 @@ type: Opaque
 data:
   connection_string: {{ printf "postgresql://%s:%s@%s:%s/%s" (include "postgres.user" .) (include "postgres.password" .) (include "postgres.host" .) (include "postgres.port" .) (include "postgres.database" .) | b64enc }}
 ---
+{{- end }}
 {{- if default false .Values.postgres.create }}
 apiVersion: apps/v1
 kind: Deployment
@@ -29,7 +31,7 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: postgres:latest
+          image: "postgres:{{ default "latest" .Values.postgres.imageTag }}"
           ports:
             - containerPort: 5432
           env:
