@@ -1,9 +1,11 @@
-{{- if .Values.local.enabled -}}
+{{- if default false .Values.local.enabled -}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: {{ .Release.Name }}-local-role
   namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
 rules:
   - apiGroups: ["batch"]
     resources: ["jobs"]
@@ -20,6 +22,8 @@ kind: RoleBinding
 metadata:
   name: {{ .Release.Name }}-local-binding
   namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
 subjects:
   - kind: ServiceAccount
     name: {{ include "nebulous.serviceAccountName" . }}

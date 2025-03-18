@@ -3,6 +3,8 @@ kind: Service
 metadata:
   name: {{ include "nebulous.serviceName" . }}
   namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
 spec:
   selector:
     app: {{ .Release.Name }}-app

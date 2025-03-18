@@ -4,12 +4,14 @@ kind: PersistentVolumeClaim
 metadata:
   name: {{ include "nebulous.huggingfaceCachePVCName" . }}
   namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
 spec:
   {{- with .Values.storage.huggingfaceCache.storageClassName }}
   storageClassName: {{.}}
   {{- end }}
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   resources:
     requests:
       storage: {{ default "300Gi" .Values.storage.huggingfaceCache.size}}
@@ -21,12 +23,14 @@ kind: PersistentVolumeClaim
 metadata:
   name: {{ include "nebulous.adapterPVCName" . }}
   namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
 spec:
   {{- with .Values.storage.adapter.storageClassName }}
   storageClassName: {{.}}
   {{- end }}
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   resources:
     requests:
       storage: {{ default "300Gi" .Values.storage.adapter.size}}
@@ -38,12 +42,14 @@ kind: PersistentVolumeClaim
 metadata:
   name: {{ include "nebulous.datasetPVCName" . }}
   namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
 spec:
   {{- with .Values.storage.dataset.storageClassName }}
   storageClassName: {{.}}
   {{- end }}
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   resources:
     requests:
       storage: {{ default "300Gi" .Values.storage.dataset.size}}
@@ -55,12 +61,14 @@ kind: PersistentVolumeClaim
 metadata:
   name: {{ include "nebulous.modelPVCName" . }}
   namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
 spec:
   {{- with .Values.storage.model.storageClassName }}
   storageClassName: {{.}}
   {{- end }}
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   resources:
     requests:
       storage: {{ default "1000Gi" .Values.storage.model.size}}

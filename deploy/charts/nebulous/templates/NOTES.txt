@@ -1,0 +1,13 @@
+Nebulous has been deployed into the {{ template "nebulous.namespace" . }} namespace.
+
+{{- if .Values.postgres.create }}
+WARNING: Using the integrated Postgres database. This is not recommended for production.
+{{- end }}
+
+{{- if .Values.redis.create }}
+WARNING: Using the integrated Redis database. This is not recommended for production.
+{{- end }}
+
+{{- if and .Values.encryptionKey.create }}
+WARNING: Encryption key is not provided through a user-managed secret. This is not recommended for production.
+{{- end }}

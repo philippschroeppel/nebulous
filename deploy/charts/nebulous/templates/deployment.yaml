@@ -3,6 +3,8 @@ kind: Deployment
 metadata:
   name: {{ .Release.Name }}-server
   namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
 spec:
   replicas: 1
   selector:
@@ -16,7 +18,7 @@ spec:
       serviceAccountName: {{ include "nebulous.serviceAccountName" . }}
       containers:
         - name: nebulous-server
-          image: "{{- .Values.image.repository }}:{{- .Values.image.tag }}"
+          image: {{ include "nebulous.image" . }}
           {{- with .Values.image.pullPolicy }}
           imagePullPolicy: {{.}}
           {{- end }}

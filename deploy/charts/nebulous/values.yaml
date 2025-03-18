@@ -1,8 +1,8 @@
 namespaceOverride: ""
 
 image:
-  repository: "us-docker.pkg.dev/agentsea-dev/nebulous/server"
-  tag: "latest"
+  repository: ""
+  tag: ""
   pullPolicy: "IfNotPresent"
 
 serviceAccount:
@@ -17,7 +17,7 @@ ingress:
   enabled: false
 
   host: ""
-  className: "alb"
+  className: ""
   annotations: { }
 
 local:
@@ -32,7 +32,7 @@ encryptionKey:
 
   # Create an encryption key secret
   create: true
-  encodedValue: "xQ5DTNJzwhqI01X+K0WXlCwl2CEzrhFNxF2ZYPyhweE="
+  encodedValue: ""
 
 storage:
   huggingfaceCache:
@@ -78,7 +78,7 @@ postgres:
   create: false
   persistence:
     enabled: false
-    claimName: "postgres-pvc"
+    claimName: ""
 
     createPersistentVolumeClaim: false
     size: "100Gi"
@@ -94,12 +94,13 @@ redis:
 
   # Create a Redis deployment and service
   create: false
+  image: ""
 
   ingress:
     enabled: false
 
     host: ""
-    className: "alb"
+    className: ""
     annotations: { }
 
 # Providers

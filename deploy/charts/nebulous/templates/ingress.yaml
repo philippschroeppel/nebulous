@@ -1,20 +1,21 @@
-{{- if .Values.ingress.enabled -}}
+{{- if default false .Values.ingress.enabled -}}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
   {{- with .Values.ingress.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
-  name: {{ .Release.Name }}
-  namespace: {{ include "nebulous.namespace" . }}
 spec:
   {{- with .Values.ingress.className }}
   ingressClassName: {{.}}
   {{- end }}
   rules:
-    - host: {{ .Values.ingress.host }}
-      http:
+    - http:
         paths:
           - backend:
               service:
@@ -23,4 +24,7 @@ spec:
                   number: {{ include "nebulous.servicePort" . }}
             path: /
             pathType: Prefix
+      {{- with .Values.ingress.host }}
+      host: {{.}}
+      {{- end }}
 {{- end }}

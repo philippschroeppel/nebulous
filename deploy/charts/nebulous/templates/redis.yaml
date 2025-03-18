@@ -3,17 +3,21 @@ kind: Secret
 metadata:
   name: redis-secret
   namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
 type: Opaque
 data:
-  host: {{ printf "redis://%s:%s" (include "redis.host" .) (include "redis.port" .) | b64enc }}
+  host: {{ printf "redis://%s:%s/%s" (include "redis.host" .) (include "redis.port" .) (include "redis.database" . ) | b64enc }}
   password: {{ include "redis.password" . | b64enc }}
-{{- if .Values.redis.create }}
 ---
+{{- if default false .Values.redis.create }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: redis
   namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
 spec:
   replicas: 1
   selector:
@@ -47,6 +51,8 @@ kind: Service
 metadata:
   name: redis
   namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
 spec:
   selector:
     app: redis
@@ -60,19 +66,20 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
+  name: {{ include "redis.serviceName" . }}
+  namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
   {{- with .Values.redis.ingress.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
-  name: {{ include "redis.serviceName" . }}
-  namespace: {{ include "nebulous.namespace" . }}
 spec:
   {{- with .Values.redis.ingress.className }}
   ingressClassName: {{.}}
   {{- end }}
   rules:
-    - host: {{- .Values.redis.ingress.host }}
-      http:
+    - http:
         paths:
           - backend:
               service:
@@ -81,5 +88,8 @@ spec:
                   number: {{ include "redis.port" . }}
             path: /
             pathType: Prefix
+      {{- with .Values.ingress.host }}
+      host: {{.}}
+      {{- end }}
 {{- end }}
 {{- end }}

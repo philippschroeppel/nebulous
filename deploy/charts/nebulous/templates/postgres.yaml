@@ -3,16 +3,20 @@ kind: Secret
 metadata:
   name: postgres-secret
   namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
 type: Opaque
 data:
   connection_string: {{ printf "postgresql://%s:%s@%s:%s/%s" (include "postgres.user" .) (include "postgres.password" .) (include "postgres.host" .) (include "postgres.port" .) (include "postgres.database" .) | b64enc }}
-{{- if .Values.postgres.create -}}
 ---
+{{- if default false .Values.postgres.create }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: postgres
   namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
 spec:
   replicas: 1
   selector:
@@ -54,6 +58,8 @@ kind: Service
 metadata:
   name: postgres
   namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
 spec:
   selector:
     app: postgres
@@ -62,13 +68,15 @@ spec:
       port: {{ include "postgres.port" . }}
       targetPort: 5432
   type: ClusterIP
-{{- if .Values.postgres.persistence.createPersistentVolumeClaim }}
 ---
+{{- if default false .Values.postgres.persistence.createPersistentVolumeClaim }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: {{- default "postgres-pvc" .Values.postgres.persistence.claimName }}
   namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
 spec:
   storageClassName: {{- .Values.postgres.persistence.storageClassName }}
   accessModes:
