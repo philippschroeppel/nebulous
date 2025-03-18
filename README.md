@@ -43,7 +43,7 @@ accelerators:
 nebu create container -f examples/basic.yaml
 ```
 
-Create a container on EC2 with 1 L40s GPU
+Alternatively, create a container on EC2 with 1 L40s GPU
 ```sh
 nebu create container \
     --name foo \
@@ -156,8 +156,7 @@ kind: Processor
 metadata:
   name: foo
   namespace: bar
-streams:
-  - name: qux:quz:baz
+stream: qux:quz:baz
 container:
   image: corge/processor:latest
   command: "redis-cli XREAD COUNT 10 STREAMS qux:quz:baz"
@@ -171,7 +170,7 @@ scale:
     pressure: ">100"
     rate: 10s
   down:
-    pressure: "<5"
+    pressure: "<10"
     rate: 5m
 ```
 
@@ -193,13 +192,19 @@ schema:
 To send data to a stream
 
 ```sh
-nebu send processor foo -s qux:quz:baz --data '{"foo": "bar"}'
+nebu send processor foo --data '{"foo": "bar"}'
 ```
 
 Read data from a stream
 
 ```sh
-nebu read stream qux:quz:baz -n 10
+nebu read processor foo --num 10
+```
+
+List all processors
+
+```sh
+nebu get processors
 ```
 
 ### Clusters [in progress]
@@ -235,7 +240,7 @@ Each container will get a `$NODES` env var which contains the IP addresses of th
    
 Clusters always aim to schedule nodes as close to each other as possible, with as fast of networking as available.   
    
-Processors also work with Clusters.
+Processors also work with Clusters
 
 ```yaml
 kind: Processor
