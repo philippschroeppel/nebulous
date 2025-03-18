@@ -9,7 +9,7 @@ use crate::models::{
     V1Container, V1ContainerResources, V1ContainerStatus, V1EnvVar, V1Meter, V1SSHKey, V1VolumePath,
 };
 
-#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "containers")]
 pub struct Model {
     #[sea_orm(primary_key, column_type = "Text", auto_increment = false)]
@@ -27,6 +27,7 @@ pub struct Model {
     pub platform: Option<String>,
     pub resource_name: Option<String>,
     pub resource_namespace: Option<String>,
+    pub resource_cost_per_hr: Option<f64>,
     pub command: Option<String>,
     pub labels: Option<Json>,
     pub meters: Option<Json>,

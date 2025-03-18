@@ -29,8 +29,32 @@ pub enum Commands {
         command: DeleteCommands,
     },
 
-    /// Sync a volume.
+    /// Sync subcommands
     Sync {
+        #[command(subcommand)]
+        command: SyncCommands,
+    },
+
+    /// Serve the API server.
+    Serve {
+        /// The address to bind to.
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+
+        /// The port to bind to.
+        #[arg(short, long, default_value_t = 3000)]
+        port: u16,
+    },
+
+    /// Login to nebu.
+    Login,
+}
+
+/// Subcommands for syncing
+#[derive(Subcommand)]
+pub enum SyncCommands {
+    /// Sync a volume.
+    Volume {
         /// Path to the YAML configuration file.
         #[arg(short, long)]
         config: String,
@@ -60,19 +84,16 @@ pub enum Commands {
         config_from_env: bool,
     },
 
-    /// Serve the API server.
-    Serve {
-        /// The address to bind to.
-        #[arg(long, default_value = "127.0.0.1")]
-        host: String,
+    /// Ensure all syncs are complete.
+    Wait {
+        /// Path to the YAML configuration file.
+        #[arg(short, long)]
+        config: String,
 
-        /// The port to bind to.
-        #[arg(short, long, default_value_t = 3000)]
-        port: u16,
+        /// Interval in seconds to sync.
+        #[arg(short, long, default_value_t = 2)]
+        interval_seconds: u64,
     },
-
-    /// Login to nebu.
-    Login,
 }
 
 /// Create resources.

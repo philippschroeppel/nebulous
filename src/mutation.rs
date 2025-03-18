@@ -33,6 +33,25 @@ impl Mutation {
         container.update(db).await
     }
 
+    /// Mutation to update the resource_cost_per_hr field in a container
+    pub async fn update_container_resource_cost_per_hr(
+        db: &DatabaseConnection,
+        id: String,
+        resource_cost_per_hr: f64,
+    ) -> Result<containers::Model, DbErr> {
+        let container = containers::Entity::find_by_id(id)
+            .one(db)
+            .await?
+            .ok_or(DbErr::Custom("Container not found".to_string()))?;
+
+        let mut container: containers::ActiveModel = container.into();
+
+        container.resource_cost_per_hr = Set(Some(resource_cost_per_hr));
+        container.updated_at = Set(chrono::Utc::now().into());
+
+        container.update(db).await
+    }
+
     /// Mutation to update the container "pod IP"
     pub async fn update_container_pod_ip(
         db: &DatabaseConnection,

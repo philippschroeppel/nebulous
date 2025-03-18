@@ -19,6 +19,8 @@ use std::str::FromStr;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
+use super::base;
+
 /// A `TrainingPlatform` implementation that schedules training jobs on RunPod.
 #[derive(Clone)]
 pub struct RunpodPlatform {
@@ -192,9 +194,9 @@ impl RunpodPlatform {
         // Create and send events for each meter
         for meter in meters_vec {
             // Determine final cost using cost plus cost percentage if present.
-            let cost_value = if let Some(costp) = meter.costp {
+            let mut cost_value = if let Some(costp) = meter.costp {
                 // If costp is specified (percentage field), we need a base cost to add to.
-                if let Some(base_cost) = meter.cost {
+                if let Some(base_cost) = base_cost_per_hr {
                     if base_cost == 0.0 {
                         // Print a warning if the base cost is zero
                         warn!(
@@ -224,6 +226,32 @@ impl RunpodPlatform {
                 );
                 continue;
             };
+
+            // 2) We now have a base cost_value which is implicitly "per hour".
+            //    But the meter could be in seconds, minutes, or hours. Adjust cost_value accordingly:
+            // If costp is present, interpret cost_value as "per hour" and adjust according to the unit
+            if meter.costp.is_some() {
+                match meter.unit.to_lowercase().as_str() {
+                    "second" | "seconds" => {
+                        // cost_value is "per hour", so for 1 second it's cost_value / 3600
+                        cost_value /= 3600.0;
+                    }
+                    "minute" | "minutes" => {
+                        // cost_value is "per hour", so for 1 minute it's cost_value / 60
+                        cost_value /= 60.0;
+                    }
+                    "hour" | "hours" => {
+                        // It's already "per hour", so no change needed
+                    }
+                    other => {
+                        warn!(
+                            "[Runpod Controller] Unknown meter.unit='{}' for metric '{}', skipping.",
+                            other, meter.metric
+                        );
+                        continue;
+                    }
+                }
+            }
 
             let event_id = format!("container-{}-{}", container_id, uuid::Uuid::new_v4());
 
@@ -1001,6 +1029,13 @@ impl RunpodPlatform {
                         pod.public_ip,
                     )
                     .await?;
+
+                    Mutation::update_container_resource_cost_per_hr(
+                        db,
+                        model.id.clone(),
+                        pod.cost_per_hr,
+                    )
+                    .await?;
                     pod.id
                 } else {
                     return Err(format!(
@@ -1028,9 +1063,11 @@ impl RunpodPlatform {
     }
 
     fn build_command(&self, model: &containers::Model) -> Option<Vec<String>> {
+        use shell_quote::{Bash, QuoteRefExt};
+
         let cmd = model.command.clone()?;
 
-        // Statements to install curl if missing
+        // Statements to install curl if missing:
         let curl_install = r#"
             echo "[DEBUG] Installing curl (if not present)..."
             if ! command -v curl &> /dev/null; then
@@ -1040,7 +1077,7 @@ impl RunpodPlatform {
             fi
         "#;
 
-        // Statements to install nebu if missing
+        // Statements to install nebu if missing:
         let nebu_install = r#"
             echo "[DEBUG] Installing nebu (if not present)..."
             if ! command -v nebu &> /dev/null; then
@@ -1049,7 +1086,6 @@ impl RunpodPlatform {
             fi
         "#;
 
-        // Build the main set of commands without braces
         let base_script = format!(
             r#"
     set -x
@@ -1073,19 +1109,20 @@ impl RunpodPlatform {
             cmd = cmd
         );
 
-        // If the user wants "Never" to restart, append the cleanup
+        // If the user wants "Never" to restart, append cleanup
         let final_script = if model.restart == RestartPolicy::Never.to_string() {
-            // Separate line so the shell sees it as a new command
             format!("{base_script}\nnebu delete containers {}", model.id)
         } else {
             base_script
         };
 
-        // A minimal approach to quoting in single quotes:
-        let escaped = final_script.replace('\'', "'\"'\"'");
-        let quoted_script = format!("{}", escaped);
+        // Use shell_quote to safely escape the script for Bash:
+        // The Bash type will produce something like $'...' for special chars.
+        // Then we pass that as the third argument to ["bash", "-c", ...].
+        // For example:
+        let quoted_script: String = final_script.quoted(Bash);
+        info!("[Runpod Controller] Quoted script: {}", quoted_script);
 
-        // Return the final ["bash", "-c", "..."] command
         Some(vec!["bash".to_string(), "-c".to_string(), quoted_script])
     }
 }
@@ -1136,6 +1173,7 @@ impl ContainerPlatform for RunpodPlatform {
         let mut requested_gpu_count = 1; // Default value
         let mut datacenter_id = String::from("US"); // Default value
         let mut available_gpu_types = Vec::new();
+        let mut resource_cost_per_hr: Option<f64> = None;
 
         // Extract available GPU types from the response
         if let Some(data) = &gpu_types_response.data {
@@ -1252,6 +1290,7 @@ impl ContainerPlatform for RunpodPlatform {
                 message: None,
                 accelerator: None,
                 public_ip: None,
+                cost_per_hr: None,
             }))),
             platform: Set(Some("runpod".to_string())),
             meters: Set(config
@@ -1260,6 +1299,7 @@ impl ContainerPlatform for RunpodPlatform {
                 .map(|meters| serde_json::json!(meters))),
             resource_name: Set(None),
             resource_namespace: Set(None),
+            resource_cost_per_hr: Set(None),
             command: Set(config.command.clone()),
             labels: Set(config
                 .metadata
@@ -1323,6 +1363,7 @@ impl ContainerPlatform for RunpodPlatform {
                 message: None,
                 accelerator: None,
                 public_ip: None,
+                cost_per_hr: None,
             }),
             restart: config.restart.clone(),
             resources: config.resources.clone(),

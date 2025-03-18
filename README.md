@@ -138,7 +138,7 @@ Cost plus is supported through the `costp` field.
 
 ```yaml
 meters:
-    costp: 10
+  - costp: 10
     unit: second
     currency: USD
     metric: runtime 

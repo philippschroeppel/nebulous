@@ -510,6 +510,7 @@ impl ContainerPlatform for KubePlatform {
                                     message: None,
                                     accelerator: None,
                                     public_ip: None,
+                                    cost_per_hr: None,
                                 }))),
                                 meters: Set(config
                                     .meters
@@ -518,6 +519,7 @@ impl ContainerPlatform for KubePlatform {
                                 platform: Set(Some("kubernetes".to_string())),
                                 resource_name: Set(Some(name.clone())),
                                 resource_namespace: Set(Some(self.namespace.clone())),
+                                resource_cost_per_hr: Set(None),
                                 restart: Set(config.restart.clone()),
                                 command: Set(config.command.clone()),
                                 queue: Set(config.queue.clone()),
@@ -609,6 +611,7 @@ impl ContainerPlatform for KubePlatform {
                 message: None,
                 accelerator: None,
                 public_ip: None,
+                cost_per_hr: None,
             }),
             restart: config.restart.clone(),
             resources: config.resources.clone(),

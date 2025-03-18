@@ -4,6 +4,7 @@ mod models;
 
 use crate::cli::{Cli, Commands, CreateCommands, DeleteCommands, GetCommands};
 use clap::Parser;
+use cli::SyncCommands;
 use std::error::Error;
 use tracing_subscriber;
 
@@ -23,16 +24,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Commands::Serve { host, port } => {
             commands::serve_cmd::execute(host, port).await?;
         }
-        Commands::Sync {
-            config,
-            interval_seconds,
-            create_if_missing,
-            watch,
-            background,
-            block_once,
-            config_from_env,
-        } => {
-            commands::sync_cmd::execute_sync(
+        Commands::Sync { command } => match command {
+            SyncCommands::Volume {
                 config,
                 interval_seconds,
                 create_if_missing,
@@ -40,9 +33,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 background,
                 block_once,
                 config_from_env,
-            )
-            .await?;
-        }
+            } => {
+                commands::sync_cmd::execute_sync(
+                    config,
+                    interval_seconds,
+                    create_if_missing,
+                    watch,
+                    background,
+                    block_once,
+                    config_from_env,
+                )
+                .await?;
+            }
+            SyncCommands::Wait {
+                config,
+                interval_seconds,
+            } => {
+                commands::sync_cmd::execute_wait(&config, interval_seconds).await?;
+            }
+        },
         Commands::Create { command } => match command {
             CreateCommands::Containers { command } => {
                 // Add debug output to help diagnose the issue

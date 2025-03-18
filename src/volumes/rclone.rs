@@ -1472,3 +1472,27 @@ async fn ensure_path_exists(path: &str) -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
+/// Check if two paths are in sync using rclone.
+pub async fn check_paths(source: &str, dest: &str) -> Result<bool, Box<dyn std::error::Error>> {
+    use std::process::Stdio;
+    use tokio::process::Command;
+
+    let output = Command::new("rclone")
+        .arg("check")
+        .arg(source)
+        .arg(dest)
+        .arg("--one-way") // or omit if you want a two-way check
+        .stderr(Stdio::piped())
+        .stdout(Stdio::piped())
+        .output()
+        .await?;
+
+    // Print the logs so you can see the check details
+    println!("stdout:\n{}", String::from_utf8_lossy(&output.stdout));
+    eprintln!("stderr:\n{}", String::from_utf8_lossy(&output.stderr));
+
+    // If the exit code is 0, then no differences were found
+    // Non-zero indicates differences or errors.
+    Ok(output.status.success())
+}

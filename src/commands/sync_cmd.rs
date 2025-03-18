@@ -1,5 +1,6 @@
 use nebulous::volumes::rclone;
 use std::error::Error;
+use tokio::time::{sleep, Duration};
 
 // Example config
 //---
@@ -179,4 +180,72 @@ pub async fn execute_sync(
             rclone::execute_sync(config_path, create_if_missing).await
         }
     }
+}
+
+/// Continuously checks for differences between two paths using `rsync` in "check" mode (\
+/// --dry-run + --itemize-changes). It will keep looping until no differences are found.
+///
+/// * `source` - The source path (e.g., "/path/to/source").
+/// * `dest` - The destination path (e.g., "/path/to/destination").
+/// * `poll_interval` - How long to wait (in seconds) between checks.
+///
+/// This function returns once differences are finally zero, or if it hits
+/// an optional maximum iteration limit (if you implement one).
+#[allow(dead_code)]
+pub async fn execute_wait(
+    config_path: &str,
+    poll_interval: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use nebulous::volumes::rclone::{check_paths, VolumeConfig};
+
+    loop {
+        // Load the config (re-reads each loop in case it changes)
+        let config = match VolumeConfig::read_from_file(config_path) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                eprintln!("Failed to read config file {}: {}", config_path, e);
+                // If you need to bail out when config is missing, return Err here.
+                // Otherwise, just wait and retry.
+                tokio::time::sleep(std::time::Duration::from_secs(poll_interval)).await;
+                continue;
+            }
+        };
+
+        if config.paths.is_empty() {
+            println!("No paths found in {}. Nothing to check.", config_path);
+            return Ok(());
+        }
+
+        let mut all_clean = true;
+
+        // Compare each source/dest pair
+        for path in &config.paths {
+            // Now check_paths returns `bool`:
+            let in_sync = check_paths(&path.source, &path.dest).await?;
+            if !in_sync {
+                // If any path is out of sync, we set all_clean to false.
+                println!(
+                    "Differences found in {} → {}. They are not currently matched.",
+                    path.source, path.dest
+                );
+                all_clean = false;
+            }
+        }
+
+        if all_clean {
+            println!(
+                "All entries in {} are now in sync! No differences remain.",
+                config_path
+            );
+            break;
+        } else {
+            println!(
+                "Some differences remain. Checking again in {} seconds...",
+                poll_interval
+            );
+            tokio::time::sleep(std::time::Duration::from_secs(poll_interval)).await;
+        }
+    }
+
+    Ok(())
 }
