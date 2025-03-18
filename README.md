@@ -17,6 +17,8 @@ Login to an API server
 nebu login
 ```
 
+### Containers
+
 Create a container on runpod with 4 A100 GPUs
 ```yaml
 kind: Container
@@ -86,7 +88,7 @@ SSH into a container [in progress]
 nebu ssh foo
 ```
 
-### Queues
+#### Queues
 
 Containers can be assigned to a FIFO queue, which will block them from starting until the queue is free.
 
@@ -97,7 +99,7 @@ queue: actor-critic-training
 ...
 ```
 
-### Volumes
+#### Volumes
 
 Volumes provide a means to persist and sync data accross clouds. Nebulous uses [rclone](https://rclone.org/) to sync data between clouds backed by an object storage provider.
 
@@ -109,7 +111,7 @@ volumes:
     continuous: true
 ```
 
-### Organizations
+#### Organizations
 
 Nebulous is multi-tenant from the ground up. Here is an example of creating a container under the `Agentsea` organization.
 
@@ -122,7 +124,7 @@ nebu create container \
     --accelerators "1:L40s"
 ```
 
-### Meters
+#### Meters
 
 Metered billing is supported through [OpenMeter](https://openmeter.cloud/) using the `meters` field.
 
@@ -147,19 +149,57 @@ This configuration will add 10% to the cost of the container.
 
 ### Processors
 
-Processors are containers that work off data streams and are autoscaled based on the back-pressure. Streams are provided by [Redis Streams](https://redis.io/docs/latest/develop/data-types/streams/).
+Processors are containers that work off real-time data streams and are autoscaled based on the back-pressure. Streams are provided by [Redis Streams](https://redis.io/docs/latest/develop/data-types/streams/).
 
 ```yaml
 kind: Processor
+metadata:
+  name: foo
+  namespace: bar
 streams:
-  - name: foo:bar:baz
+  - name: qux:quz:baz
 container:
-  image: quz/processor:latest
-  command: "redis-cli XREAD COUNT 10 STREAMS foo:bar:baz"
+  image: corge/processor:latest
+  command: "redis-cli XREAD COUNT 10 STREAMS qux:quz:baz"
+  platform: gce
   accelerators:
-    - "1:A100"
+    - "1:A40"
 min_workers: 1
 max_workers: 10
+scale:
+  up:
+    pressure: ">100"
+    rate: 10s
+  down:
+    pressure: "<5"
+    rate: 5m
+```
+
+Processors can also scale to zero.
+
+```yaml
+min_workers: 0
+```
+
+Processors can enforce schemas.
+
+```yaml
+schema:
+  - name: foo
+    type: string
+    required: true
+```
+
+To send data to a stream
+
+```sh
+nebu send processor foo -s qux:quz:baz --data '{"foo": "bar"}'
+```
+
+Read data from a stream
+
+```sh
+nebu read stream qux:quz:baz -n 10
 ```
 
 ### Clusters [in progress]
@@ -184,7 +224,7 @@ container:
       driver: RCLONE_SYNC
       continuous: true
   accelerators:
-    - "8:A100"
+    - "8:B200"
 num_nodes: 4
 ```
 ```sh
@@ -206,7 +246,8 @@ cluster:
     image: quz/processor:latest
     command: "redis-cli XREAD COUNT 10 STREAMS foo:bar:baz"
     accelerators:
-      - "1:A100"
+      - "8:H100"
+    platform: ec2
   num_nodes: 4
 min_workers: 1
 max_workers: 10
