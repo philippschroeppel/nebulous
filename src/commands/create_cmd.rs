@@ -86,6 +86,7 @@ pub async fn create_container(
             meters: meters,
             restart: command.restart.unwrap_or(RestartPolicy::Always.to_string()),
             queue: command.queue,
+            timeout: command.timeout,
             resources: Some(V1ContainerResources {
                 min_cpu: command.min_cpu,
                 min_memory: command.min_memory,

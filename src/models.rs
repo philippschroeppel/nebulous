@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -54,6 +55,7 @@ pub struct V1ContainerRequest {
     #[serde(default = "default_restart")]
     pub restart: String,
     pub queue: Option<String>,
+    pub timeout: Option<String>,
     pub ssh_keys: Option<Vec<V1SSHKey>>,
 }
 
@@ -63,7 +65,7 @@ pub enum RestartPolicy {
 }
 
 fn default_restart() -> String {
-    RestartPolicy::Always.to_string()
+    RestartPolicy::Never.to_string()
 }
 
 impl fmt::Display for RestartPolicy {
@@ -84,7 +86,7 @@ pub struct V1ContainerResources {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct V1ContainerMeta {
+pub struct V1ResourceMeta {
     pub name: String,
     pub namespace: String,
     pub id: String,
@@ -115,7 +117,8 @@ pub struct V1SSHKey {
 pub struct V1Container {
     #[serde(default = "default_container_kind")]
     pub kind: String,
-    pub metadata: V1ContainerMeta,
+    pub platform: String,
+    pub metadata: V1ResourceMeta,
     pub image: String,
     pub env_vars: Option<Vec<V1EnvVar>>,
     pub command: Option<String>,
@@ -124,6 +127,7 @@ pub struct V1Container {
     pub meters: Option<Vec<V1Meter>>,
     pub restart: String,
     pub queue: Option<String>,
+    pub timeout: Option<String>,
     pub resources: Option<V1ContainerResources>,
     pub status: Option<V1ContainerStatus>,
     pub ssh_keys: Option<Vec<V1SSHKey>>,
@@ -147,6 +151,7 @@ pub struct V1UpdateContainer {
     pub meters: Option<Vec<V1Meter>>,
     pub restart: Option<String>,
     pub queue: Option<String>,
+    pub timeout: Option<String>,
     pub resources: Option<V1ContainerResources>,
 }
 
@@ -208,6 +213,44 @@ fn default_continuous() -> bool {
 fn default_cache_dir() -> String {
     // Use a sensible default location for the cache
     format!("/nebu/cache")
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct V1ProcessorStatus {
+    pub status: Option<String>,
+    pub message: Option<String>,
+    pub pressure: Option<i32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct V1ScaleUp {
+    pub pressure: Option<i32>,
+    pub rate: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct V1ScaleDown {
+    pub pressure: Option<i32>,
+    pub rate: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct V1Scale {
+    pub up: Option<V1ScaleUp>,
+    pub down: Option<V1ScaleDown>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct V1Processor {
+    pub kind: String,
+    pub metadata: V1ResourceMeta,
+    pub container: Option<V1Container>,
+    pub stream: Option<String>,
+    pub schema: Option<Value>,
+    pub min_replicas: Option<i32>,
+    pub max_replicas: Option<i32>,
+    pub scale: Option<V1Scale>,
+    pub status: Option<V1ProcessorStatus>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

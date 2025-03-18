@@ -189,15 +189,15 @@ schema:
     required: true
 ```
 
-To send data to a stream
+To send data to a processor stream
 
 ```sh
 nebu send processor foo --data '{"foo": "bar"}'
 ```
 
-Read data from a stream
+Read data from a processor stream
 
-```sh
+```text
 nebu read processor foo --num 10
 ```
 

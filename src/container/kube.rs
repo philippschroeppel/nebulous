@@ -2,7 +2,7 @@ use crate::container::base::ContainerPlatform;
 use crate::container::base::ContainerStatus;
 use crate::entities::containers;
 use crate::models::{
-    V1Container, V1ContainerMeta, V1ContainerRequest, V1ContainerStatus, V1UserProfile,
+    V1Container, V1ContainerRequest, V1ContainerStatus, V1ResourceMeta, V1UserProfile,
 };
 use k8s_openapi::api::batch::v1::{Job, JobSpec};
 use k8s_openapi::api::core::v1::{
@@ -523,6 +523,7 @@ impl ContainerPlatform for KubePlatform {
                                 restart: Set(config.restart.clone()),
                                 command: Set(config.command.clone()),
                                 queue: Set(config.queue.clone()),
+                                timeout: Set(config.timeout.clone()),
                                 desired_status: Set(Some("pending".to_string())),
                                 controller_data: Set(None),
                                 public_addr: Set(None),
@@ -581,7 +582,7 @@ impl ContainerPlatform for KubePlatform {
         info!("[Kubernetes] Job {} created on Kubernetes", name);
         Ok(V1Container {
             kind: "Container".to_string(),
-            metadata: V1ContainerMeta {
+            metadata: V1ResourceMeta {
                 name: name.clone(),
                 namespace: config
                     .metadata
@@ -601,10 +602,12 @@ impl ContainerPlatform for KubePlatform {
             image: config.image.clone(),
             env_vars: config.env_vars.clone(),
             command: config.command.clone(),
+            platform: config.platform.clone().unwrap_or_default(),
             volumes: config.volumes.clone(),
             accelerators: config.accelerators.clone(),
             meters: config.meters.clone(),
             queue: config.queue.clone(),
+            timeout: config.timeout.clone(),
             ssh_keys: config.ssh_keys.clone(),
             status: Some(V1ContainerStatus {
                 status: Some(ContainerStatus::Pending.to_string()),

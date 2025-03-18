@@ -1,33 +1,23 @@
 // src/handlers/containers.rs
 
 use crate::container::factory::platform_factory;
-use crate::entities::containers;
 use crate::models::{
-    V1Container, V1ContainerList, V1ContainerMeta, V1ContainerRequest, V1UserProfile,
+    V1Container, V1ContainerList, V1ContainerRequest, V1ResourceMeta, V1UserProfile,
 };
 
-use tracing::info;
-
 // Adjust the crate paths below to match your own project structure:
-use crate::container::factory::PlatformType;
 use crate::mutation::Mutation;
-use crate::org::get_organization_names;
 use crate::query::Query;
 use crate::state::AppState;
-use crate::state::MessageQueue;
-use redis::AsyncCommands;
 
 use axum::extract::Query as QueryExtractor;
 use axum::{
     extract::Extension, extract::Json, extract::Path, extract::State, http::StatusCode,
     response::IntoResponse,
 };
-use chrono::Utc;
 use petname::Generator;
 use sea_orm::*;
 use serde_json::json;
-use short_uuid::ShortUuid;
-use std::collections::HashMap;
 
 pub async fn get_container(
     State(state): State<AppState>,
@@ -57,7 +47,7 @@ pub async fn get_container(
 
     let out_container = V1Container {
         kind: "Container".to_string(),
-        metadata: V1ContainerMeta {
+        metadata: V1ResourceMeta {
             name: container.name.clone(),
             namespace: container.namespace.clone(),
             id: container.id.to_string(),
@@ -71,6 +61,7 @@ pub async fn get_container(
                 .unwrap_or_default(),
         },
         image: container.image.clone(),
+        platform: container.platform.unwrap_or_default(),
         env_vars: container
             .env_vars
             .and_then(|v| serde_json::from_value(v).ok())
@@ -88,6 +79,7 @@ pub async fn get_container(
             .and_then(|v| serde_json::from_value(v).ok()),
         restart: container.restart,
         queue: container.queue,
+        timeout: container.timeout,
         resources: container
             .resources
             .and_then(|v| serde_json::from_value(v).ok()),
@@ -132,7 +124,7 @@ pub async fn list_containers(
         .into_iter()
         .map(|c| V1Container {
             kind: "Container".to_string(),
-            metadata: V1ContainerMeta {
+            metadata: V1ResourceMeta {
                 name: c.name,
                 namespace: c.namespace,
                 id: c.id.to_string(),
@@ -151,12 +143,14 @@ pub async fn list_containers(
                 .and_then(|v| serde_json::from_value(v).ok())
                 .unwrap_or_default(),
             command: c.command,
+            platform: c.platform.unwrap_or_default(),
             volumes: c.volumes.and_then(|v| serde_json::from_value(v).ok()),
             accelerators: c.accelerators,
             meters: c.meters.and_then(|v| serde_json::from_value(v).ok()),
             status: c.status.and_then(|v| serde_json::from_value(v).ok()),
             restart: c.restart,
             queue: c.queue,
+            timeout: c.timeout,
             resources: c.resources.and_then(|v| serde_json::from_value(v).ok()),
             ssh_keys: c.ssh_keys.and_then(|v| serde_json::from_value(v).ok()),
         })

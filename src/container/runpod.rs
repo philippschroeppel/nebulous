@@ -3,8 +3,8 @@ use crate::accelerator::runpod::RunPodProvider;
 use crate::container::base::{ContainerPlatform, ContainerStatus};
 use crate::entities::containers;
 use crate::models::{
-    RestartPolicy, V1Container, V1ContainerRequest, V1ContainerStatus, V1Meter, V1UserProfile,
-    V1VolumeConfig, V1VolumePath,
+    RestartPolicy, V1Container, V1ContainerRequest, V1ContainerStatus, V1Meter, V1ResourceMeta,
+    V1UserProfile, V1VolumeConfig, V1VolumePath,
 };
 use crate::mutation::{self, Mutation};
 use crate::volumes::rclone::{SymlinkConfig, VolumeConfig, VolumePath};
@@ -1069,6 +1069,11 @@ impl RunpodPlatform {
 
                     Mutation::update_container_resource_name(db, model.id.clone(), pod.id.clone())
                         .await?;
+
+                    info!(
+                        "[Runpod Controller] Updating container status to Created, and accelerator to {}",
+                        nebu_gpu_type_id
+                    );
                     Mutation::update_container_status(
                         db,
                         model.id.clone(),
@@ -1154,8 +1159,6 @@ impl RunpodPlatform {
     }
 
     fn build_command(&self, model: &containers::Model) -> Option<Vec<String>> {
-        use shell_quote::{Bash, QuoteRefExt};
-
         let cmd = model.command.clone()?;
 
         // Statements to install curl if missing:
@@ -1179,6 +1182,7 @@ impl RunpodPlatform {
 
         let log_file = "/nebu_container.log";
 
+        // Wrap the user command in parentheses and add a semicolon to ensure it's treated as a complete statement
         let base_script = format!(
             r#"
     set -x
@@ -1197,25 +1201,25 @@ impl RunpodPlatform {
         --create-if-missing --watch --background --block-once --config-from-env
     
     echo "[DEBUG] All done with base_command; now your user command: {cmd}"
-    {cmd}
+    ({cmd}) # Wrap in parentheses and add semicolon
     "#,
             curl_install = curl_install,
             nebu_install = nebu_install,
             cmd = cmd
         );
 
-        // 2) Always wait for final sync
+        // 2) Always wait for final sync - now without the leading &&
         let wait_script = r#"
-&& echo "[DEBUG] Waiting for final sync..."
-&& nebu sync wait --config /nebu/sync.yaml --poll-interval 5
+echo "[DEBUG] Waiting for final sync..."
+nebu sync wait --config /nebu/sync.yaml --poll-interval 5
 "#;
 
-        // 3) Only if restart == Never, mark done and loop forever
+        // 3) Only if restart == Never, mark done and loop forever - now without the leading &&
         let never_script = if model.restart == RestartPolicy::Never.to_string() {
             r#"
-&& echo "[DEBUG] Writing /done.txt..."
-&& echo "done" > /done.txt
-&& while true; do
+echo "[DEBUG] Writing /done.txt..."
+echo "done" > /done.txt
+while true; do
     echo ">>>all done"
     sleep 3
 done
@@ -1237,15 +1241,6 @@ done
 
         info!("[Runpod Controller] Final script: {}", final_script);
 
-        // Use shell_quote to safely escape the script for Bash:
-        // The Bash type will produce something like $'...' for special chars.
-        // Then we pass that as the third argument to ["bash", "-c", ...].
-        // For example:
-        // let quoted_script: String = final_script.quoted(Bash);
-        // info!("[Runpod Controller] Quoted script: {}", quoted_script);
-
-        // Some(vec!["bash".to_string(), "-c".to_string(), quoted_script])
-        // Some(vec!["sleep".to_string(), "99999999".to_string()])
         Some(vec!["bash".to_string(), "-c".to_string(), final_script])
     }
 
@@ -1474,6 +1469,7 @@ impl ContainerPlatform for RunpodPlatform {
                 .and_then(|meta| meta.labels.clone().map(|labels| serde_json::json!(labels)))),
             restart: Set(config.restart.clone()),
             queue: Set(config.queue.clone()),
+            timeout: Set(config.timeout.clone()),
             resources: Set(config
                 .resources
                 .clone()
@@ -1500,7 +1496,7 @@ impl ContainerPlatform for RunpodPlatform {
 
         Ok(V1Container {
             kind: "Container".to_string(),
-            metadata: crate::models::V1ContainerMeta {
+            metadata: crate::models::V1ResourceMeta {
                 name: name,
                 namespace: config
                     .metadata
@@ -1518,12 +1514,14 @@ impl ContainerPlatform for RunpodPlatform {
                     .and_then(|meta| meta.labels.clone()),
             },
             image: config.image.clone(),
+            platform: "runpod".to_string(),
             env_vars: config.env_vars.clone(),
             command: config.command.clone(),
             volumes: config.volumes.clone(),
             accelerators: config.accelerators.clone(),
             meters: config.meters.clone(),
             queue: config.queue.clone(),
+            timeout: config.timeout.clone(),
             ssh_keys: config.ssh_keys.clone(),
             status: Some(V1ContainerStatus {
                 status: Some(ContainerStatus::Defined.to_string()),

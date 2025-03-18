@@ -6,7 +6,8 @@ use serde_json::Value as Json;
 use std::collections::HashMap;
 
 use crate::models::{
-    V1Container, V1ContainerResources, V1ContainerStatus, V1EnvVar, V1Meter, V1SSHKey, V1VolumePath,
+    V1Container, V1ContainerResources, V1ContainerStatus, V1EnvVar, V1Meter, V1ResourceMeta,
+    V1SSHKey, V1VolumePath,
 };
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
@@ -32,6 +33,7 @@ pub struct Model {
     pub labels: Option<Json>,
     pub meters: Option<Json>,
     pub queue: Option<String>,
+    pub timeout: Option<String>,
     pub resources: Option<Json>,
     pub restart: String,
     pub public_addr: Option<String>,
@@ -139,7 +141,7 @@ impl Model {
         let ssh_keys = self.parse_ssh_keys()?;
 
         // Build metadata; fill with defaults or unwrap as needed
-        let metadata = crate::models::V1ContainerMeta {
+        let metadata = crate::models::V1ResourceMeta {
             name: self.name.clone(),
             namespace: self.namespace.clone(),
             id: self.id.clone(),
@@ -153,6 +155,7 @@ impl Model {
         // Construct final V1Container
         let container = crate::models::V1Container {
             kind: "Container".to_owned(), // or use default_container_kind() if needed
+            platform: self.platform.clone().unwrap_or_default(),
             metadata,
             image: self.image.clone(),
             env_vars,
@@ -162,6 +165,7 @@ impl Model {
             meters,
             restart: self.restart.clone(),
             queue: self.queue.clone(),
+            timeout: self.timeout.clone(),
             status,
             resources,
             ssh_keys,

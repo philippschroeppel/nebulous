@@ -73,10 +73,14 @@ pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
     table.add_row(prettytable::Row::new(vec![
         prettytable::Cell::new("ID"),
         prettytable::Cell::new("NAME"),
+        prettytable::Cell::new("NAMESPACE"),
+        prettytable::Cell::new("IMAGE"),
+        prettytable::Cell::new("PLATFORM"),
+        prettytable::Cell::new("RESTART"),
         prettytable::Cell::new("STATUS"),
-        prettytable::Cell::new("CREATED"),
         prettytable::Cell::new("ACCELERATOR"),
         prettytable::Cell::new("PUBLIC IP"),
+        prettytable::Cell::new("CREATED"),
     ]));
 
     let empty_vec = Vec::new();
@@ -99,6 +103,24 @@ pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
                 .get("metadata")
                 .and_then(Value::as_object)
                 .and_then(|metadata| metadata.get("name"))
+                .and_then(Value::as_str)
+                .unwrap_or("N/A");
+            let namespace = container_obj
+                .get("metadata")
+                .and_then(Value::as_object)
+                .and_then(|metadata| metadata.get("namespace"))
+                .and_then(Value::as_str)
+                .unwrap_or("N/A");
+            let image = container_obj
+                .get("image")
+                .and_then(Value::as_str)
+                .unwrap_or("N/A");
+            let platform = container_obj
+                .get("platform")
+                .and_then(Value::as_str)
+                .unwrap_or("N/A");
+            let restart = container_obj
+                .get("restart")
                 .and_then(Value::as_str)
                 .unwrap_or("N/A");
             let status = container_obj
@@ -136,10 +158,14 @@ pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
             table.add_row(prettytable::Row::new(vec![
                 prettytable::Cell::new(id),
                 prettytable::Cell::new(name),
+                prettytable::Cell::new(namespace),
+                prettytable::Cell::new(image),
+                prettytable::Cell::new(platform),
+                prettytable::Cell::new(restart),
                 prettytable::Cell::new(status),
-                prettytable::Cell::new(&created),
                 prettytable::Cell::new(accelerator),
                 prettytable::Cell::new(public_ip),
+                prettytable::Cell::new(&created),
             ]));
         }
     }

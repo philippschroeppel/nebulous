@@ -197,6 +197,10 @@ pub struct ContainerCommands {
     #[arg(long)]
     pub queue: Option<String>,
 
+    /// Timeout for the container
+    #[arg(long)]
+    pub timeout: Option<String>,
+
     /// Minimum CPU
     #[arg(long)]
     pub min_cpu: Option<f64>,

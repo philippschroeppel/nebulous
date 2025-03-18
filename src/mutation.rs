@@ -4,6 +4,7 @@ use crate::models::{V1ContainerStatus, V1UpdateContainer};
 use sea_orm::prelude::Json;
 use sea_orm::*;
 use serde_json::json;
+use tracing::info;
 
 pub struct Mutation;
 
@@ -96,6 +97,11 @@ impl Mutation {
             _ => V1ContainerStatus::default(),
         };
 
+        info!(
+            "[Mutation] Updating container status to {:?}",
+            existing_status
+        );
+
         // 2. Merge in only the new fields
         if let Some(s) = status {
             existing_status.status = Some(s);
@@ -113,6 +119,11 @@ impl Mutation {
         // 3. Store the merged status back as JSON
         container.status = Set(Some(serde_json::json!(existing_status)));
         container.updated_at = Set(chrono::Utc::now().into());
+
+        info!(
+            "[Mutation] Updating container status to {:?}",
+            container.status
+        );
 
         // 4. Update in the database
         container.update(db).await
