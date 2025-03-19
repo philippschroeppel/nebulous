@@ -148,8 +148,8 @@ impl Mutation {
             container.image = Set(image);
         }
 
-        if let Some(env_vars) = update_data.env_vars {
-            container.env_vars = Set(Some(json!(env_vars).into()));
+        if let Some(env) = update_data.env {
+            container.env = Set(Some(json!(env).into()));
         }
 
         if let Some(command) = update_data.command {

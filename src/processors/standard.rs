@@ -82,11 +82,11 @@ impl StandardProcessor {
         labels.insert("processor-id".to_string(), processor.id.clone());
 
         // 4) Build a new V1ContainerRequest from the parsed container.
-        //    We'll fill in some fields from V1Container (image, env_vars, volumes, etc.).
+        //    We'll fill in some fields from V1Container (image, env, volumes, etc.).
         //    If your processor stores more fields (command, resources, etc.), copy them here.
         let container_request = V1ContainerRequest {
             image: parsed_container.image,
-            env_vars: parsed_container.env_vars,
+            env: parsed_container.env,
             command: parsed_container.command,
             volumes: parsed_container.volumes,
             accelerators: parsed_container.accelerators,
@@ -227,12 +227,12 @@ impl StandardProcessor {
         let scale_up_threshold = scale
             .up
             .as_ref()
-            .and_then(|up| up.pressure)
+            .and_then(|up| up.above_pressure)
             .unwrap_or(i32::MAX); // If none specified, we won’t scale up
         let scale_down_threshold = scale
             .down
             .as_ref()
-            .and_then(|down| down.pressure)
+            .and_then(|down| down.below_pressure)
             .unwrap_or(0); // If none, we won’t scale down
 
         // 5) Determine the current desired or min_replicas for this processor.

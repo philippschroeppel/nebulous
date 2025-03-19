@@ -1,0 +1,29 @@
+kind: Processor
+metadata:
+  name: basic
+  namespace: test
+stream: test:processor:basic
+container:
+  image: redis:latest
+  command: |
+    while true
+    do
+      echo "Waiting for one message..."
+      redis-cli -h $REDIS_HOST -p $REDIS_PORT XREAD BLOCK 0 COUNT 1 STREAMS test:processor:basic $
+      echo "Pausing..."
+      sleep 5
+    done
+  platform: runpod
+  accelerators:
+    - "1:RTX_4090"
+min_workers: 1
+max_workers: 10
+scale:
+  up:
+    above_pressure: 100
+    duration: 10s
+  down:
+    below_pressure: 10
+    duration: 5m
+  zero:
+    duration: 10m

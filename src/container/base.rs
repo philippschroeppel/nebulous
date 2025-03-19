@@ -170,13 +170,13 @@ pub trait ContainerPlatform {
     fn accelerator_map(&self) -> HashMap<String, String>;
 
     // Default implementation for common environment variables
-    async fn get_common_env_vars(
+    async fn get_common_env(
         &self,
         model: &containers::Model,
         db: &DatabaseConnection,
     ) -> HashMap<String, String> {
         let config = crate::config::GlobalConfig::read().unwrap();
-        let mut env_vars = HashMap::new();
+        let mut env = HashMap::new();
 
         let agent_key = Query::get_agent_key(db, model.id.clone()).await.unwrap();
 
@@ -187,31 +187,31 @@ pub trait ContainerPlatform {
             .expect("AWS_SECRET_ACCESS_KEY environment variable not set");
 
         // Add RCLONE environment variables
-        env_vars.insert("RCLONE_CONFIG_S3REMOTE_TYPE".to_string(), "s3".to_string());
-        env_vars.insert(
+        env.insert("RCLONE_CONFIG_S3REMOTE_TYPE".to_string(), "s3".to_string());
+        env.insert(
             "RCLONE_CONFIG_S3REMOTE_PROVIDER".to_string(),
             "AWS".to_string(),
         );
-        env_vars.insert(
+        env.insert(
             "RCLONE_CONFIG_S3REMOTE_ENV_AUTH".to_string(),
             "true".to_string(),
         );
-        env_vars.insert("AWS_ACCESS_KEY_ID".to_string(), aws_access_key);
-        env_vars.insert("AWS_SECRET_ACCESS_KEY".to_string(), aws_secret_key);
-        env_vars.insert(
+        env.insert("AWS_ACCESS_KEY_ID".to_string(), aws_access_key);
+        env.insert("AWS_SECRET_ACCESS_KEY".to_string(), aws_secret_key);
+        env.insert(
             "RCLONE_CONFIG_S3REMOTE_REGION".to_string(),
             "us-east-1".to_string(),
         );
-        env_vars.insert("NEBU_API_KEY".to_string(), agent_key.unwrap());
-        env_vars.insert("NEBU_SERVER".to_string(), config.server.unwrap());
+        env.insert("NEBU_API_KEY".to_string(), agent_key.unwrap());
+        env.insert("NEBU_SERVER".to_string(), config.server.unwrap());
 
-        // env_vars.insert(
+        // env.insert(
         //     "RCLONE_CONFIG_S3REMOTE_ACL".to_string(),
         //     "private".to_string(),
         // );
 
         // Add more common environment variables as needed
-        env_vars
+        env
     }
 
     async fn get_agent_key(

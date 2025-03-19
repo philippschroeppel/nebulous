@@ -1,6 +1,6 @@
 [package]
 name = "nebulous"
-version = "0.1.35"
+version = "0.1.36"
 edition = "2021"
 description = "A Rust library for nebulous operations"
 license = "MIT"
@@ -67,3 +67,6 @@ openmeter = "0.1.2"
 shell-quote = "0.7.2"
 ring = "0.17.14"
 ssh2 = "0.9.5"
+russh = { version = "0.51.1" }
+async-trait = "0.1.88"
+ssh-key = "0.6.7"

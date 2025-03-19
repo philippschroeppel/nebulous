@@ -1,7 +1,7 @@
 use nebulous::config::GlobalConfig;
 use nebulous::models::{
-    RestartPolicy, V1ContainerMetaRequest, V1ContainerRequest, V1ContainerResources, V1EnvVar,
-    V1Meter, V1ResourceMetaRequest, V1VolumeConfig, V1VolumeDriver, V1VolumePath,
+    RestartPolicy, V1ContainerRequest, V1ContainerResources, V1EnvVar, V1Meter,
+    V1ResourceMetaRequest, V1VolumeConfig, V1VolumeDriver, V1VolumePath,
 };
 use reqwest::Client;
 use serde_json::Value;
@@ -41,7 +41,7 @@ pub async fn create_container(
         };
 
         // Convert Vec<(String, String)> to HashMap<String, String> for env vars
-        let env_vars = command.env.map(|env_vec| {
+        let env = command.env.map(|env_vec| {
             env_vec
                 .into_iter()
                 .map(|(key, value)| V1EnvVar { key, value })
@@ -75,7 +75,7 @@ pub async fn create_container(
             command: command.cmd,
             accelerators: command.accelerators,
             platform: command.platform,
-            env_vars: env_vars,
+            env: env,
             volumes: Some(volumes.unwrap().paths),
             metadata: Some(V1ResourceMetaRequest {
                 name: command.name,

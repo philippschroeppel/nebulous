@@ -20,7 +20,7 @@ pub struct Model {
     pub owner_id: String,
     pub owner_ref: Option<String>,
     pub image: String,
-    pub env_vars: Option<Json>,
+    pub env: Option<Json>,
     pub volumes: Option<Json>,
     pub accelerators: Option<Vec<String>>,
     pub cpu_request: Option<String>,
@@ -55,9 +55,9 @@ pub enum Relation {}
 impl ActiveModelBehavior for ActiveModel {}
 
 impl Model {
-    /// Attempt to parse `env_vars` into a vector of `V1EnvVar`.
-    pub fn parse_env_vars(&self) -> Result<Option<Vec<V1EnvVar>>, serde_json::Error> {
-        if let Some(json_value) = &self.env_vars {
+    /// Attempt to parse `env` into a vector of `V1EnvVar`.
+    pub fn parse_env(&self) -> Result<Option<Vec<V1EnvVar>>, serde_json::Error> {
+        if let Some(json_value) = &self.env {
             serde_json::from_value(json_value.clone()).map(Some)
         } else {
             Ok(None)
@@ -133,7 +133,7 @@ impl Model {
     /// Construct a full V1Container from the current model row.
     /// Returns a serde_json Error if any JSON parsing in subfields fails.
     pub fn to_v1_container(&self) -> Result<V1Container, serde_json::Error> {
-        let env_vars = self.parse_env_vars()?;
+        let env = self.parse_env()?;
         let volumes = self.parse_volumes()?;
         let status = self.parse_status()?;
         let labels = self.parse_labels()?;
@@ -160,7 +160,7 @@ impl Model {
             platform: self.platform.clone().unwrap_or_default(),
             metadata,
             image: self.image.clone(),
-            env_vars,
+            env,
             command: self.command.clone(),
             volumes,
             accelerators: self.accelerators.clone(),

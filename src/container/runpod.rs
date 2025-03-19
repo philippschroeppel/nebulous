@@ -970,7 +970,7 @@ impl RunpodPlatform {
             value: ssh_public_key,
         });
 
-        for (key, value) in self.get_common_env_vars(&model, db).await {
+        for (key, value) in self.get_common_env(&model, db).await {
             env_vec.push(runpod::EnvVar { key, value });
         }
 
@@ -1010,10 +1010,10 @@ impl RunpodPlatform {
         }
         info!("[Runpod Controller] Environment variables: {:?}", env_vec);
 
-        match model.parse_env_vars() {
-            Ok(Some(env_vars)) => {
+        match model.parse_env() {
+            Ok(Some(env)) => {
                 // We have a valid, non-empty list of environment variables.
-                for env_var in env_vars {
+                for env_var in env {
                     env_vec.push(runpod::EnvVar {
                         key: env_var.key.clone(),
                         value: env_var.value.clone(),
@@ -1022,7 +1022,7 @@ impl RunpodPlatform {
                 info!("[Runpod Controller] Successfully parsed and added environment variables from model");
             }
             Ok(None) => {
-                // parse_env_vars() returned Ok, but the database column was None or empty.
+                // parse_env() returned Ok, but the database column was None or empty.
                 info!("[Runpod Controller] No environment variables configured in database");
             }
             Err(e) => {
@@ -1142,6 +1142,10 @@ impl RunpodPlatform {
     /// -----END OPENSSH PRIVATE KEY-----
     /// ```
     fn generate_ssh_key() -> Result<(String, String), Box<dyn std::error::Error + Send + Sync>> {
+        use base64::engine::general_purpose::STANDARD;
+        use ring::rand::SystemRandom;
+        use ring::signature::{Ed25519KeyPair, KeyPair};
+
         // 1) Generate the keypair
         let rng = SystemRandom::new();
         let pkcs8_bytes = Ed25519KeyPair::generate_pkcs8(&rng)
@@ -1149,21 +1153,24 @@ impl RunpodPlatform {
         let keypair = Ed25519KeyPair::from_pkcs8(pkcs8_bytes.as_ref())
             .map_err(|e| format!("Failed to parse Ed25519 keypair: {:?}", e))?;
 
-        // 2) Format public key as "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA..."
+        // 2) Format public key as the usual "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA..."
         let ssh_public_key = format!(
             "ssh-ed25519 {}",
             STANDARD.encode(keypair.public_key().as_ref())
         );
 
-        // 3) Convert the raw pkcs8_bytes to an OpenSSH PRIVATE KEY block
+        // 3) Store the private key as PKCS#8 with a "PRIVATE KEY" header/footer (not "OPENSSH PRIVATE KEY")
         let mut encoded_private_key = Vec::new();
-        encoded_private_key.extend_from_slice(b"-----BEGIN OPENSSH PRIVATE KEY-----\n");
+        encoded_private_key.extend_from_slice(b"-----BEGIN PRIVATE KEY-----\n");
         encoded_private_key.extend_from_slice(STANDARD.encode(pkcs8_bytes.as_ref()).as_bytes());
-        encoded_private_key.extend_from_slice(b"\n-----END OPENSSH PRIVATE KEY-----\n");
+        encoded_private_key.extend_from_slice(b"\n-----END PRIVATE KEY-----\n");
 
-        // 4) Convert binary to UTF-8
+        // 4) Convert binary to a UTF-8 String
         let ssh_private_key = String::from_utf8(encoded_private_key)
             .map_err(|e| format!("Failed converting private key to UTF-8: {:?}", e))?;
+
+        debug!("[Runpod Controller] SSH private key: {}", ssh_private_key);
+        debug!("[Runpod Controller] SSH public key: {}", ssh_public_key);
 
         // Return them as (private_key, public_key)
         Ok((ssh_private_key, ssh_public_key))
@@ -1282,6 +1289,9 @@ done
         let _ssh_public_key = maybe_public_key
             .ok_or_else(|| format!("No SSH public key found for container {}", container_id))?;
 
+        debug!("[Runpod Controller] SSH private key: {}", ssh_private_key);
+        debug!("[Runpod Controller] SSH public key: {}", _ssh_public_key);
+
         // 4) Form a command that checks existence of /done.txt
         //    - On success, it prints '1', otherwise '0'
         let cmd = "test -f /done.txt && echo 1 || echo 0";
@@ -1293,7 +1303,8 @@ done
             &resource_name,
             &ssh_private_key,
             cmd,
-        )?;
+        )
+        .await?;
         info!("[Runpod Controller] Check done file output: {}", output);
 
         // 6) If output contains "1", the file exists, otherwise it doesn't
@@ -1464,7 +1475,7 @@ impl ContainerPlatform for RunpodPlatform {
             owner_id: Set(owner_id.to_string()),
             owner_ref: Set(owner_ref.clone()),
             image: Set(config.image.clone()),
-            env_vars: Set(config.env_vars.clone().map(|vars| serde_json::json!(vars))),
+            env: Set(config.env.clone().map(|vars| serde_json::json!(vars))),
             volumes: Set(config.volumes.clone().map(|vols| serde_json::json!(vols))),
             accelerators: Set(config.accelerators.clone()),
             cpu_request: Set(None),
@@ -1534,7 +1545,7 @@ impl ContainerPlatform for RunpodPlatform {
             },
             image: config.image.clone(),
             platform: "runpod".to_string(),
-            env_vars: config.env_vars.clone(),
+            env: config.env.clone(),
             command: config.command.clone(),
             volumes: config.volumes.clone(),
             accelerators: config.accelerators.clone(),
@@ -1679,7 +1690,8 @@ impl ContainerPlatform for RunpodPlatform {
             &resource_name,
             &ssh_private_key,
             command,
-        )?;
+        )
+        .await?;
 
         // For now, just log the result; adapt as needed
         tracing::info!("[Runpod Controller] SSH command output:\n{}", output);
@@ -1723,7 +1735,8 @@ impl ContainerPlatform for RunpodPlatform {
             &resource_name,
             &ssh_private_key,
             &command,
-        )?;
+        )
+        .await?;
 
         Ok(output)
     }

@@ -1,0 +1,78 @@
+kind: Processor
+metadata:
+  name: vllm-bash
+  namespace: test
+stream: inference:vllm:qwen
+container:
+  image: vllm/vllm-openai:latest
+  command: |
+    echo "Downloading model"
+    python -m vllm.entrypoints.download --model $MODEL
+
+    echo "Starting API server"
+    python -m vllm.entrypoints.api_server --model $MODEL &
+
+    echo "Waiting for API server to start"
+    sleep 20
+
+    echo "Installing redis-tools"
+    apt-get update && apt-get install -y redis-tools
+
+    echo "Starting loop"
+    LAST_ID="0-0"
+
+    while true
+    do
+      echo "Reading messages"
+      READ_RESULT=$(redis-cli -h $REDIS_HOST -p $REDIS_PORT --raw XREAD BLOCK 0 STREAMS inference:vllm:qwen $LAST_ID)
+      echo "Read result: $READ_RESULT"
+
+      if [ -z "$READ_RESULT" ]; then
+        echo "No new messages"
+        sleep 1
+        continue
+      fi
+
+      NEW_ID=$(echo "$READ_RESULT" | awk 'NR==2 {print}')
+      CONTENT=$(echo "$READ_RESULT" | awk 'found_content {print; exit} /content/{found_content=1}')
+
+      if [ -z "$CONTENT" ]; then
+        echo "No content"
+        sleep 1
+        continue
+      fi
+
+      echo "Sending request"
+      RESPONSE=$(curl -X POST http://127.0.0.1:8000/v1/chat/completions \
+          -H "Content-Type: application/json" \
+          -d '{
+            "model": "'"$MODEL"'",
+            "messages": '"$CONTENT"'
+          }')
+
+      echo "Response: $RESPONSE"
+
+      LAST_ID="$NEW_ID"
+
+      echo "Pausing"
+      sleep 1
+    done
+
+  platform: runpod
+  accelerators:
+    - "1:A100"
+  env:
+    - key: MODEL
+      value: Qwen/Qwen2.5-7B-Instruct
+min_workers: 1
+max_workers: 10
+common_schema: OPENAI_CHAT
+scale:
+  up:
+    above_pressure: 100
+    duration: 30s
+  down:
+    below_pressure: 10
+    duration: 5m
+  zero:
+    duration: 10m

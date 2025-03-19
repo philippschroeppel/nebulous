@@ -1,0 +1,30 @@
+kind: Container
+metadata:
+  name: trl-test1
+  namespace: trl-test
+  labels:
+    this: that
+image: "huggingface/trl-latest-gpu:latest"
+command: |
+  source activate trl && trl sft --model_name_or_path Qwen/Qwen2.5-7B \
+      --dataset_name trl-lib/Capybara \
+      --output_dir /output \
+      --torch_dtype bfloat16 \
+      --use_peft true
+platform: runpod
+env:
+  - key: HELLO
+    value: world
+volumes:  
+  - source: /output
+    dest: s3://nebulous-rs/trl-test
+    driver: RCLONE_SYNC
+    continuous: true
+accelerators:
+  - "1:A100_SXM"
+meters:
+  - cost: 0.1
+    unit: second
+    metric: runtime
+    currency: USD
+restart: Never

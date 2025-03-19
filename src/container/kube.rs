@@ -259,13 +259,13 @@ impl KubePlatform {
     }
 
     /// Get common environment variables for all containers
-    fn get_common_env_vars(&self) -> HashMap<String, String> {
-        let mut env_vars = HashMap::new();
+    fn get_common_env(&self) -> HashMap<String, String> {
+        let mut env = HashMap::new();
 
         // Add common environment variables here
-        env_vars.insert("PLATFORM".to_string(), "kubernetes".to_string());
+        env.insert("PLATFORM".to_string(), "kubernetes".to_string());
 
-        env_vars
+        env
     }
 }
 
@@ -327,11 +327,11 @@ impl ContainerPlatform for KubePlatform {
         }
 
         // Prepare environment variables
-        let mut env_vars = Vec::new();
+        let mut env = Vec::new();
 
         // Add common environment variables
-        for (key, value) in self.get_common_env_vars() {
-            env_vars.push(EnvVar {
+        for (key, value) in self.get_common_env() {
+            env.push(EnvVar {
                 name: key,
                 value: Some(value),
                 ..Default::default()
@@ -340,7 +340,7 @@ impl ContainerPlatform for KubePlatform {
 
         // Add ORIGN_SYNC_CONFIG environment variable with serialized volumes configuration
         if let Ok(serialized_volumes) = serde_yaml::to_string(&config.volumes) {
-            env_vars.push(EnvVar {
+            env.push(EnvVar {
                 name: "ORIGN_SYNC_CONFIG".to_string(),
                 value: Some(serialized_volumes),
                 ..Default::default()
@@ -351,9 +351,9 @@ impl ContainerPlatform for KubePlatform {
         }
 
         // Add user-provided environment variables
-        if let Some(user_env_vars) = &config.env_vars {
-            for env_var in user_env_vars {
-                env_vars.push(EnvVar {
+        if let Some(user_env) = &config.env {
+            for env_var in user_env {
+                env.push(EnvVar {
                     name: env_var.key.clone(),
                     value: Some(env_var.value.clone()),
                     ..Default::default()
@@ -431,7 +431,7 @@ impl ContainerPlatform for KubePlatform {
                 container_port: 8000,
                 ..Default::default()
             }]),
-            env: Some(env_vars),
+            env: Some(env),
             resources: Some(resource_requirements),
             volume_mounts: Some(volume_mounts),
             ..Default::default()
@@ -499,10 +499,7 @@ impl ContainerPlatform for KubePlatform {
                                 owner_id: Set(owner_id.to_string()),
                                 owner_ref: Set(owner_ref.clone()),
                                 image: Set(config.image.clone()),
-                                env_vars: Set(config
-                                    .env_vars
-                                    .clone()
-                                    .map(|vars| serde_json::json!(vars))),
+                                env: Set(config.env.clone().map(|vars| serde_json::json!(vars))),
                                 volumes: Set(config
                                     .volumes
                                     .clone()
@@ -608,7 +605,7 @@ impl ContainerPlatform for KubePlatform {
                     .and_then(|meta| meta.labels.clone()),
             },
             image: config.image.clone(),
-            env_vars: config.env_vars.clone(),
+            env: config.env.clone(),
             command: config.command.clone(),
             platform: config.platform.clone().unwrap_or_default(),
             volumes: config.volumes.clone(),

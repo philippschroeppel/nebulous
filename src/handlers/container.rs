@@ -63,8 +63,8 @@ pub async fn get_container(
         },
         image: container.image.clone(),
         platform: container.platform.unwrap_or_default(),
-        env_vars: container
-            .env_vars
+        env: container
+            .env
             .and_then(|v| serde_json::from_value(v).ok())
             .unwrap_or_default(),
         command: container.command.clone(),
@@ -140,8 +140,8 @@ pub async fn list_containers(
                     .unwrap_or_default(),
             },
             image: c.image,
-            env_vars: c
-                .env_vars
+            env: c
+                .env
                 .and_then(|v| serde_json::from_value(v).ok())
                 .unwrap_or_default(),
             command: c.command,

@@ -1,7 +1,7 @@
 kind: Container
 metadata:
   name: swift-test1
-  namespace: "swift-test"
+  namespace: swift-test
   labels:
     this: that
 image: "us-docker.pkg.dev/agentsea-dev/orign/swift-trainer:latest"
@@ -31,7 +31,7 @@ command: |
       --warmup_ratio 0.05 \
       --dataloader_num_workers 4
 platform: runpod
-env_vars:
+env:
   - key: HELLO
     value: world
 volumes:  

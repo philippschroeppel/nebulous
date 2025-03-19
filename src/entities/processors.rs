@@ -11,7 +11,7 @@ use crate::models::{
 };
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
-#[sea_orm(table_name = "containers")]
+#[sea_orm(table_name = "processors")]
 pub struct Model {
     #[sea_orm(primary_key, column_type = "Text", auto_increment = false)]
     pub id: String,
@@ -27,6 +27,7 @@ pub struct Model {
     pub desired_replicas: Option<i32>,
     pub stream: Option<String>,
     pub schema: Option<Json>,
+    pub common_schema: Option<String>,
     pub status: Option<Json>,
     pub resource_name: Option<String>,
     pub resource_namespace: Option<String>,
@@ -118,6 +119,7 @@ impl Model {
             metadata,
             stream: self.stream.clone(),
             schema: self.schema.clone(),
+            common_schema: self.common_schema.clone(),
             min_replicas: self.min_replicas,
             max_replicas: self.max_replicas,
             scale,

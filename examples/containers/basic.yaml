@@ -1,0 +1,25 @@
+kind: Container
+metadata:
+  name: pytorch-test1
+  namespace: pytorch-test
+  labels:
+    this: that
+image: "pytorch/pytorch:latest"
+command: "nvidia-smi && sleep 300"
+platform: runpod
+env:
+  - key: HELLO
+    value: world
+volumes:
+  - source: s3://nebulous-rs/test/pytorch-test
+    dest: /pytorch-test
+    driver: RCLONE_SYNC
+    continuous: true
+accelerators:
+  - "1:A100_SXM"
+meters:
+  - cost: 0.1
+    unit: second
+    metric: runtime
+    currency: USD
+restart: Never

@@ -28,7 +28,7 @@ metadata:
 image: pytorch/pytorch:latest
 command: nvidia-smi
 platform: runpod
-env_vars:
+env:
   - key: HELLO
     value: world
 volumes:
@@ -40,7 +40,7 @@ accelerators:
   - "4:A100"
 ```
 ```sh
-nebu create container -f examples/basic.yaml
+nebu create container -f examples/containers/basic.yaml
 ```
 
 Alternatively, create a container on EC2 with 1 L40s GPU
@@ -167,11 +167,13 @@ min_workers: 1
 max_workers: 10
 scale:
   up:
-    pressure: 100
-    rate: 10s
+    above_pressure: 100
+    duration: 10s
   down:
-    pressure: 10
-    rate: 5m
+    below_pressure: 10
+    duration: 5m
+  zero:
+    duration: 10m
 ```
 
 Processors can also scale to zero.
@@ -220,7 +222,7 @@ container:
   image: pytorch/pytorch:latest
   command: "echo $NODES && torchrun ..."
   platform: runpod
-  env_vars:
+  env:
     - key: HELLO
       value: world
   volumes:

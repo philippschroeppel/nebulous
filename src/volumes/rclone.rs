@@ -1360,10 +1360,10 @@ pub async fn validate_no_overlapping_s3_syncs(
 /// Returns a temporary file handle if a config was created (to keep it alive)
 pub fn setup_rclone_config_from_env() -> Result<Option<std::fs::File>, Box<dyn Error>> {
     // Check if we have rclone config environment variables
-    let has_s3_env_vars = std::env::var("RCLONE_CONFIG_S3REMOTE_TYPE").is_ok()
+    let has_s3_env = std::env::var("RCLONE_CONFIG_S3REMOTE_TYPE").is_ok()
         || std::env::var("AWS_ACCESS_KEY_ID").is_ok();
 
-    if has_s3_env_vars {
+    if has_s3_env {
         // Create a temporary rclone config file
         let temp_path = std::env::temp_dir().join("rclone_config.conf");
         let mut temp_file = std::fs::File::create(&temp_path)?;
@@ -1474,12 +1474,27 @@ async fn ensure_path_exists(path: &str) -> Result<(), Box<dyn Error>> {
 }
 
 /// Check if two paths are in sync using rclone.
+/// Check if two paths are in sync using rclone.
 pub async fn check_paths(source: &str, dest: &str) -> Result<bool, Box<dyn std::error::Error>> {
     use std::process::Stdio;
     use tokio::process::Command;
 
+    // Fail immediately if no RCLONE_CONFIG is set
+    let config_path = match std::env::var("RCLONE_CONFIG") {
+        Ok(path) => path,
+        Err(_) => {
+            return Err(
+                "No RCLONE_CONFIG environment variable set - cannot proceed with rclone check!"
+                    .into(),
+            );
+        }
+    };
+
     let output = Command::new("rclone")
         .arg("check")
+        // Force using our config:
+        .arg("--config")
+        .arg(&config_path)
         .arg(source)
         .arg(dest)
         .arg("--one-way") // or omit if you want a two-way check
@@ -1488,11 +1503,10 @@ pub async fn check_paths(source: &str, dest: &str) -> Result<bool, Box<dyn std::
         .output()
         .await?;
 
-    // Print the logs so you can see the check details
+    // Print logs
     println!("stdout:\n{}", String::from_utf8_lossy(&output.stdout));
     eprintln!("stderr:\n{}", String::from_utf8_lossy(&output.stderr));
 
-    // If the exit code is 0, then no differences were found
-    // Non-zero indicates differences or errors.
+    // A 0 exit code means everything is in sync, non-zero means differences or errors.
     Ok(output.status.success())
 }
