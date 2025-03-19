@@ -4,6 +4,29 @@
 
 A cross-cloud container orchestrator for AI workloads
 
+## Quickstart
+
+Generate a random 32 byte, base64 encoded key:
+```bash
+openssl rand -base64 32
+# or
+python3 -c "import base64, os; print(base64.b64encode(os.urandom(32)).decode())"
+```
+
+Create a `values.yaml` file and add the key:
+```yaml
+encryptionKey:
+  encodedValue: "<base64 encoded key>"
+```
+
+Add the nebulous chart repository and install the chart into a dedicated namespace:
+
+```bash
+helm repo add nebulous https://agentsea.github.io/nebulous
+helm install nebulous nebulous/nebulous -f values.yaml \
+  --namespace nebulous --create-namespace
+```
+
 ## Values
 
 | Key | Type | Default | Description |
