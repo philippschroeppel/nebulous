@@ -1,15 +1,15 @@
 {{- if .Values.providers.aws.enabled }}
-{{- if not .Values.providers.aws.secret.name }}
+{{- if or .Values.providers.aws.auth.accessKeyId .Values.providers.aws.auth.secretAccessKey }}
 apiVersion: v1
 kind: Secret
 metadata:
-  name: {{ include "providers.aws.secretName" . }}
+  name: {{ .Values.providers.aws.secret.name }}
   namespace: {{ include "nebulous.namespace" . }}
   labels:
     {{- include "common.labels" . | nindent 4 }}
 type: Opaque
 data:
-  {{ include "providers.aws.accessKeyIdSecretKey" . }}: {{ required ".Values.providers.aws.auth.accessKeyId is required if no secret is provided" .Values.providers.aws.auth.accessKeyId | b64enc }}
-  {{ include "providers.aws.secretAccessKeySecretKey" . }}: {{ required ".Values.providers.aws.auth.secretAccessKey is required if no secret is provided" .Values.providers.aws.auth.secretAccessKey | b64enc }}
+  {{ .Values.providers.aws.secret.keys.accessKeyId }}: {{ required ".Values.providers.aws.auth.accessKeyId is required" .Values.providers.aws.auth.accessKeyId | b64enc }}
+  {{ .Values.providers.aws.secret.keys.secretAccessKey }}: {{ required ".Values.providers.aws.auth.secretAccessKey is required" .Values.providers.aws.auth.secretAccessKey | b64enc }}
 {{- end }}
 {{- end }}

@@ -1,21 +1,21 @@
-{{- if or (not .Values.postgres.secret) .Values.postgres.create }}
+{{- if or .Values.postgres.auth.host .Values.postgres.create }}
 apiVersion: v1
 kind: Secret
 metadata:
-  name: postgres-secret
+  name: {{ include "postgres.secretName" . }}
   namespace: {{ include "nebulous.namespace" . }}
   labels:
     {{- include "common.labels" . | nindent 4 }}
 type: Opaque
 data:
-  connection_string: {{ printf "postgresql://%s:%s@%s:%s/%s" (include "postgres.user" .) (include "postgres.password" .) (include "postgres.host" .) (include "postgres.port" .) (include "postgres.database" .) | b64enc }}
+  {{ .Values.postgres.secret.keys.connection_string }}: {{ printf "postgresql://%s:%s@%s:%s/%s" .Values.postgres.auth.user .Values.postgres.auth.password .Values.postgres.auth.host .Values.postgres.auth.port .Values.postgres.auth.database | b64enc }}
 ---
 {{- end }}
-{{- if default false .Values.postgres.create }}
+{{- if .Values.postgres.create }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: postgres
+  name: {{ include "postgres.name" . }}
   namespace: {{ include "nebulous.namespace" . }}
   labels:
     {{- include "common.labels" . | nindent 4 }}
@@ -23,24 +23,24 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app: postgres
+      app: {{ include "postgres.name" . }}
   template:
     metadata:
       labels:
-        app: postgres
+        app: {{ include "postgres.name" . }}
     spec:
       containers:
         - name: postgres
-          image: "postgres:{{ default "latest" .Values.postgres.imageTag }}"
+          image: "postgres:{{ .Values.postgres.imageTag }}"
           ports:
             - containerPort: 5432
           env:
             - name: POSTGRES_DB
-              value: {{ include "postgres.database" . }}
+              value: {{ .Values.postgres.auth.database }}
             - name: POSTGRES_USER
-              value: {{ include "postgres.user" . }}
+              value: {{ .Values.postgres.auth.user }}
             - name: POSTGRES_PASSWORD
-              value: {{ include "postgres.password" . }}
+              value: {{ .Values.postgres.auth.password }}
             - name: PGDATA
               value: "/var/lib/postgresql/data/pgdata"
           volumeMounts:
@@ -50,41 +50,43 @@ spec:
         - name: postgres-storage
           {{- if .Values.postgres.persistence.enabled }}
           persistentVolumeClaim:
-            claimName: {{- default "postgres-pvc" .Values.postgres.persistence.claimName }}
+            claimName: {{ .Values.postgres.persistence.claimName }}
           {{- else }}
           emptyDir: {}
-          {{- end}}
+          {{- end }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: postgres
+  name: {{ include "postgres.name" . }}
   namespace: {{ include "nebulous.namespace" . }}
   labels:
     {{- include "common.labels" . | nindent 4 }}
 spec:
   selector:
-    app: postgres
+    app: {{ include "postgres.name" . }}
   ports:
     - protocol: TCP
-      port: {{ include "postgres.port" . }}
+      port: {{ .Values.postgres.auth.port }}
       targetPort: 5432
   type: ClusterIP
 ---
-{{- if default false .Values.postgres.persistence.createPersistentVolumeClaim }}
+{{- if .Values.postgres.persistence.createPersistentVolumeClaim }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{- default "postgres-pvc" .Values.postgres.persistence.claimName }}
+  name: {{ .Values.postgres.persistence.claimName }}
   namespace: {{ include "nebulous.namespace" . }}
   labels:
     {{- include "common.labels" . | nindent 4 }}
 spec:
-  storageClassName: {{- .Values.postgres.persistence.storageClassName }}
+  {{- with .Values.postgres.persistence.storageClassName }}
+  storageClassName: {{.}}
+  {{- end }}
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: {{- default "100Gi" .Values.postgres.persistence.size }}
-{{- end}}
+      storage: {{ .Values.postgres.persistence.size }}
+{{- end }}
 {{- end }}

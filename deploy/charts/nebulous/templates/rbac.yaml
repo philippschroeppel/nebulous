@@ -1,8 +1,8 @@
-{{- if default false .Values.local.enabled }}
+{{- if .Values.local.enabled }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ .Release.Name }}-local-role
+  name: {{ include "nebulous.localRoleName" . }}
   namespace: {{ include "nebulous.namespace" . }}
   labels:
     {{- include "common.labels" . | nindent 4 }}
@@ -20,7 +20,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ .Release.Name }}-local-binding
+  name: {{ include "nebulous.localRoleName" . }}-binding
   namespace: {{ include "nebulous.namespace" . }}
   labels:
     {{- include "common.labels" . | nindent 4 }}
@@ -29,6 +29,6 @@ subjects:
     name: {{ include "nebulous.serviceAccountName" . }}
 roleRef:
   kind: Role
-  name: {{ .Release.Name }}-local-role
+  name: {{ include "nebulous.localRoleName" . }}
   apiGroup: rbac.authorization.k8s.io
-{{- end}}
+{{- end }}

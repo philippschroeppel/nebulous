@@ -1,58 +1,61 @@
-# -- Override the namespace. Defaults to the Helm release's namespace.
+# -- Override the namespace. By default, Nebulous is deployed to the Helm release's namespace.
 namespaceOverride: ""
 
 ## Nebulous configuration
 image:
-  repository: ""
   pullPolicy: "IfNotPresent"
-  # -- The nebulous image tag. Defaults to the chart's appVersion.
+  # -- The nebulous image tag. Defaults to the Helm chart's appVersion.
   tag: ""
+  # -- The repository to pull the server image from.
+  repository: "us-docker.pkg.dev/agentsea-dev/nebulous/server"
 
 serviceAccount:
-  create: true
-  # -- The name of the service account to use. Required if 'create' is false.
+  # -- The name of the Kubernetes service account to be used by the Nebulous deployment.
+  # -- If left empty, a service account will be created.
   name: ""
 
 service:
-  name: ""
-  # -- The port of the Kubernetes Service.
+  # -- The port of the Kubernetes service.
   port: 3000
-  # -- Annotations to add to the Kubernetes Service.
-  annotations: { }
+  # -- Annotations to add to the Kubernetes service.
+  annotations: {}
+  # -- Override the name of the Kubernetes service.
+  nameOverride: ""
 
 ingress:
   # -- If enabled, create an Ingress resource.
   enabled: false
 
+  # -- Annotations to add to the Ingress resource.
+  annotations: {}
+  # -- The ingress class.
+  ingressClassName: ""
+  # -- The host field of the Ingress rule.
   host: ""
-  className: ""
-  annotations: { }
 
 local:
   # -- If enabled, nebulous can run Pods in the local cluster.
   enabled: false
-  # -- The namespace to launch Pods in. Defaults to the Helm release's namespace.
-  namespace: ""
 
 messageQueue:
-  # -- The message queue type. Defaults to "redis", the currently only supported value.
+  # -- The message queue type. The currently only supported value is "redis".
   type: "redis"
 
 encryptionKey:
-  # -- The name of the secret containing the 32 byte encryption key.
-  secretName: ""
-  # -- The key in the secret containing the encryption key.
-  secretKey: ""
+  secret:
+    # -- The name of the secret containing the 32 byte encryption key.
+    name: "nebulous-secret"
+    keys:
+      # -- The key in the secret containing the encryption key.
+      encryption_key: "ENCRYPTION_KEY"
 
-  # -- If enabled, create an encryption key secret. Not recommended for production.
-  create: true
-  # -- The 32 byte encryption key encoded in base64. Required if 'create' is true. Not recommended for production.
+  # -- The 32 byte encryption key encoded in base64. Not recommended for production.
   encodedValue: ""
 
 ## Storage configuration
 storage:
-  huggingfaceCache:
-    claimName: "huggingface-cache-pvc"
+  huggingface:
+    claimName: "huggingface-pvc"
 
     createPersistentVolumeClaim: true
     size: "100Gi"
@@ -81,90 +84,103 @@ storage:
 
 ## Database configuration
 postgres:
-  host: ""
-  port: 5432
+  secret:
+    # -- Name of the secret with the Postgres connection string.
+    name: "postgres-secret"
+    keys:
+      # -- The key in the secret containing the Postgres connection string.
+      connection_string: "CONNECTION_STRING"
 
-  database: "nebulous"
-
+  # -- Manual configuration of the Postgres connection. Except for 'host', this information is also used if 'create' is true.
   auth:
+    host: ""
+    port: 5432
+    database: "nebulous"
     user: "nebulous"
     password: "nebulous"
 
-  secret:
-    # -- Name of the secret with the Postgres connection string. Takes precedence over 'auth'. Ignored if 'create' is true.
-    name: ""
-    keys:
-      connection_string: ""
-
   # -- If enabled, create a Postgres deployment and service. Not recommended for production.
   create: false
-  # -- The postgres image tag. Defaults to "latest".
-  imageTag: ""
+  # -- The postgres image tag. Ignored unless 'create' is true.
+  imageTag: "latest"
+
   persistence:
-    # -- If enabled, use a PersistentVolumeClaim for the Postgres data.
+    # -- If enabled, use a PersistentVolumeClaim for the Postgres data. Ignored unless 'create' is true.
     enabled: false
-    claimName: ""
+    # -- The name of the PersistentVolumeClaim for the Postgres data.
+    claimName: "postgres-pvc"
 
     # -- If true, create a new PersistentVolumeClaim for the Postgres data.
     createPersistentVolumeClaim: false
+    # -- The size of the PersistentVolumeClaim for the Postgres data.
     size: "100Gi"
+    # -- The storage class of the PersistentVolumeClaim for the Postgres data.
     storageClassName: ""
 
 redis:
-  host: ""
-  port: 6379
-
-  # -- The Redis database number. Defaults to 0.
-  database: 0
-
-  auth:
-    password: ""
-
   secret:
-    # -- Name of the secret with the Redis connection string and password. Takes precedence over 'auth'. Ignored if 'create' is true.
-    name: ""
+    # -- Name of the secret with the Redis connection string and password.
+    name: "redis-secret"
     keys:
-      connection_string: ""
-      password: ""
+      # -- The key in the secret containing the Redis connection string.
+      connection_string: "CONNECTION_STRING"
+      # -- The key in the secret containing the Redis password.
+      password: "PASSWORD"
+
+  # -- Manual configuration of the Redis connection. Except for 'host', this information is also used if 'create' is true.
+  auth:
+    host: ""
+    port: 6379
+    database: 0
+    password: "nebulous"
 
   # -- If enabled, create a Redis deployment and service. Not recommended for production.
   create: false
-  # -- The redis image tag. Defaults to "latest".
-  imageTag: ""
+  # -- The redis image tag. Ignored unless 'create' is true.
+  imageTag: "latest"
 
   ingress:
-    # -- If enabled, create an Ingress resource for the Redis service.
+    # -- If enabled, create an Ingress resource. Ignored unless 'create' is true.
     enabled: false
 
+    # -- Annotations to add to the Ingress resource.
+    annotations: {}
+    # -- The ingress class.
+    ingressClassName: ""
+    # -- The host field of the Ingress rule.
     host: ""
-    className: ""
-    annotations: { }
 
 ## Provider configuration
 providers:
   aws:
+    # -- Enable access to AWS.
     enabled: false
 
+    secret:
+      # -- The name of the secret containing the AWS credentials.
+      name: "aws-secret"
+      keys:
+        # -- The key in the secret containing the access key ID.
+        accessKeyId: "AWS_ACCESS_KEY_ID"
+        # -- The key in the secret containing the secret access key.
+        secretAccessKey: "AWS_SECRET_ACCESS_KEY"
+
+    # -- Manual configuration of the AWS credentials. Not recommended for production.
     auth:
       accessKeyId: ""
       secretAccessKey: ""
 
-    secret:
-      name: ""
-      keys:
-        accessKeyId: ""
-        secretAccessKey: ""
-
   runpod:
+    # -- Enable access to Runpod.
     enabled: false
 
-    auth:
-      # -- The Runpod API key.
-      apiKey: ""
-
     secret:
-      # -- The name of the secret containing the API key. If set, takes precedence over 'auth'.
-      name: ""
+      # -- The name of the secret containing the API key.
+      name: "runpod-secret"
       keys:
-        # -- The key in the secret containing the API key. Defaults to RUNPOD_API_KEY.
-        apiKey: ""
+        # -- The key in the secret containing the API key.
+        apiKey: "RUNPOD_API_KEY"
+
+    # -- Manual configuration of the Runpod API key. Not recommended for production.
+    auth:
+      apiKey: ""

@@ -11,9 +11,9 @@ metadata:
   {{- end }}
 spec:
   selector:
-    app: {{ .Release.Name }}-app
+    app: {{ include "nebulous.appSelector" . }}
   ports:
     - protocol: TCP
-      port: {{ include "nebulous.servicePort" . }}
+      port: {{ .Values.service.port }}
       targetPort: 3000
   type: ClusterIP

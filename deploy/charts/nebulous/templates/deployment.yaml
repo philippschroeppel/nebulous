@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Release.Name }}-server
+  name: {{ include "nebulous.deploymentName" . }}
   namespace: {{ include "nebulous.namespace" . }}
   labels:
     {{- include "common.labels" . | nindent 4 }}
@@ -9,11 +9,11 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app: {{ .Release.Name }}-server
+      app: {{ include "nebulous.appSelector" . }}
   template:
     metadata:
       labels:
-        app: {{ .Release.Name }}-server
+        app: {{ include "nebulous.appSelector" . }}
     spec:
       serviceAccountName: {{ include "nebulous.serviceAccountName" . }}
       containers:
@@ -28,50 +28,50 @@ spec:
             - name: SECRET_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "nebulous.encryptionKeySecretName" . }}
-                  key: {{ include "nebulous.encryptionKeySecretKey" . }}
+                  name: {{ .Values.encryptionKey.secret.name }}
+                  key: {{ .Values.encryptionKey.secret.keys.encryption_key }}
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: {{ default "postgres-secret" .Values.postgres.secret.name }}
-                  key: {{ default "connection_string" .Values.postgres.secret.keys.connection_string }}
+                  name: {{ .Values.postgres.secret.name }}
+                  key: {{ .Values.postgres.secret.keys.connection_string }}
             - name: MESSAGE_QUEUE_TYPE
-              value: {{ include "nebulous.messageQueueType" . }}
-            {{- if eq (include "nebulous.messageQueueType"  . ) "redis" }}
+              value: {{ .Values.messageQueue.type }}
+            {{- if eq .Values.messageQueue.type "redis" }}
             - name: REDIS_URL
               valueFrom:
                 secretKeyRef:
-                  name: {{ default "redis-secret" .Values.redis.secret.name }}
-                  key: {{ default "connection_string" .Values.redis.secret.keys.connection_string }}
+                  name: {{ .Values.redis.secret.name }}
+                  key: {{ .Values.redis.secret.keys.connection_string }}
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ default "redis-secret" .Values.redis.secret.name }}
-                  key: {{ default "password" .Values.redis.secret.keys.password }}
+                  name: {{ .Values.redis.secret.name }}
+                  key: {{ .Values.redis.secret.keys.password }}
             {{- end }}
             {{- if .Values.providers.aws.enabled }}
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "providers.aws.secretName" . }}
-                  key: {{ include "providers.aws.accessKeyIdSecretKey" . }}
+                  name: {{ .Values.providers.aws.secret.name }}
+                  key: {{ .Values.providers.aws.secret.keys.accessKeyId }}
             - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "providers.aws.secretName" . }}
-                  key: {{ include "providers.aws.secretAccessKeySecretKey" . }}
+                  name:  {{ .Values.providers.aws.secret.name }}
+                  key: {{ .Values.providers.aws.secret.keys.secretAccessKey }}
             {{- end }}
             {{- if .Values.providers.runpod.enabled }}
             - name: RUNPOD_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "providers.runpod.secretName" . }}
-                  key: {{ include "providers.runpod.apiKeySecretKey" . }}
+                  name:  {{ .Values.providers.runpod.secret.name }}
+                  key: {{ .Values.providers.runpod.secret.keys.apiKey }}
             {{- end }}
             - name: RUST_LOG
               value: debug
           volumeMounts:
-            - name: huggingface-cache-pvc
+            - name: huggingface-pvc
               mountPath: /huggingface
             - name: adapter-pvc
               mountPath: /adapters
@@ -80,15 +80,15 @@ spec:
             - name: model-pvc
               mountPath: /models
       volumes:
-        - name: huggingface-cache-pvc
+        - name: huggingface-pvc
           persistentVolumeClaim:
-            claimName: {{ include "nebulous.huggingfaceCachePVCName" . }}
+            claimName: {{ .Values.storage.huggingface.claimName }}
         - name: adapter-pvc
           persistentVolumeClaim:
-            claimName: {{ include "nebulous.adapterPVCName" . }}
+            claimName: {{ .Values.storage.adapter.claimName }}
         - name: dataset-pvc
           persistentVolumeClaim:
-            claimName: {{ include "nebulous.datasetPVCName" . }}
+            claimName: {{ .Values.storage.dataset.claimName }}
         - name: model-pvc
           persistentVolumeClaim:
-            claimName: {{ include "nebulous.modelPVCName" . }}
+            claimName: {{ .Values.storage.model.claimName }}

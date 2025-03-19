@@ -1,14 +1,14 @@
 {{- if .Values.providers.runpod.enabled }}
-{{- if not .Values.providers.runpod.secret.name }}
+{{- if .Values.providers.runpod.auth.apiKey }}
 apiVersion: v1
 kind: Secret
 metadata:
-  name: {{ include "providers.runpod.secretName" . }}
+  name: {{ .Values.providers.runpod.secret.name }}
   namespace: {{ include "nebulous.namespace" . }}
   labels:
     {{- include "common.labels" . | nindent 4 }}
 type: Opaque
 data:
-  {{ include "providers.runpod.apiKeySecretKey" . }}: {{ required ".Values.providers.runpod.auth.apiKey required if no secret is provided" .Values.providers.runpod.auth.apiKey | b64enc }}
+  {{ .Values.providers.runpod.secret.keys.apiKey }}: {{ .Values.providers.runpod.auth.apiKey | b64enc }}
 {{- end }}
 {{- end }}

@@ -1,27 +1,27 @@
-{{- if default true .Values.storage.huggingfaceCache.createPersistentVolumeClaim }}
+{{- if .Values.storage.huggingface.createPersistentVolumeClaim }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "nebulous.huggingfaceCachePVCName" . }}
+  name: {{ .Values.storage.huggingface.claimName }}
   namespace: {{ include "nebulous.namespace" . }}
   labels:
     {{- include "common.labels" . | nindent 4 }}
 spec:
-  {{- with .Values.storage.huggingfaceCache.storageClassName }}
+  {{- with .Values.storage.huggingface.storageClassName }}
   storageClassName: {{.}}
   {{- end }}
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: {{ default "300Gi" .Values.storage.huggingfaceCache.size}}
+      storage: {{ .Values.storage.huggingface.size }}
 ---
 {{- end }}
-{{- if default true .Values.storage.adapter.createPersistentVolumeClaim }}
+{{- if .Values.storage.adapter.createPersistentVolumeClaim }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "nebulous.adapterPVCName" . }}
+  name: {{ .Values.storage.adapter.claimName }}
   namespace: {{ include "nebulous.namespace" . }}
   labels:
     {{- include "common.labels" . | nindent 4 }}
@@ -33,14 +33,14 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: {{ default "300Gi" .Values.storage.adapter.size}}
+      storage: {{ .Values.storage.adapter.size }}
 ---
 {{- end }}
-{{- if default true .Values.storage.dataset.createPersistentVolumeClaim }}
+{{- if .Values.storage.dataset.createPersistentVolumeClaim }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "nebulous.datasetPVCName" . }}
+  name: {{ .Values.storage.dataset.claimName }}
   namespace: {{ include "nebulous.namespace" . }}
   labels:
     {{- include "common.labels" . | nindent 4 }}
@@ -52,14 +52,14 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: {{ default "300Gi" .Values.storage.dataset.size}}
+      storage: {{ .Values.storage.dataset.size }}
 ---
 {{- end }}
-{{- if default true .Values.storage.model.createPersistentVolumeClaim }}
+{{- if .Values.storage.model.createPersistentVolumeClaim }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "nebulous.modelPVCName" . }}
+  name: {{ .Values.storage.model.claimName }}
   namespace: {{ include "nebulous.namespace" . }}
   labels:
     {{- include "common.labels" . | nindent 4 }}
@@ -71,5 +71,5 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: {{ default "1000Gi" .Values.storage.model.size}}
+      storage: {{ .Values.storage.model.size }}
 {{- end }}
