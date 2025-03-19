@@ -44,7 +44,7 @@ pub struct V1ContainerRequest {
     #[serde(default = "default_container_kind")]
     pub kind: String,
     pub platform: Option<String>,
-    pub metadata: Option<V1ContainerMetaRequest>,
+    pub metadata: Option<V1ResourceMetaRequest>,
     pub image: String,
     pub env_vars: Option<Vec<V1EnvVar>>,
     pub command: Option<String>,
@@ -94,7 +94,17 @@ pub struct V1ResourceMeta {
     pub created_at: i64,
     pub updated_at: i64,
     pub created_by: String,
+    pub owner_ref: Option<String>,
     pub labels: Option<HashMap<String, String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct V1ResourceMetaRequest {
+    pub name: Option<String>,
+    pub namespace: Option<String>,
+    pub labels: Option<HashMap<String, String>>,
+    pub owner_id: Option<String>,
+    pub owner_ref: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -242,6 +252,7 @@ pub struct V1Scale {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct V1Processor {
+    #[serde(default = "default_processor_kind")]
     pub kind: String,
     pub metadata: V1ResourceMeta,
     pub container: Option<V1Container>,
@@ -251,6 +262,23 @@ pub struct V1Processor {
     pub max_replicas: Option<i32>,
     pub scale: Option<V1Scale>,
     pub status: Option<V1ProcessorStatus>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct V1ProcessorRequest {
+    #[serde(default = "default_processor_kind")]
+    pub kind: String,
+    pub metadata: V1ResourceMetaRequest,
+    pub container: Option<V1Container>,
+    pub stream: Option<String>,
+    pub schema: Option<Value>,
+    pub min_replicas: Option<i32>,
+    pub max_replicas: Option<i32>,
+    pub scale: Option<V1Scale>,
+}
+
+fn default_processor_kind() -> String {
+    "Processor".to_string()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

@@ -1,6 +1,7 @@
 // src/query.rs
 use crate::container::base::ContainerStatus;
 use crate::entities::containers;
+use crate::entities::processors;
 use crate::entities::secrets;
 use crate::models::V1ContainerStatus;
 use sea_orm::sea_query::{Expr, Func};
@@ -128,6 +129,7 @@ impl Query {
             .all(db)
             .await
     }
+
     /// Fetches all containers with a specific status
     pub async fn find_containers_by_status(
         db: &DatabaseConnection,
@@ -250,6 +252,55 @@ impl Query {
     ) -> Result<Vec<secrets::Model>, DbErr> {
         secrets::Entity::find()
             .filter(secrets::Column::OwnerId.is_in(owner_ids.iter().copied()))
+            .all(db)
+            .await
+    }
+
+    /// Fetches all active processors from the database by inspecting the "status" key in the status JSON.
+    pub async fn find_all_active_processors(
+        db: &DatabaseConnection,
+    ) -> Result<Vec<processors::Model>, DbErr> {
+        use crate::processors::base::ProcessorStatus;
+        use sea_orm::sea_query::{Expr, Func};
+        use sea_orm::{Condition, Value};
+
+        // Convert your set of active statuses to strings
+        let active_statuses = vec![
+            ProcessorStatus::Defined.to_string(),
+            ProcessorStatus::Creating.to_string(),
+            ProcessorStatus::Pending.to_string(),
+            ProcessorStatus::Running.to_string(),
+            ProcessorStatus::Scaling.to_string(),
+        ];
+
+        // Build a condition for each status and combine them with OR
+        let mut status_condition = Condition::any();
+        for status in active_statuses {
+            status_condition = status_condition.add(Expr::cust_with_values(
+                "status->>'status' = $1",
+                [Value::from(status)],
+            ));
+        }
+
+        processors::Entity::find()
+            .filter(status_condition)
+            .all(db)
+            .await
+    }
+
+    /// Finds containers whose JSON `metadata` field has `"owner_ref"` matching `owner_ref_value`.
+    pub async fn find_containers_by_owner_ref(
+        db: &DatabaseConnection,
+        owner_ref_value: &str,
+    ) -> Result<Vec<containers::Model>, DbErr> {
+        use sea_orm::{sea_query::Expr, QueryFilter, Value};
+
+        containers::Entity::find()
+            // SQL:  metadata->>'owner_ref' = $1
+            .filter(Expr::cust_with_values(
+                "metadata->>'owner_ref' = $1",
+                [Value::from(owner_ref_value)],
+            ))
             .all(db)
             .await
     }

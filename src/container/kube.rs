@@ -281,12 +281,16 @@ impl ContainerPlatform for KubePlatform {
         let name = config
             .metadata
             .as_ref()
-            .and_then(|meta| meta.name.clone())
+            .and_then(|meta| Some(meta.name.clone()))
             .unwrap_or_else(|| {
                 // Generate a random human-friendly name using petname
-                petname::petname(3, "-").unwrap()
+                petname::petname(3, "-")
             });
-        info!("[Kubernetes] Using name: {}", name);
+        let owner_ref: Option<String> = config
+            .metadata
+            .as_ref()
+            .and_then(|meta| meta.owner_ref.clone());
+        info!("[Kubernetes] Using name: {:?}", name);
 
         // Create a runtime to handle the async call
         let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
@@ -417,7 +421,7 @@ impl ContainerPlatform for KubePlatform {
 
         // Create the container
         let container = K8sContainer {
-            name: name.clone(),
+            name: name.clone().unwrap(),
             image: Some(config.image.clone()),
             command: config
                 .command
@@ -447,7 +451,7 @@ impl ContainerPlatform for KubePlatform {
             metadata: Some(ObjectMeta {
                 labels: Some({
                     let mut lbls = BTreeMap::new();
-                    lbls.insert("app".to_string(), name.clone());
+                    lbls.insert("app".to_string(), name.clone().unwrap());
                     lbls
                 }),
                 ..Default::default()
@@ -465,7 +469,7 @@ impl ContainerPlatform for KubePlatform {
         // Create the job
         let job = Job {
             metadata: ObjectMeta {
-                name: Some(name.clone()),
+                name: Some(name.clone().unwrap()),
                 ..Default::default()
             },
             spec: Some(job_spec),
@@ -481,7 +485,7 @@ impl ContainerPlatform for KubePlatform {
                     let jobs: Api<Job> = Api::namespaced(client, &self.namespace);
                     match jobs.create(&PostParams::default(), &job).await {
                         Ok(_) => {
-                            info!("[Kubernetes] Successfully created Job '{}'", name);
+                            info!("[Kubernetes] Successfully created Job '{:?}'", name);
 
                             // Create the container record in the database
                             let container = crate::entities::containers::ActiveModel {
@@ -491,8 +495,9 @@ impl ContainerPlatform for KubePlatform {
                                     .as_ref()
                                     .and_then(|meta| meta.namespace.clone())
                                     .unwrap_or_else(|| "default".to_string())),
-                                name: Set(name.clone()),
+                                name: Set(name.clone().unwrap()),
                                 owner_id: Set(owner_id.to_string()),
+                                owner_ref: Set(owner_ref.clone()),
                                 image: Set(config.image.clone()),
                                 env_vars: Set(config
                                     .env_vars
@@ -517,7 +522,7 @@ impl ContainerPlatform for KubePlatform {
                                     .clone()
                                     .map(|meters| serde_json::json!(meters))),
                                 platform: Set(Some("kubernetes".to_string())),
-                                resource_name: Set(Some(name.clone())),
+                                resource_name: Set(Some(name.clone().unwrap())),
                                 resource_namespace: Set(Some(self.namespace.clone())),
                                 resource_cost_per_hr: Set(None),
                                 restart: Set(config.restart.clone()),
@@ -552,7 +557,7 @@ impl ContainerPlatform for KubePlatform {
                                     e
                                 );
                             } else {
-                                info!("[Kubernetes] Created container {} in database", name);
+                                info!("[Kubernetes] Created container {:?} in database", name);
                             }
 
                             // Start watching the job status
@@ -561,15 +566,17 @@ impl ContainerPlatform for KubePlatform {
                             let self_clone = self.clone();
 
                             tokio::spawn(async move {
-                                if let Err(e) =
-                                    self_clone.watch_job_status(&name_clone, &name_clone).await
-                                {
-                                    error!("[Kubernetes] Error watching job status: {:?}", e);
+                                if let Some(name_str) = &name_clone {
+                                    if let Err(e) =
+                                        self_clone.watch_job_status(name_str, name_str).await
+                                    {
+                                        error!("[Kubernetes] Error watching job status: {:?}", e);
+                                    }
                                 }
                             });
                         }
                         Err(e) => {
-                            error!("[Kubernetes] Error creating Job '{}': {:?}", name, e);
+                            error!("[Kubernetes] Error creating Job '{:?}': {:?}", name, e);
                         }
                     }
                 }
@@ -579,11 +586,11 @@ impl ContainerPlatform for KubePlatform {
             }
         });
 
-        info!("[Kubernetes] Job {} created on Kubernetes", name);
+        info!("[Kubernetes] Job {:?} created on Kubernetes", name);
         Ok(V1Container {
             kind: "Container".to_string(),
             metadata: V1ResourceMeta {
-                name: name.clone(),
+                name: name.clone().unwrap(),
                 namespace: config
                     .metadata
                     .as_ref()
@@ -591,6 +598,7 @@ impl ContainerPlatform for KubePlatform {
                     .unwrap_or_else(|| "default".to_string()),
                 id: id.clone(),
                 owner_id: owner_id.to_string(),
+                owner_ref: owner_ref.clone(),
                 created_at: chrono::Utc::now().timestamp(),
                 updated_at: chrono::Utc::now().timestamp(),
                 created_by: "kubernetes".to_string(),

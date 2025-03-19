@@ -149,17 +149,17 @@ This configuration will add 10% to the cost of the container.
 
 ### Processors
 
-Processors are containers that work off real-time data streams and are autoscaled based on the back-pressure. Streams are provided by [Redis Streams](https://redis.io/docs/latest/develop/data-types/streams/).
+Processors are containers that work off real-time data streams and are autoscaled based on back-pressure. Streams are provided by [Redis Streams](https://redis.io/docs/latest/develop/data-types/streams/).
 
 ```yaml
 kind: Processor
 metadata:
-  name: foo
-  namespace: bar
-stream: qux:quz:baz
+  name: vllm-llama3
+  namespace: inference
+stream: inference:vllm:llama3
 container:
-  image: corge/processor:latest
-  command: "redis-cli XREAD COUNT 10 STREAMS qux:quz:baz"
+  image: corge/vllm-processor:latest
+  command: "redis-cli XREAD COUNT 10 STREAMS inference:vllm:llama3"
   platform: gce
   accelerators:
     - "1:A40"
@@ -167,10 +167,10 @@ min_workers: 1
 max_workers: 10
 scale:
   up:
-    pressure: ">100"
+    pressure: 100
     rate: 10s
   down:
-    pressure: "<10"
+    pressure: 10
     rate: 5m
 ```
 
@@ -184,21 +184,21 @@ Processors can enforce schemas.
 
 ```yaml
 schema:
-  - name: foo
+  - name: prompt
     type: string
     required: true
 ```
 
-To send data to a processor stream
+Send data to a processor stream
 
 ```sh
-nebu send processor foo --data '{"foo": "bar"}'
+nebu send processor vllm-llama3 --data '{"prompt": "Dlrow Olleh"}'
 ```
 
 Read data from a processor stream
 
 ```text
-nebu read processor foo --num 10
+nebu read processor vllm-llama3 --num 10
 ```
 
 List all processors
@@ -244,8 +244,7 @@ Processors also work with Clusters
 
 ```yaml
 kind: Processor
-streams:
-  - name: foo:bar:baz
+stream: foo:bar:baz
 cluster:
   container:
     image: quz/processor:latest

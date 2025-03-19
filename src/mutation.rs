@@ -1,5 +1,7 @@
 use crate::entities::containers;
+use crate::entities::processors;
 use crate::entities::secrets;
+use crate::models::V1ProcessorStatus;
 use crate::models::{V1ContainerStatus, V1UpdateContainer};
 use sea_orm::prelude::Json;
 use sea_orm::*;
@@ -300,5 +302,58 @@ impl Mutation {
         id: String,
     ) -> Result<sea_orm::DeleteResult, DbErr> {
         secrets::Entity::delete_by_id(id).exec(db).await
+    }
+
+    /// Mutation to update just the `status` (and optionally `message`) of a processor.
+    pub async fn update_processor_status(
+        db: &DatabaseConnection,
+        id: String,
+        new_status: Option<String>,
+        new_message: Option<String>,
+    ) -> Result<processors::Model, DbErr> {
+        // 1) Find the processor record by ID
+        let processor = processors::Entity::find_by_id(id.clone())
+            .one(db)
+            .await?
+            .ok_or_else(|| DbErr::Custom(format!("Processor '{}' not found", id)))?;
+
+        // 2) Convert the existing `Model` into an `ActiveModel` so we can update fields
+        let mut processor_am: processors::ActiveModel = processor.into();
+
+        // 3) Parse any existing status in the processor record
+        let mut existing_status = match &processor_am.status {
+            Set(Some(val)) => serde_json::from_value::<V1ProcessorStatus>(val.clone())
+                .unwrap_or_else(|_| {
+                    info!("[Mutation] Existing processor status JSON was invalid, defaulting.");
+                    V1ProcessorStatus::default()
+                }),
+            _ => V1ProcessorStatus::default(),
+        };
+
+        info!(
+            "[Mutation] Current processor status for '{}': {:?}",
+            id, existing_status
+        );
+
+        // 4) Merge in the new optional fields if provided
+        if let Some(s) = new_status {
+            existing_status.status = Some(s);
+        }
+        if let Some(m) = new_message {
+            existing_status.message = Some(m);
+        }
+
+        // 5) Update the ActiveModel to hold the new status as JSON
+        processor_am.status = Set(Some(json!(existing_status)));
+        // Always refresh the updated_at timestamp
+        processor_am.updated_at = Set(chrono::Utc::now().into());
+
+        info!(
+            "[Mutation] Updating processor '{}' status to: {:?}",
+            id, processor_am.status
+        );
+
+        // 6) Write it back to the database
+        processor_am.update(db).await
     }
 }

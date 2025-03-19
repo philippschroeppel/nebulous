@@ -422,8 +422,15 @@ impl RunpodPlatform {
                         // Handle metering if container has meters defined and status is Running
                         if current_status == ContainerStatus::Running {
                             // 1) Check for /done.txt in the container
-                            if container.restart.to_lowercase() == RestartPolicy::Never.to_string()
+                            info!("[Runpod Controller] container running...");
+                            info!(
+                                "[Runpod Controller] container.restart={}",
+                                container.restart
+                            );
+                            if container.restart.to_lowercase()
+                                == RestartPolicy::Never.to_string().to_lowercase()
                             {
+                                info!("[Runpod Controller] checking for /done.txt");
                                 match self.check_done_file(&container_id, db).await {
                                     Ok(true) => {
                                         info!(
@@ -451,6 +458,10 @@ impl RunpodPlatform {
                                 }
                             }
                             if let Some(meters) = &container.meters {
+                                info!(
+                                    "[Runpod Controller] reporting meters for container {}",
+                                    container_id
+                                );
                                 self.report_meters(
                                     container_id.clone(),
                                     pause_seconds,
@@ -1211,7 +1222,7 @@ impl RunpodPlatform {
         // 2) Always wait for final sync - now without the leading &&
         let wait_script = r#"
 echo "[DEBUG] Waiting for final sync..."
-nebu sync wait --config /nebu/sync.yaml --poll-interval 5
+nebu sync wait --config /nebu/sync.yaml --interval-seconds 5
 "#;
 
         // 3) Only if restart == Never, mark done and loop forever - now without the leading &&
@@ -1274,6 +1285,7 @@ done
         // 4) Form a command that checks existence of /done.txt
         //    - On success, it prints '1', otherwise '0'
         let cmd = "test -f /done.txt && echo 1 || echo 0";
+        info!("[Runpod Controller] Done file check command: {}", cmd);
 
         // 5) Execute the command over SSH
         let output = crate::ssh::exec::exec_ssh_command(
@@ -1282,9 +1294,11 @@ done
             &ssh_private_key,
             cmd,
         )?;
+        info!("[Runpod Controller] Check done file output: {}", output);
 
         // 6) If output contains "1", the file exists, otherwise it doesn't
         let file_exists = output.trim() == "1";
+        info!("[Runpod Controller] File exists: {}", file_exists);
         Ok(file_exists)
     }
 }
@@ -1308,12 +1322,12 @@ impl ContainerPlatform for RunpodPlatform {
         let name = config
             .metadata
             .as_ref()
-            .and_then(|meta| meta.name.clone())
+            .and_then(|meta| Some(meta.name.clone()))
             .unwrap_or_else(|| {
                 // Generate a random human-friendly name using petname
-                petname::petname(3, "-").unwrap()
+                petname::petname(3, "-")
             });
-        info!("[Runpod Controller] Using name: {}", name);
+        info!("[Runpod Controller] Using name: {:?}", name);
         let gpu_types_response = match self.runpod_client.list_gpu_types_graphql().await {
             Ok(response) => response,
             Err(e) => {
@@ -1431,16 +1445,24 @@ impl ContainerPlatform for RunpodPlatform {
         self.store_agent_key_secret(db, user_profile, &id, owner_id)
             .await?;
 
+        let namespace = config
+            .metadata
+            .as_ref()
+            .and_then(|meta| meta.namespace.clone())
+            .unwrap_or_else(|| "default".to_string());
+
+        let owner_ref: Option<String> = config
+            .metadata
+            .as_ref()
+            .and_then(|meta| meta.owner_ref.clone());
+
         // Create the container record in the database
         let container = crate::entities::containers::ActiveModel {
             id: Set(id.clone()),
-            namespace: Set(config
-                .metadata
-                .as_ref()
-                .and_then(|meta| meta.namespace.clone())
-                .unwrap_or_else(|| "default".to_string())),
-            name: Set(name.clone()),
+            namespace: Set(namespace.clone()),
+            name: Set(name.clone().unwrap_or(petname::petname(3, "-").unwrap())),
             owner_id: Set(owner_id.to_string()),
+            owner_ref: Set(owner_ref.clone()),
             image: Set(config.image.clone()),
             env_vars: Set(config.env_vars.clone().map(|vars| serde_json::json!(vars))),
             volumes: Set(config.volumes.clone().map(|vols| serde_json::json!(vols))),
@@ -1497,14 +1519,11 @@ impl ContainerPlatform for RunpodPlatform {
         Ok(V1Container {
             kind: "Container".to_string(),
             metadata: crate::models::V1ResourceMeta {
-                name: name,
-                namespace: config
-                    .metadata
-                    .as_ref()
-                    .and_then(|meta| meta.namespace.clone())
-                    .unwrap_or_else(|| "default".to_string()),
+                name: name.unwrap_or(petname::petname(3, "-").unwrap()),
+                namespace: namespace.clone(),
                 id: id.clone(),
                 owner_id: owner_id.to_string(),
+                owner_ref: owner_ref.clone(),
                 created_at: chrono::Utc::now().timestamp(),
                 updated_at: chrono::Utc::now().timestamp(),
                 created_by: owner_id.to_string(),

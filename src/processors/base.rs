@@ -1,5 +1,5 @@
-use crate::entities::containers;
-use crate::models::{V1Container, V1ContainerRequest, V1UserProfile};
+use crate::entities::processors;
+use crate::models::{V1Processor, V1ProcessorRequest, V1UserProfile};
 use sea_orm::DatabaseConnection;
 use std::fmt;
 use std::str::FromStr;
@@ -50,7 +50,10 @@ impl ProcessorStatus {
     pub fn needs_watch(&self) -> bool {
         matches!(
             self,
-            ProcessorStatus::Running | ProcessorStatus::Creating | ProcessorStatus::Created
+            ProcessorStatus::Running
+                | ProcessorStatus::Creating
+                | ProcessorStatus::Created
+                | ProcessorStatus::Scaling
         )
     }
 
@@ -105,15 +108,15 @@ impl FromStr for ProcessorStatus {
 pub trait ProcessorPlatform {
     async fn declare(
         &self,
-        config: &V1ContainerRequest,
+        config: &V1ProcessorRequest,
         db: &DatabaseConnection,
         user_profile: &V1UserProfile,
         owner_id: &str,
-    ) -> Result<V1Container, Box<dyn std::error::Error + Send + Sync>>;
+    ) -> Result<V1Processor, Box<dyn std::error::Error + Send + Sync>>;
 
     async fn reconcile(
         &self,
-        container: &containers::Model,
+        processor: &processors::Model,
         db: &DatabaseConnection,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
@@ -124,6 +127,6 @@ pub trait ProcessorPlatform {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }
 
-pub trait ContainerController {
+pub trait ProcessorController {
     async fn reconcile(&self);
 }

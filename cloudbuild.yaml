@@ -8,14 +8,13 @@ steps:
         docker buildx create --name mybuilder --use
         docker buildx inspect --bootstrap
 
-  # Build and push server image with conditional tagging
+  # Build and push image with branch name tag
   - name: "gcr.io/cloud-builders/docker"
-    id: Build and Push
+    id: "Build and Push (Branch)"
     entrypoint: "bash"
     args:
       - "-c"
       - |
-        # Always build with branch name tag
         docker buildx build \
           --platform linux/amd64 \
           -t us-docker.pkg.dev/$PROJECT_ID/nebulous/server:$BRANCH_NAME \
@@ -23,7 +22,7 @@ steps:
           --cache-to type=registry,ref=us-docker.pkg.dev/$PROJECT_ID/nebulous/server:buildcache,mode=max \
           --push \
           .
-        
+
         # Only tag as latest if on main branch
         if [ "$BRANCH_NAME" == "main" ]; then
           docker buildx build \
@@ -32,8 +31,25 @@ steps:
             --cache-from type=registry,ref=us-docker.pkg.dev/$PROJECT_ID/nebulous/server:buildcache \
             --push \
             .
-        fi
-
+        
+  # Conditionally push a tag if triggered by a tag event
+  - name: "gcr.io/cloud-builders/docker"
+    id: "Build and Push (Tag)"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        if [ -n "$TAG_NAME" ]; then
+          echo "Detected tag: $TAG_NAME. Building with tag."
+          docker buildx build \
+            --platform linux/amd64 \
+            -t us-docker.pkg.dev/$PROJECT_ID/nebulous/server:$TAG_NAME \
+            --cache-from type=registry,ref=us-docker.pkg.dev/$PROJECT_ID/nebulous/server:buildcache \
+            --cache-to type=registry,ref=us-docker.pkg.dev/$PROJECT_ID/nebulous/server:buildcache,mode=max \
+            --push \
+            .
+        else
+          echo "No TAG_NAME detected. Skipping tag push step."
 
 timeout: "3600s"
 

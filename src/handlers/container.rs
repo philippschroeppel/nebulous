@@ -55,6 +55,7 @@ pub async fn get_container(
             created_at: container.created_at.timestamp(),
             updated_at: container.updated_at.timestamp(),
             created_by: container.created_by.unwrap_or_default(),
+            owner_ref: container.owner_ref.clone(),
             labels: container
                 .labels
                 .and_then(|v| serde_json::from_value(v).ok())
@@ -132,6 +133,7 @@ pub async fn list_containers(
                 created_at: c.created_at.timestamp(),
                 updated_at: c.updated_at.timestamp(),
                 created_by: c.created_by.unwrap_or_default(),
+                owner_ref: c.owner_ref.clone(),
                 labels: c
                     .labels
                     .and_then(|v| serde_json::from_value(v).ok())

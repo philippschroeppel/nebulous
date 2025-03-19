@@ -19,6 +19,7 @@ pub mod query;
 pub mod routes;
 pub mod ssh;
 pub mod state;
+pub mod streams;
 pub mod validate;
 pub mod volumes;
 
