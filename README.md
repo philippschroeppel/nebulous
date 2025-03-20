@@ -36,10 +36,10 @@ Create a container on runpod with 2 A100 GPUs which trains a model using TRL.
 ```yaml
 kind: Container
 metadata:
-  name: trl-test
-  namespace: test
+  name: trl-job
+  namespace: training
   labels:
-    type: training
+    type: llm-training
 image: "huggingface/trl-latest-gpu:latest"
 command: |
   source activate trl && trl sft --model_name_or_path $MODEL \
@@ -90,12 +90,12 @@ nebu get containers
 
 Get one container
 ```sh
-nebu get containers foo
+nebu get containers trl-job
 ```
 
 Delete a container
 ```sh
-nebu delete containers foo
+nebu delete containers trl-job
 ```
 
 List available accelerators
@@ -110,11 +110,13 @@ nebu get platforms
 
 SSH into a container [in progress]
 ```sh
-nebu ssh foo
+nebu ssh trl-job
 ```
----   
 
-See [container examples](examples/containers) for more.
+Send an http request to a container [in progress]
+```text
+curl http://nebu.<namespace>.<name>:8000
+```
 
 #### Queues
 
@@ -173,6 +175,10 @@ meters:
     metric: runtime 
 ```
 This configuration will add 10% to the cost of the container.
+
+---   
+
+See [container examples](examples/containers) for more.
 
 ### Processors
 
@@ -302,18 +308,124 @@ cluster:
 min_workers: 1
 max_workers: 10
 ```
+---
+
+See [cluster examples](examples/clusters) for more.
 
 ### Services [in progress]
 
-Services provide a means to expose containers on a stable IP address.
+Services provide a means to expose containers on a stable IP address, and to balance traffic across multiple containers. Services auto-scale up and down as needed.
+
+```yaml
+kind: Service
+metadata:
+  name: vllm-qwen
+  namespace: inference
+container:
+  image: vllm/vllm-openai:latest
+  command: |
+    python -m vllm.entrypoints.api_server \
+      --model facebook/opt-6.7b \
+      --tensor-parallel-size 1 \
+      --port 8000
+  accelerators:
+    - "1:A100"
+platform: runpod
+min_containers: 1
+max_containers: 5
+scale:
+  up:
+    above_latency: 100ms
+    duration: 10s
+  down:
+    below_latency: 10ms
+    duration: 5m
+  zero:
+    below_latency: 10ms
+    duration: 10m
+```
+
+Service can be buffered, which will queue requests until a container is available.
+
+```yaml
+buffered: true
+```
+
+Services can also scale to zero.
+
+```yaml
+min_containers: 0
+```
+
+Services can also enforce schemas.
+
+```yaml
+schema:
+  - name: prompt
+    type: string
+    required: true
+```
+
+Or use a common schema.
+
+```yaml
+common_schema: OPENAI_CHAT
+```
+
+Services can record all requests and responses.
+
+```yaml
+record: true
+```
+
+Services can perform metered billing, such as counting the number of tokens in the response.
+
+```yaml
+meters:
+  - cost: 0.001
+    unit: token
+    currency: USD
+    resp_json_value: "$.usage.prompt_tokens"
+```
+
+Services also work with clusters.
+
+```yaml
+kind: Service
+metadata:
+  name: vllm-qwen
+  namespace: inference
+cluster:
+  container:
+    image: vllm/vllm-openai:latest
+    command: |
+      python -m vllm.entrypoints.api_server \
+        --model Qwen/Qwen2-72B-Instruct \
+        --tensor-parallel-size 1 \
+        --port 8000
+    accelerators:
+      - "8:A100"
+  num_nodes: 2
+```
+
+---
+
+See [service examples](examples/services) for more.
 
 ### Namespaces [in progress]
 
-Namespaces provide a means to segregate groups of resources across clouds.   
+Namespaces provide a means to segregate groups of resources across clouds.  
+
+```yaml
+kind: Container
+metadata:
+  name: llama-factory-server
+  namespace: my-app
+```
    
 Resources within a given namespace are network isolated using [Tailnet](https://tailscale.com/kb/1136/tailnet), and can be accessed by simply using thier `http://nebu.<namespace>.<name>`.  
 
-Nebulous cloud provides a free [HeadScale](https://github.com/juanfont/headscale) instance to connect your resources, or you can bring your own by simply setting the `NEBU_HEADSCALE_URL` environment variable.
+Nebulous cloud provides a free hosted [HeadScale](https://github.com/juanfont/headscale) instance to connect your resources, or you can bring your own by simply setting the `NEBU_HEADSCALE_URL` environment variable.   
 
 ## Contributing
 

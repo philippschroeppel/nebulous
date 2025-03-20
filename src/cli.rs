@@ -29,7 +29,7 @@ pub enum Commands {
         command: DeleteCommands,
     },
 
-    /// Sync subcommands
+    /// Sync data
     Sync {
         #[command(subcommand)]
         command: SyncCommands,
@@ -46,7 +46,7 @@ pub enum Commands {
         port: u16,
     },
 
-    /// Login to nebu.
+    /// Login to a Nebulous API server.
     Login,
 }
 
