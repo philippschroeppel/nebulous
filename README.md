@@ -90,12 +90,12 @@ nebu get containers
 
 Get one container
 ```sh
-nebu get containers trl-job
+nebu get containers trl-job -n training
 ```
 
 Delete a container
 ```sh
-nebu delete containers trl-job
+nebu delete containers trl-job -n training
 ```
 
 List available accelerators
@@ -110,13 +110,14 @@ nebu get platforms
 
 SSH into a container [in progress]
 ```sh
-nebu ssh trl-job
+nebu ssh trl-job -n training
 ```
 
 Send an http request to a container [in progress]
 ```text
-curl http://nebu.<namespace>.<name>:8000
+curl http://<name>.<namespace>.<kind>.nebu:8000
 ```
+_requires tailnet to be enabled_
 
 #### Queues
 
@@ -187,12 +188,12 @@ Processors are containers that work off real-time data streams and are autoscale
 ```yaml
 kind: Processor
 metadata:
-  name: vllm-llama3
-  namespace: inference
-stream: inference:vllm:llama3
+  name: summarizer
+  namespace: jobs
+stream: jobs:summarize
 container:
-  image: corge/vllm-processor:latest
-  command: "redis-cli XREAD COUNT 10 STREAMS inference:vllm:llama3"
+  image: corge/summarizer:latest
+  command: "redis-cli XREAD COUNT 10 STREAMS jobs:summarize"
   platform: gce
   accelerators:
     - "1:A40"
@@ -208,6 +209,9 @@ scale:
   zero:
     duration: 10m
 ```
+```sh
+nebu create processor -f examples/processors/summarizer.yaml
+```
 
 Processors can also scale to zero.
 
@@ -219,7 +223,7 @@ Processors can enforce schemas.
 
 ```yaml
 schema:
-  - name: prompt
+  - name: pdf_to_summarize
     type: string
     required: true
 ```
@@ -227,13 +231,13 @@ schema:
 Send data to a processor stream
 
 ```sh
-nebu send processor vllm-llama3 --data '{"prompt": "Dlrow Olleh"}'
+nebu send processor summarizer --data '{"pdf_to_summarize": "Dlrow Olleh"} -n jobs'
 ```
 
 Read data from a processor stream
 
 ```text
-nebu read processor vllm-llama3 --num 10
+nebu read processor summarizer --num 10
 ```
 
 List all processors
@@ -271,7 +275,7 @@ metadata:
 container:
   image: pytorch/pytorch:latest
   command: "echo $NODES && torchrun ..."
-  platform: runpod
+  platform: ec2
   env:
     - key: HELLO
       value: world
@@ -325,12 +329,12 @@ container:
   image: vllm/vllm-openai:latest
   command: |
     python -m vllm.entrypoints.api_server \
-      --model facebook/opt-6.7b \
+      --model Qwen/Qwen2-7B-Instruct \
       --tensor-parallel-size 1 \
       --port 8000
   accelerators:
     - "1:A100"
-platform: runpod
+platform: gce
 min_containers: 1
 max_containers: 5
 scale:
@@ -343,6 +347,16 @@ scale:
   zero:
     below_latency: 10ms
     duration: 10m
+```
+
+```sh
+nebu create service -f examples/service/vllm-qwen.yaml
+```
+
+The IP will be returned in the `status` field.
+
+```sh
+nebu get services vllm-qwen -n inference
 ```
 
 Service can be buffered, which will queue requests until a container is available.
@@ -385,7 +399,7 @@ meters:
   - cost: 0.001
     unit: token
     currency: USD
-    resp_json_value: "$.usage.prompt_tokens"
+    response_json_value: "$.usage.prompt_tokens"
 ```
 
 Services also work with clusters.
@@ -423,8 +437,8 @@ metadata:
   namespace: my-app
 ```
    
-Resources within a given namespace are network isolated using [Tailnet](https://tailscale.com/kb/1136/tailnet), and can be accessed by simply using thier `http://nebu.<namespace>.<name>`.  
-
+Resources within a given namespace are network isolated using [Tailnet](https://tailscale.com/kb/1136/tailnet), and can be accessed by simply using `http://<name>.<namespace>.<kind>.nebu`.   
+    
 Nebulous cloud provides a free hosted [HeadScale](https://github.com/juanfont/headscale) instance to connect your resources, or you can bring your own by simply setting the `NEBU_HEADSCALE_URL` environment variable.   
 
 ## Contributing
