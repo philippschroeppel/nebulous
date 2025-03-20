@@ -2,8 +2,10 @@
 
 A cross-cloud container orchestrator
 
-Think of it as a Kubernetes that can span clouds with a focus on accelerated compute and AI workloads. Ships as a single binary, performant and lightweight via Rust.
-
+Think of it as a Kubernetes that can span clouds with a focus on accelerated compute and AI workloads. Ships as a single binary, performant and lightweight via Rust.   
+   
+Why not Kubernetes? See [why_not_kube.md](docs/why_not_kube.md)   
+   
 Nebulous is in __alpha__, things may break.
 
 ## Installation
@@ -11,7 +13,7 @@ Nebulous is in __alpha__, things may break.
 ```sh
 curl -fsSL -H "Cache-Control: no-cache" https://raw.githubusercontent.com/agentsea/nebulous/main/remote_install.sh | bash
 ```
-_Only MacOS and Linux arm64/amd64 are supported at this time._
+* _Only MacOS and Linux arm64/amd64 are supported at this time._
 
 ## Usage
 
@@ -61,7 +63,7 @@ volumes:
 accelerators:
   - "2:A100_SXM"
 meters:
-  - cost: 0.1
+  - cost: 0.01
     unit: second
     metric: runtime
     currency: USD
@@ -117,7 +119,7 @@ Send an http request to a container [in progress]
 ```text
 curl http://<name>.<namespace>.<kind>.nebu:8000
 ```
-_requires tailnet to be enabled_
+* _Requires tailnet to be enabled_
 
 #### Queues
 
@@ -180,141 +182,6 @@ This configuration will add 10% to the cost of the container.
 ---   
 
 See [container examples](examples/containers) for more.
-
-### Processors
-
-Processors are containers that work off real-time data streams and are autoscaled based on back-pressure. Streams are provided by [Redis Streams](https://redis.io/docs/latest/develop/data-types/streams/).
-
-```yaml
-kind: Processor
-metadata:
-  name: summarizer
-  namespace: jobs
-stream: jobs:summarize
-container:
-  image: corge/summarizer:latest
-  command: "redis-cli XREAD COUNT 10 STREAMS jobs:summarize"
-  platform: gce
-  accelerators:
-    - "1:A40"
-min_workers: 1
-max_workers: 10
-scale:
-  up:
-    above_pressure: 100
-    duration: 10s
-  down:
-    below_pressure: 10
-    duration: 5m
-  zero:
-    duration: 10m
-```
-```sh
-nebu create processor -f examples/processors/summarizer.yaml
-```
-
-Processors can also scale to zero.
-
-```yaml
-min_workers: 0
-```
-
-Processors can enforce schemas.
-
-```yaml
-schema:
-  - name: pdf_to_summarize
-    type: string
-    required: true
-```
-
-Send data to a processor stream
-
-```sh
-nebu send processor summarizer --data '{"pdf_to_summarize": "Dlrow Olleh"} -n jobs'
-```
-
-Read data from a processor stream
-
-```text
-nebu read processor summarizer --num 10
-```
-
-List all processors
-
-```sh
-nebu get processors
-```
-
-Processors can use containers across different platforms. [in progress]
-
-```yaml
-container:
-  image: corge/vllm-processor:latest
-  command: "redis-cli XREAD COUNT 10 STREAMS inference:vllm:llama3"
-  platforms:
-    - gce
-    - runpod
-  accelerators:
-    - "1:A40"
-```
-
----   
-
-See [processor examples](examples/processors) for more.
-
-### Clusters [in progress]
-
-Clusters provide a means of multi-node training and inference.
-
-```yaml
-kind: Cluster
-metadata:
-  name: pytorch-test
-  namespace: foo
-container:
-  image: pytorch/pytorch:latest
-  command: "echo $NODES && torchrun ..."
-  platform: ec2
-  env:
-    - key: HELLO
-      value: world
-  volumes:
-    - source: s3://nebulous-rs/test
-      dest: /test
-      driver: RCLONE_SYNC
-      continuous: true
-  accelerators:
-    - "8:B200"
-num_nodes: 4
-```
-```sh
-nebu create cluster -f examples/cluster.yaml
-```
-
-Each container will get a `$NODES` env var which contains the IP addresses of the nodes in the cluster.   
-   
-Clusters always aim to schedule nodes as close to each other as possible, with as fast of networking as available.   
-   
-Processors also work with Clusters
-
-```yaml
-kind: Processor
-stream: foo:bar:baz
-cluster:
-  container:
-    image: quz/processor:latest
-    command: "redis-cli XREAD COUNT 10 STREAMS foo:bar:baz"
-    accelerators:
-      - "8:H100"
-    platform: ec2
-  num_nodes: 4
-min_workers: 1
-max_workers: 10
-```
----
-
-See [cluster examples](examples/clusters) for more.
 
 ### Services [in progress]
 
@@ -426,6 +293,141 @@ cluster:
 
 See [service examples](examples/services) for more.
 
+### Processors [in progress]
+
+Processors are containers that work off real-time data streams and are autoscaled based on back-pressure. Streams are provided by [Redis Streams](https://redis.io/docs/latest/develop/data-types/streams/).
+
+```yaml
+kind: Processor
+metadata:
+  name: summarizer
+  namespace: my-app
+stream: my-app:workers:summarize
+container:
+  image: corge/summarizer:latest
+  command: "redis-cli XREAD COUNT 10 STREAMS my-app:workers:summarize"
+  platform: gce
+  accelerators:
+    - "1:A40"
+min_workers: 1
+max_workers: 10
+scale:
+  up:
+    above_pressure: 100
+    duration: 10s
+  down:
+    below_pressure: 10
+    duration: 5m
+  zero:
+    duration: 10m
+```
+```sh
+nebu create processor -f examples/processors/summarizer.yaml
+```
+
+Processors can also scale to zero.
+
+```yaml
+min_workers: 0
+```
+
+Processors can enforce schemas.
+
+```yaml
+schema:
+  - name: text_to_summarize
+    type: string
+    required: true
+```
+
+Send data to a processor stream
+
+```sh
+nebu send processor summarizer --data '{"text_to_summarize": "Dlrow Olleh"} -n my-app'
+```
+
+Read data from a processor stream
+
+```text
+nebu read processor summarizer --num 10
+```
+
+List all processors
+
+```sh
+nebu get processors
+```
+
+Processors can use containers across different platforms. [in progress]
+
+```yaml
+container:
+  image: corge/summarizer:latest
+  command: "redis-cli XREAD COUNT 10 STREAMS my-app:workers:summarize"
+  platforms:
+    - gce
+    - runpod
+  accelerators:
+    - "1:A40"
+```
+
+---   
+
+See [processor examples](examples/processors) for more.
+
+### Clusters [in progress]
+
+Clusters provide a means of multi-node training and inference.
+
+```yaml
+kind: Cluster
+metadata:
+  name: pytorch-test
+  namespace: foo
+container:
+  image: pytorch/pytorch:latest
+  command: "echo $NODES && torchrun ..."
+  platform: ec2
+  env:
+    - key: HELLO
+      value: world
+  volumes:
+    - source: s3://nebulous-rs/test
+      dest: /test
+      driver: RCLONE_SYNC
+      continuous: true
+  accelerators:
+    - "8:B200"
+num_nodes: 4
+```
+```sh
+nebu create cluster -f examples/cluster.yaml
+```
+
+Each container will get a `$NODES` env var which contains the IP addresses of the nodes in the cluster.   
+   
+Clusters always aim to schedule nodes as close to each other as possible, with as fast of networking as available.   
+   
+Processors also work with Clusters
+
+```yaml
+kind: Processor
+stream: foo:bar:baz
+cluster:
+  container:
+    image: quz/processor:latest
+    command: "redis-cli XREAD COUNT 10 STREAMS foo:bar:baz"
+    accelerators:
+      - "8:H100"
+    platform: ec2
+  num_nodes: 4
+min_workers: 1
+max_workers: 10
+```
+---
+
+See [cluster examples](examples/clusters) for more.
+
 ### Namespaces [in progress]
 
 Namespaces provide a means to segregate groups of resources across clouds.  
@@ -437,9 +439,33 @@ metadata:
   namespace: my-app
 ```
    
-Resources within a given namespace are network isolated using [Tailnet](https://tailscale.com/kb/1136/tailnet), and can be accessed by simply using `http://<name>.<namespace>.<kind>.nebu`.   
+Resources within a given namespace are network isolated using [Tailnet](https://tailscale.com/kb/1136/tailnet), and can be accessed by simply using `http://<name>.<namespace>.<kind>.nebu` e.g. `http://vllm-server.my-app.container.nebu`.
     
 Nebulous cloud provides a free hosted [HeadScale](https://github.com/juanfont/headscale) instance to connect your resources, or you can bring your own by simply setting the `NEBU_HEADSCALE_URL` environment variable.   
+
+### Secrets [in progress]
+
+Secrets are used to store sensitive information such as API keys and credentials.
+
+Create a secret
+```sh
+nebu create secret my-secret --value $MY_SECRET_VALUE -n my-app
+```
+
+Get all secrets
+```sh
+nebu get secrets -n my-app
+```
+
+Get a secret
+```sh
+nebu get secrets my-secret -n my-app
+```
+
+Delete a secret
+```sh
+nebu delete secrets my-secret -n my-app
+```
 
 ## Contributing
 
