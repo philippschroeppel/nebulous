@@ -1,0 +1,32 @@
+Nebulous has been deployed into the {{ template "nebulous.namespace" . }} namespace.
+In a few moments, you should be able to access the Nebulous API.
+
+Internal endpoint: {{ printf "http://%s.%s.svc.cluster.local:%s" (include "nebulous.serviceName" . ) (include "nebulous.namespace" .) .Values.service.port }}
+{{- if .Values.ingress.enabled }}
+{{- if .Values.ingress.host }}
+External endpoint: {{ printf "https://%s" .Values.ingress.host }}
+{{- else }}
+External endpoint: .Values.ingress.host not specified, refer to Ingress configuration provided through values.yaml.
+{{- end }}
+{{- else }}
+External endpoint: Set .Values.ingress.enabled to true to expose Nebulous externally.
+{{- end }}
+{{ if .Values.postgres.create }}
+WARNING: Using the integrated Postgres database. This is not recommended for production.
+{{- end }}
+{{ if .Values.redis.create }}
+WARNING: Using the integrated Redis database. This is not recommended for production.
+Internal Redis endpoint: {{ printf "%s:%s" (include "redis.host" . ) .Values.redis.auth.port }}
+{{- if .Values.redis.ingress.enabled }}
+{{- if .Values.redis.ingress.host }}
+External Redis endpoint: {{ printf "redis://%s" .Values.redis.ingress.host }}
+{{- else }}
+External Redis endpoint: .Values.redis.ingress.host not specified, refer to Ingress configuration provided through values.yaml.
+{{- end }}
+{{- else }}
+External Redis endpoint: Set .Values.redis.ingress.enabled to true to expose Redis externally.
+{{- end }}
+{{- end }}
+{{ if .Values.encryptionKey.encodedValue }}
+WARNING: Encryption key is not provided through a user-managed secret. This is not recommended for production.
+{{- end }}

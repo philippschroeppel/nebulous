@@ -1,0 +1,97 @@
+{{- if or .Values.redis.auth.host .Values.redis.create }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.redis.secret.name }}
+  namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+type: Opaque
+data:
+  {{ .Values.redis.secret.keys.connection_string }}: {{ printf "redis://%s:%d/%d" (include "redis.host" .) (int .Values.redis.auth.port) (int .Values.redis.auth.database) | b64enc }}
+  {{ .Values.redis.secret.keys.password}}: {{ .Values.redis.auth.password | b64enc }}
+---
+{{- end }}
+{{- if .Values.redis.create }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "redis.name" . }}
+  namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ include "redis.name" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "redis.name" . }}
+    spec:
+      containers:
+        - name: redis
+          image: "redis:{{ .Values.redis.imageTag }}"
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              exec redis-server --requirepass "$REDIS_PASSWORD"
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.redis.secret.name }}
+                  key: {{ .Values.redis.secret.keys.password }}
+          ports:
+            - containerPort: 6379
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "redis.name" . }}
+  namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: {{ include "redis.name" . }}
+  ports:
+    - protocol: TCP
+      port: {{ .Values.redis.auth.port }}
+      targetPort: 6379
+  type: ClusterIP
+---
+{{- if .Values.redis.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "redis.name" . }}
+  namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+  {{- with .Values.redis.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.redis.ingress.ingressClassName }}
+  ingressClassName: {{.}}
+  {{- end }}
+  rules:
+    - http:
+        paths:
+          - backend:
+              service:
+                name: {{ include "redis.name" . }}
+                port:
+                  number: {{ .Values.redis.auth.port }}
+            path: /
+            pathType: Prefix
+      {{- with .Values.ingress.host }}
+      host: {{.}}
+      {{- end }}
+{{- end }}
+{{- end }}

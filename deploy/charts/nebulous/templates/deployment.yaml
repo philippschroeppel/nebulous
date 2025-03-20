@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nebulous.deploymentName" . }}
+  namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ include "nebulous.appSelector" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "nebulous.appSelector" . }}
+    spec:
+      serviceAccountName: {{ include "nebulous.serviceAccountName" . }}
+      containers:
+        - name: nebulous-server
+          image: {{ include "nebulous.image" . }}
+          {{- with .Values.image.pullPolicy }}
+          imagePullPolicy: {{.}}
+          {{- end }}
+          ports:
+            - containerPort: 3000
+          env:
+            - name: SECRET_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.encryptionKey.secret.name }}
+                  key: {{ .Values.encryptionKey.secret.keys.encryption_key }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.secret.name }}
+                  key: {{ .Values.postgres.secret.keys.connection_string }}
+            - name: MESSAGE_QUEUE_TYPE
+              value: {{ .Values.messageQueue.type }}
+            {{- if eq .Values.messageQueue.type "redis" }}
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.redis.secret.name }}
+                  key: {{ .Values.redis.secret.keys.connection_string }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.redis.secret.name }}
+                  key: {{ .Values.redis.secret.keys.password }}
+            {{- end }}
+            {{- if .Values.providers.aws.enabled }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.providers.aws.secret.name }}
+                  key: {{ .Values.providers.aws.secret.keys.accessKeyId }}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name:  {{ .Values.providers.aws.secret.name }}
+                  key: {{ .Values.providers.aws.secret.keys.secretAccessKey }}
+            {{- end }}
+            {{- if .Values.providers.runpod.enabled }}
+            - name: RUNPOD_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name:  {{ .Values.providers.runpod.secret.name }}
+                  key: {{ .Values.providers.runpod.secret.keys.apiKey }}
+            {{- end }}
+            - name: RUST_LOG
+              value: {{ .Values.logLevel | lower }}
+          volumeMounts:
+            - name: huggingface-pvc
+              mountPath: /huggingface
+            - name: adapter-pvc
+              mountPath: /adapters
+            - name: dataset-pvc
+              mountPath: /datasets
+            - name: model-pvc
+              mountPath: /models
+      volumes:
+        - name: huggingface-pvc
+          persistentVolumeClaim:
+            claimName: {{ .Values.storage.huggingface.claimName }}
+        - name: adapter-pvc
+          persistentVolumeClaim:
+            claimName: {{ .Values.storage.adapter.claimName }}
+        - name: dataset-pvc
+          persistentVolumeClaim:
+            claimName: {{ .Values.storage.dataset.claimName }}
+        - name: model-pvc
+          persistentVolumeClaim:
+            claimName: {{ .Values.storage.model.claimName }}
