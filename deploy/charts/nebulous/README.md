@@ -1,6 +1,6 @@
 # nebulous
 
-![Version: 0.1.0](https://img.shields.io/badge/Version-0.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.1.25](https://img.shields.io/badge/AppVersion-0.1.25-informational?style=flat-square)
+![Version: 0.1.1](https://img.shields.io/badge/Version-0.1.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.1.36](https://img.shields.io/badge/AppVersion-0.1.36-informational?style=flat-square)
 
 A cross-cloud container orchestrator for AI workloads
 
@@ -42,6 +42,7 @@ helm install nebulous nebulous/nebulous -f values.yaml \
 | ingress.host | string | `""` | The host field of the Ingress rule. |
 | ingress.ingressClassName | string | `""` | The ingress class. |
 | local.enabled | bool | `false` | If enabled, nebulous can run Pods in the local cluster. |
+| logLevel | string | `"info"` | The log level of the Nebulous server. Options are "off", "trace", "debug", "info", "warn", "error". |
 | messageQueue.type | string | `"redis"` | The message queue type. The currently only supported value is "redis". |
 | namespaceOverride | string | `""` | Override the namespace. By default, Nebulous is deployed to the Helm release's namespace. |
 | postgres.auth | object | `{"database":"nebulous","host":"","password":"nebulous","port":5432,"user":"nebulous"}` | Manual configuration of the Postgres connection. Except for 'host', this information is also used if 'create' is true. |
