@@ -20,9 +20,9 @@ Run a local API server
 nebu serve
 ```
 
-Login to an API server --url https://localhost:3000
+Login to an API server
 ```sh
-nebu login --url https://api.nebulous.rs
+nebu login --url http://localhost:3000
 ```
 
 Alternatively, login to our cloud
@@ -67,7 +67,7 @@ meters:
     currency: USD
 restart: Never
 ```
-Replace `my-bucket` with your bucket name, and make sure your aws credentials and runpod credentials are set up.
+Replace `my-bucket` with your bucket name, and make sure your aws and runpod credentials are in your environment.
 
 ```sh
 nebu create container -f examples/containers/trl.yaml
@@ -112,6 +112,7 @@ SSH into a container [in progress]
 ```sh
 nebu ssh foo
 ```
+---   
 
 See [container examples](examples/containers) for more.
 
@@ -248,6 +249,8 @@ container:
     - "1:A40"
 ```
 
+---   
+
 See [processor examples](examples/processors) for more.
 
 ### Clusters [in progress]
@@ -308,7 +311,9 @@ Services provide a means to expose containers on a stable IP address.
 
 Namespaces provide a means to segregate groups of resources across clouds.   
    
-Resources within a given namespace are network isolated using [Tailnet](https://tailscale.com/kb/1136/tailnet), and can be accessed by simply using thier `http://nebu.<namespace>.<name>`.
+Resources within a given namespace are network isolated using [Tailnet](https://tailscale.com/kb/1136/tailnet), and can be accessed by simply using thier `http://nebu.<namespace>.<name>`.  
+
+Nebulous cloud provides a free [HeadScale](https://github.com/juanfont/headscale) instance to connect your resources, or you can bring your own by simply setting the `NEBU_HEADSCALE_URL` environment variable.
 
 ## Contributing
 
