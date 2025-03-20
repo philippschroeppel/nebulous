@@ -32,9 +32,11 @@ use rdkafka::ClientConfig;
 use routes::create_routes;
 use state::AppState;
 use state::MessageQueue;
+use std::env;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
+use url::Url;
 
 /// Create and return the application state.
 pub async fn create_app_state() -> Result<AppState, Box<dyn std::error::Error>> {
@@ -45,26 +47,47 @@ pub async fn create_app_state() -> Result<AppState, Box<dyn std::error::Error>> 
     // Initialize the appropriate message queue based on configuration
     let message_queue = match CONFIG.message_queue_type.to_lowercase().as_str() {
         "redis" => {
-            // Get the Redis URL from config
-            let stripped_url = CONFIG
-                .redis_url
-                .strip_prefix("redis://")
-                .unwrap_or_else(|| CONFIG.redis_url.as_str());
+            let redis_url = match &CONFIG.redis_url {
+                Some(url) if !url.is_empty() => {
+                    // Redis URL exists, so use it directly but also parse it to set env vars
+                    if let Ok(parsed_url) = Url::parse(url) {
+                        // Extract and set host
+                        if let Some(host) = parsed_url.host_str() {
+                            env::set_var("REDIS_HOST", host);
+                        }
 
-            // Check if REDIS_PASSWORD is set
-            let redis_url = match std::env::var("REDIS_PASSWORD") {
-                Ok(password) if !password.is_empty() => {
-                    // If password is set, include it in the URL
-                    format!("redis://:{password}@{stripped_url}")
+                        // Extract and set port
+                        if let Some(port) = parsed_url.port() {
+                            env::set_var("REDIS_PORT", port.to_string());
+                        } else {
+                            // Default redis port if not specified in URL
+                            env::set_var("REDIS_PORT", "6379");
+                        }
+
+                        // Extract and set password if present
+                        if let Some(password) = parsed_url.password() {
+                            env::set_var("REDIS_PASSWORD", password);
+                        }
+                    }
+
+                    url.clone()
                 }
                 _ => {
-                    // If password is not set or empty, use URL without password
-                    format!("redis://{stripped_url}")
+                    // Redis URL not present or empty, build from components
+                    let host = &CONFIG.redis_host;
+                    let port = &CONFIG.redis_port;
+
+                    match &CONFIG.redis_password {
+                        Some(password) if !password.is_empty() => {
+                            format!("redis://:{}@{}:{}", password, host, port)
+                        }
+                        _ => format!("redis://{}:{}", host, port),
+                    }
                 }
             };
 
             // Create the Redis client using the constructed URL
-            let redis_client = Arc::new(redis::Client::open(redis_url)?);
+            let redis_client = Arc::new(redis::Client::open(redis_url.as_str())?);
 
             MessageQueue::Redis {
                 client: redis_client,

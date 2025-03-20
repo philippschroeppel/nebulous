@@ -4,43 +4,73 @@ A cross-cloud container orchestrator
 
 Think of it as a Kubernetes that can span clouds with a focus on accelerated compute and AI workloads. Ships as a single binary, performant and lightweight via Rust.
 
+Nebulous is in __alpha__, things may break.
+
 ## Installation
 
 ```sh
 curl -fsSL -H "Cache-Control: no-cache" https://raw.githubusercontent.com/agentsea/nebulous/main/remote_install.sh | bash
 ```
+_Only MacOS and Linux arm64/amd64 are supported at this time._
 
 ## Usage
 
-Login to an API server
+Run a local API server
+```sh
+nebu serve
+```
+
+Login to an API server --url https://localhost:3000
+```sh
+nebu login --url https://api.nebulous.rs
+```
+
+Alternatively, login to our cloud
 ```sh
 nebu login
 ```
 
 ### Containers
 
-Create a container on runpod with 4 A100 GPUs
+Create a container on runpod with 2 A100 GPUs which trains a model using TRL.
 ```yaml
 kind: Container
 metadata:
-  name: pytorch-test
-  namespace: foo
-image: pytorch/pytorch:latest
-command: nvidia-smi
+  name: trl-test
+  namespace: test
+  labels:
+    type: training
+image: "huggingface/trl-latest-gpu:latest"
+command: |
+  source activate trl && trl sft --model_name_or_path $MODEL \
+      --dataset_name $DATASET \
+      --output_dir /output \
+      --torch_dtype bfloat16 \
+      --use_peft true
 platform: runpod
 env:
-  - key: HELLO
-    value: world
-volumes:
-  - source: s3://nebulous-rs/test
-    dest: /nebu/test
+  - key: MODEL
+    value: Qwen/Qwen2.5-7B 
+  - key: DATASET
+    value: trl-lib/Capybara 
+volumes:  
+  - source: /output
+    dest: s3://my-bucket/training-output
     driver: RCLONE_SYNC
     continuous: true
 accelerators:
-  - "4:A100"
+  - "2:A100_SXM"
+meters:
+  - cost: 0.1
+    unit: second
+    metric: runtime
+    currency: USD
+restart: Never
 ```
+Replace `my-bucket` with your bucket name, and make sure your aws credentials and runpod credentials are set up.
+
 ```sh
-nebu create container -f examples/containers/basic.yaml
+nebu create container -f examples/containers/trl.yaml
 ```
 
 Alternatively, create a container on EC2 with 1 L40s GPU
@@ -78,15 +108,12 @@ List available platforms
 nebu get platforms
 ```
 
-Get the IP address of a container [in progress]
-```sh
-nebu get containers foo --ip
-```
-
 SSH into a container [in progress]
 ```sh
 nebu ssh foo
 ```
+
+See [container examples](examples/containers) for more.
 
 #### Queues
 
@@ -96,7 +123,6 @@ Containers can be assigned to a FIFO queue, which will block them from starting 
 kind: Container
 image: pytorch/pytorch:latest
 queue: actor-critic-training
-...
 ```
 
 #### Volumes
@@ -106,7 +132,7 @@ Volumes provide a means to persist and sync data accross clouds. Nebulous uses [
 ```yaml
 volumes:
   - source: s3://nebulous-rs/test
-    dest: /nebu/test
+    dest: /test
     driver: RCLONE_SYNC
     continuous: true
 ```
@@ -209,6 +235,21 @@ List all processors
 nebu get processors
 ```
 
+Processors can use containers across different platforms. [in progress]
+
+```yaml
+container:
+  image: corge/vllm-processor:latest
+  command: "redis-cli XREAD COUNT 10 STREAMS inference:vllm:llama3"
+  platforms:
+    - gce
+    - runpod
+  accelerators:
+    - "1:A40"
+```
+
+See [processor examples](examples/processors) for more.
+
 ### Clusters [in progress]
 
 Clusters provide a means of multi-node training and inference.
@@ -227,7 +268,7 @@ container:
       value: world
   volumes:
     - source: s3://nebulous-rs/test
-      dest: /nebu/test
+      dest: /test
       driver: RCLONE_SYNC
       continuous: true
   accelerators:
@@ -267,7 +308,7 @@ Services provide a means to expose containers on a stable IP address.
 
 Namespaces provide a means to segregate groups of resources across clouds.   
    
-Resources within a given namespace are network isolated using [Tailnet](https://tailscale.com/kb/1136/tailnet), and can be accessed by simply using thier name as the hostname e.g. `http://foo:8080`.
+Resources within a given namespace are network isolated using [Tailnet](https://tailscale.com/kb/1136/tailnet), and can be accessed by simply using thier `http://nebu.<namespace>.<name>`.
 
 ## Contributing
 

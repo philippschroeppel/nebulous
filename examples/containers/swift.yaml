@@ -1,7 +1,7 @@
 kind: Container
 metadata:
-  name: swift-test1
-  namespace: swift-test
+  name: ms-swift-test
+  namespace: test
   labels:
     this: that
 image: "us-docker.pkg.dev/agentsea-dev/orign/swift-trainer:latest"

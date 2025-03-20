@@ -519,6 +519,7 @@ impl ContainerPlatform for KubePlatform {
                                     .clone()
                                     .map(|meters| serde_json::json!(meters))),
                                 platform: Set(Some("kubernetes".to_string())),
+                                platforms: Set(None),
                                 resource_name: Set(Some(name.clone().unwrap())),
                                 resource_namespace: Set(Some(self.namespace.clone())),
                                 resource_cost_per_hr: Set(None),

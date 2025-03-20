@@ -1,5 +1,8 @@
+use crate::config::CONFIG;
 use crate::entities::processors;
-use crate::models::{V1Processor, V1ProcessorRequest, V1ResourceMetaRequest, V1UserProfile};
+use crate::models::{
+    V1EnvVar, V1Processor, V1ProcessorRequest, V1ResourceMetaRequest, V1UserProfile,
+};
 use crate::processors::base::{ProcessorPlatform, ProcessorStatus};
 use crate::state::MessageQueue;
 use crate::streams::redis::get_consumer_group_progress;
@@ -77,27 +80,79 @@ impl StandardProcessor {
             processor.id, min_replicas
         );
 
+        let mut env = parsed_container.env.unwrap_or_default();
+
+        debug!(
+            "[DEBUG:standard.rs:start_processor] creating redis with config: {:?}",
+            CONFIG
+        );
+        let redis_password = CONFIG.redis_password.clone();
+
+        if let Some(password) = redis_password.clone() {
+            env.push(V1EnvVar {
+                key: "REDIS_PASSWORD".to_string(),
+                value: password.clone(),
+            });
+            env.push(V1EnvVar {
+                key: "REDISCLI_AUTH".to_string(),
+                value: password.clone(),
+            });
+        }
+
+        // Check if REDIS_PASSWORD is set
+        let redis_url = match redis_password.clone() {
+            Some(password) if !password.is_empty() => {
+                format!(
+                    "redis://:{}@{}:{}",
+                    password.clone(),
+                    CONFIG.redis_host,
+                    CONFIG.redis_port
+                )
+            }
+            _ => {
+                format!("redis://{}:{}", CONFIG.redis_host, CONFIG.redis_port)
+            }
+        };
+        env.push(V1EnvVar {
+            key: "REDIS_URL".to_string(),
+            value: redis_url.clone(),
+        });
+        env.push(V1EnvVar {
+            key: "REDIS_HOST".to_string(),
+            value: CONFIG.redis_host.clone(),
+        });
+        env.push(V1EnvVar {
+            key: "REDIS_PORT".to_string(),
+            value: CONFIG.redis_port.clone(),
+        });
+        env.push(V1EnvVar {
+            key: "REDIS_CONSUMER_GROUP".to_string(),
+            value: processor.id.clone(),
+        });
+        env.push(V1EnvVar {
+            key: "REDIS_STREAM".to_string(),
+            value: processor.stream.clone().unwrap_or_default(),
+        });
+
         // 4) Add processor ID to the labels so we can track which processor it belongs to.
         let mut labels = parsed_container.metadata.labels.unwrap_or_default();
-        labels.insert("processor-id".to_string(), processor.id.clone());
+        labels.insert("processor".to_string(), processor.id.clone());
 
         // 4) Build a new V1ContainerRequest from the parsed container.
         //    We'll fill in some fields from V1Container (image, env, volumes, etc.).
         //    If your processor stores more fields (command, resources, etc.), copy them here.
         let container_request = V1ContainerRequest {
             image: parsed_container.image,
-            env: parsed_container.env,
+            env: Some(env.clone()),
             command: parsed_container.command,
             volumes: parsed_container.volumes,
             accelerators: parsed_container.accelerators,
             meters: parsed_container.meters,
             resources: parsed_container.resources,
-            restart: parsed_container.restart, // e.g. "Never" or "Always"
+            restart: RestartPolicy::Always.to_string(), // TODO
             queue: parsed_container.queue,
             timeout: parsed_container.timeout,
             ssh_keys: parsed_container.ssh_keys,
-            // Fill in metadata (name, namespace, labels) from the processor
-            // or from the container’s metadata field:
             metadata: Some(V1ResourceMetaRequest {
                 name: Some(format!("processor-{}", processor.name)),
                 namespace: Some(processor.namespace.clone()),
@@ -343,8 +398,6 @@ impl ProcessorPlatform for StandardProcessor {
             created_at: Set(Utc::now().into()),
             updated_at: Set(Utc::now().into()),
 
-            // Fill in any other fields your containers table requires.
-            // For example, resource_name, resource_namespace, schema, etc.
             ..Default::default()
         };
 

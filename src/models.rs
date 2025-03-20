@@ -216,7 +216,7 @@ fn default_volume_driver() -> V1VolumeDriver {
 }
 
 fn default_continuous() -> bool {
-    true
+    false
 }
 
 // Add this function to provide a default cache directory

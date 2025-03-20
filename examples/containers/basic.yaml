@@ -1,7 +1,7 @@
 kind: Container
 metadata:
-  name: pytorch-test1
-  namespace: pytorch-test
+  name: pytorch-test
+  namespace: test
   labels:
     this: that
 image: "pytorch/pytorch:latest"

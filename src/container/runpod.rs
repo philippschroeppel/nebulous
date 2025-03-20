@@ -161,6 +161,7 @@ impl RunpodPlatform {
         meters: &serde_json::Value,
         owner_id: String,
         base_cost_per_hr: Option<f64>,
+        gpu_type: String,
     ) {
         // Parse the meters from the container model
         let meters_vec: Vec<V1Meter> = match serde_json::from_value(meters.clone()) {
@@ -270,6 +271,9 @@ impl RunpodPlatform {
                         "currency": meter.currency,
                         "cost": cost_value,
                         "unit": meter.unit,
+                        "kind": "Container",
+                        "service": "Nebulous",
+                        "gpu_type": gpu_type,
                     })
                 }
                 // Add other metric types as needed
@@ -281,6 +285,9 @@ impl RunpodPlatform {
                         "currency": meter.currency,
                         "cost": cost_value,
                         "unit": meter.unit,
+                        "kind": "Container",
+                        "service": "Nebulous",
+                        "gpu_type": gpu_type,
                     })
                 }
             };
@@ -462,12 +469,24 @@ impl RunpodPlatform {
                                     "[Runpod Controller] reporting meters for container {}",
                                     container_id
                                 );
+
+                                let gpu_type = match container.parse_status() {
+                                    Ok(Some(status)) => {
+                                        status.accelerator.unwrap_or("Unknown".to_string())
+                                    }
+                                    Ok(None) => "Unknown".to_string(),
+                                    Err(_) => "Unknown".to_string(),
+                                };
+                                if gpu_type == "Unknown" {
+                                    warn!("[Runpod Controller] Could not find accelerator in status setting to 'Unknown'");
+                                }
                                 self.report_meters(
                                     container_id.clone(),
                                     pause_seconds,
                                     meters,
                                     container.owner_id.clone(),
                                     Some(pod_info.cost_per_hr),
+                                    gpu_type,
                                 )
                                 .await;
                             }
@@ -1280,6 +1299,12 @@ done
             .resource_name
             .ok_or_else(|| format!("No resource_name found for container {}", container_id))?;
 
+        info!("[Runpod Controller] Resource name: {:?}", resource_name);
+        info!("[Runpod Controller] Fetching pod host id...");
+
+        let pod_host_id = self.runpod_client.get_pod_host_id(&resource_name).await?;
+        info!("[Runpod Controller] Fetched pod host id: {:?}", pod_host_id);
+
         // 3) Fetch the SSH key pair from the database
         let (maybe_private_key, maybe_public_key) =
             crate::query::Query::get_ssh_keypair(db, &container_model.id).await?;
@@ -1488,6 +1513,7 @@ impl ContainerPlatform for RunpodPlatform {
                 cost_per_hr: None,
             }))),
             platform: Set(Some("runpod".to_string())),
+            platforms: Set(None),
             meters: Set(config
                 .meters
                 .clone()

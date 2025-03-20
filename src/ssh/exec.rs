@@ -36,7 +36,14 @@ pub async fn exec_ssh_command<A: ToSocketAddrs>(
     username: &str,
     private_key: &str,
     command: &str,
-) -> Result<String> {
+) -> Result<String>
+where
+    A: ToSocketAddrs + std::fmt::Debug,
+{
+    debug!(
+        "Executing SSH command with host: {:?}, username: {}, private_key: {}, command: {}",
+        host, username, private_key, command
+    );
     // 1) Decode your in-memory Ed25519 private key
     //    (If your key has a passphrase, pass `Some("pass")` instead of `None`.)
     let parsed_key = decode_secret_key(private_key, None)

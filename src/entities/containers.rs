@@ -27,6 +27,7 @@ pub struct Model {
     pub memory_request: Option<String>,
     pub status: Option<Json>,
     pub platform: Option<String>,
+    pub platforms: Option<Vec<String>>,
     pub resource_name: Option<String>,
     pub resource_namespace: Option<String>,
     pub resource_cost_per_hr: Option<f64>,

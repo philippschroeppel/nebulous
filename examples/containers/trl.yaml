@@ -1,23 +1,25 @@
 kind: Container
 metadata:
-  name: trl-test1
-  namespace: trl-test
+  name: trl-test
+  namespace: test
   labels:
-    this: that
+    type: training
 image: "huggingface/trl-latest-gpu:latest"
 command: |
-  source activate trl && trl sft --model_name_or_path Qwen/Qwen2.5-7B \
-      --dataset_name trl-lib/Capybara \
+  source activate trl && trl sft --model_name_or_path $MODEL \
+      --dataset_name $DATASET \
       --output_dir /output \
       --torch_dtype bfloat16 \
       --use_peft true
 platform: runpod
 env:
-  - key: HELLO
-    value: world
+  - key: MODEL
+    value: Qwen/Qwen2.5-7B 
+  - key: DATASET
+    value: trl-lib/Capybara 
 volumes:  
   - source: /output
-    dest: s3://nebulous-rs/trl-test
+    dest: s3://nebulous-rs/training-output
     driver: RCLONE_SYNC
     continuous: true
 accelerators:

@@ -76,11 +76,15 @@ fn get_config_file_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
     Ok(config_path)
 }
 
+#[derive(Debug, Clone)]
 pub struct Config {
     pub message_queue_type: String,
     pub kafka_bootstrap_servers: String,
     pub kafka_timeout_ms: String,
-    pub redis_url: String,
+    pub redis_host: String,
+    pub redis_port: String,
+    pub redis_password: Option<String>,
+    pub redis_url: Option<String>,
     pub database_url: String,
 }
 
@@ -94,7 +98,10 @@ impl Config {
             kafka_bootstrap_servers: env::var("KAFKA_BOOTSTRAP_SERVERS")
                 .unwrap_or_else(|_| "localhost:9092".to_string()),
             kafka_timeout_ms: env::var("KAFKA_TIMEOUT_MS").unwrap_or_else(|_| "5000".to_string()),
-            redis_url: env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1/".to_string()),
+            redis_host: env::var("REDIS_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()),
+            redis_port: env::var("REDIS_PORT").unwrap_or_else(|_| "6379".to_string()),
+            redis_password: env::var("REDIS_PASSWORD").ok(),
+            redis_url: env::var("REDIS_URL").ok(),
             database_url: env::var("DATABASE_URL")
                 .unwrap_or_else(|_| "sqlite://.data/data.db".to_string()),
         }
