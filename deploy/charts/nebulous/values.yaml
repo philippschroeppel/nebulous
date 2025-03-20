@@ -9,6 +9,9 @@ image:
   # -- The repository to pull the server image from.
   repository: "us-docker.pkg.dev/agentsea-dev/nebulous/server"
 
+# -- The log level of the Nebulous server. Options are "off", "trace", "debug", "info", "warn", "error".
+logLevel: "info"
+
 serviceAccount:
   # -- The name of the Kubernetes service account to be used by the Nebulous deployment.
   # -- If left empty, a service account will be created.

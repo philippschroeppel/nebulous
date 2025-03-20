@@ -69,7 +69,7 @@ spec:
                   key: {{ .Values.providers.runpod.secret.keys.apiKey }}
             {{- end }}
             - name: RUST_LOG
-              value: debug
+              value: {{ .Values.logLevel | lower }}
           volumeMounts:
             - name: huggingface-pvc
               mountPath: /huggingface
