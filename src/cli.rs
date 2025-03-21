@@ -244,6 +244,12 @@ pub enum GetCommands {
 
     /// Get platforms.
     Platforms,
+
+    /// Get secrets.
+    Secrets {
+        /// Optional secret ID.
+        id: Option<String>,
+    },
 }
 
 /// Delete resources.

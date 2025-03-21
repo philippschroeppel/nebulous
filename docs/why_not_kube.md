@@ -10,10 +10,10 @@ Where this breaks Kubernetes:
 * Running a control plane in _every_ region is expensive.
 * The GPU you need can't be found reliably in a single cloud provider, so now you are runnning a control plane in every cloud and every region :(
 * If you need to connect regular services to GPU workloads in different regions, Kubernetes is not made for this.
-* All multi-cluster management solutions have failed.
+* All open source multi-cluster management solutions have failed.
 * Easy to spin up locally? Eh, kinda in a limited way.
 * Need to secure communication to a GPU in a disparate platform or on prem? Very challenging without complex service meshes.
-* Need multi-tenancy in Kubernetes? LOL
+* Need multi-tenancy in Kubernetes? Good luck.
 * Load balance traffic across clouds? Very hard.
 
 

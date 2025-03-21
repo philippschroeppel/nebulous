@@ -115,6 +115,16 @@ SSH into a container [in progress]
 nebu ssh trl-job -n training
 ```
 
+Exec a command in a container [in progress]
+```sh
+nebu exec trl-job -n training -- echo "hello"
+```
+
+Copy files to a container [in progress]
+```sh
+nebu cp /path/to/file trl-job:/path/to/file -n training
+```
+
 Send an http request to a container [in progress]
 ```text
 curl http://<name>.<namespace>.<kind>.nebu:8000
@@ -296,6 +306,8 @@ See [service examples](examples/services) for more.
 ### Processors [in progress]
 
 Processors are containers that work off real-time data streams and are autoscaled based on back-pressure. Streams are provided by [Redis Streams](https://redis.io/docs/latest/develop/data-types/streams/).
+
+Processors are best used for bursty async jobs, or low latency stream processing.
 
 ```yaml
 kind: Processor

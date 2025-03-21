@@ -204,6 +204,7 @@ pub trait ContainerPlatform {
         );
         env.insert("NEBU_API_KEY".to_string(), agent_key.unwrap());
         env.insert("NEBU_SERVER".to_string(), config.server.unwrap());
+        env.insert("HF_HOME".to_string(), "/nebu/cache/huggingface".to_string());
 
         // env.insert(
         //     "RCLONE_CONFIG_S3REMOTE_ACL".to_string(),

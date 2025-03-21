@@ -14,18 +14,18 @@ command: |
 platform: runpod
 env:
   - key: MODEL
-    value: Qwen/Qwen2.5-7B 
+    value: Qwen/Qwen2.5-7B
   - key: DATASET
-    value: trl-lib/Capybara 
-volumes:  
+    value: trl-lib/Capybara
+volumes:
   - source: /output
-    dest: s3://nebulous-rs/training-output
+    dest: s3://nebulous-rs/test/trl-test
     driver: RCLONE_SYNC
     continuous: true
 accelerators:
   - "1:A100_SXM"
 meters:
-  - cost: 0.1
+  - cost: 0.01
     unit: second
     metric: runtime
     currency: USD

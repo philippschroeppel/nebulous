@@ -1,17 +1,16 @@
+use crate::{
+    entities::secrets, models::V1UserProfile, mutation::Mutation, query::Query, state::AppState,
+};
 use axum::{
     extract::{Extension, Json, Path, State},
     http::StatusCode,
     response::IntoResponse,
 };
-use chrono::Utc;
 use sea_orm::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
-
-use crate::{
-    entities::secrets, models::V1UserProfile, mutation::Mutation, query::Query, state::AppState,
-};
+use tracing::info;
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct V1Secret {
@@ -52,6 +51,8 @@ pub async fn list_secrets(
     owner_ids.push(user_profile.email.clone());
     let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
 
+    info!("Listing secrets for user: {}", owner_ids.join(", "));
+
     // Retrieve secrets
     let secrets_list = Query::find_secrets_by_owners(db_pool, &owner_id_refs)
         .await
@@ -61,6 +62,8 @@ pub async fn list_secrets(
                 Json(json!({ "error": format!("Database error: {}", err) })),
             )
         })?;
+
+    info!("Found {} secrets", secrets_list.len());
 
     // Transform them into our V1Secret response (decrypted if needed)
     let response = secrets_list
@@ -105,6 +108,8 @@ pub async fn get_secret(
     owner_ids.push(user_profile.email.clone());
     let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
 
+    info!("Getting secret for user: {}", owner_ids.join(", "));
+
     // Fetch secret from DB
     let secret_model = Query::find_secret_by_id_and_owners(db_pool, &id, &owner_id_refs)
         .await
@@ -114,6 +119,8 @@ pub async fn get_secret(
                 Json(json!({ "error": format!("Secret not found: {}", err) })),
             )
         })?;
+
+    info!("Found secret: {}", secret_model.id);
 
     // Decrypt
     let decrypted_value = secret_model.decrypt_value().ok();

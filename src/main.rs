@@ -77,6 +77,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             GetCommands::Platforms => {
                 commands::get_cmd::get_platforms().await?;
             }
+            GetCommands::Secrets { id } => {
+                commands::get_cmd::get_secrets(id).await?;
+            }
         },
         Commands::Delete { command } => match command {
             DeleteCommands::Containers { id } => {

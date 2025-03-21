@@ -27,9 +27,9 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
             get(get_container).delete(delete_container),
         )
         .route("/v1/containers/:id/logs", get(fetch_container_logs))
-        .route("/secrets", get(list_secrets).post(create_secret))
+        .route("/v1/secrets", get(list_secrets).post(create_secret))
         .route(
-            "/secrets/:id",
+            "/v1/secrets/:id",
             get(get_secret).put(update_secret).delete(delete_secret),
         )
         // Apply the authentication middleware to private routes

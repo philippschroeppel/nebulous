@@ -224,6 +224,13 @@ impl Query {
             }
         }
 
+        match std::env::var("RUNPOD_PRIVATE_KEY") {
+            Ok(runpod_private_key) => {
+                private_key = Some(runpod_private_key);
+            }
+            Err(_) => {}
+        }
+
         Ok((private_key, public_key))
     }
 

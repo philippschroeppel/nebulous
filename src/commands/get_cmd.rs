@@ -177,6 +177,145 @@ pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+pub async fn get_secrets(id: Option<String>) -> Result<(), Box<dyn Error>> {
+    let config = GlobalConfig::read()?;
+    let server = config.server.unwrap();
+    let api_key = config.api_key.unwrap_or_default();
+
+    let bearer_token = format!("Bearer {}", api_key);
+
+    // If an ID was provided, fetch a single secret
+    if let Some(secret_id) = &id {
+        let url = format!("{}/v1/secrets/{}", server, secret_id);
+
+        // Create HTTP client and build the request
+        let client = reqwest::Client::new();
+        let request = client.get(&url).header("Authorization", &bearer_token);
+
+        // Execute the request
+        let response = request.send().await?;
+
+        // Check if the request was successful
+        if !response.status().is_success() {
+            return Err(format!("Failed to get secret: {}", response.status()).into());
+        }
+
+        // Parse the response
+        let mut secret: Value = response.json().await?;
+
+        // Remove null values for cleaner output
+        remove_null_values(&mut secret);
+
+        // Convert to YAML output
+        let mut buf = Vec::new();
+        {
+            let mut serializer = serde_yaml::Serializer::new(&mut buf);
+            secret.serialize(&mut serializer)?;
+        }
+        let yaml = String::from_utf8(buf)?;
+        println!("{}", yaml);
+        return Ok(());
+    }
+
+    // Otherwise, list all secrets
+    let url = format!("{}/v1/secrets", server);
+
+    // Create HTTP client and build the request
+    let client = reqwest::Client::new();
+    let request = client.get(&url).header("Authorization", &bearer_token);
+
+    // Execute the request
+    let response = request.send().await?;
+
+    // Check if the request was successful
+    if !response.status().is_success() {
+        return Err(format!("Failed to get secrets: {}", response.status()).into());
+    }
+
+    // Parse the response
+    let mut secrets: Value = response.json().await?;
+
+    // Remove null values for cleaner output
+    remove_null_values(&mut secrets);
+
+    // Create a table to display secrets
+    let mut table = prettytable::Table::new();
+
+    // Add table headers
+    table.add_row(prettytable::Row::new(vec![
+        prettytable::Cell::new("ID"),
+        prettytable::Cell::new("NAME"),
+        prettytable::Cell::new("NAMESPACE"),
+        prettytable::Cell::new("DATA"),
+        prettytable::Cell::new("CREATED"),
+        prettytable::Cell::new("UPDATED"),
+    ]));
+
+    let empty_vec = Vec::new();
+    let secret_list = secrets
+        .get("secrets")
+        .and_then(Value::as_array)
+        .unwrap_or(&empty_vec);
+
+    // Process each secret in the array
+    for secret in secret_list {
+        if let Value::Object(secret_obj) = secret {
+            let id = secret_obj
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("N/A");
+            let name = secret_obj
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("N/A");
+            let namespace = secret_obj
+                .get("namespace")
+                .and_then(Value::as_str)
+                .unwrap_or("N/A");
+            let data = secret_obj
+                .get("data")
+                .and_then(Value::as_str)
+                .unwrap_or("N/A");
+
+            // Format creation time if available
+            let created = secret_obj
+                .get("created_at")
+                .and_then(|v| v.as_i64().or_else(|| v.as_u64().map(|n| n as i64)))
+                .map(|timestamp| {
+                    let dt = DateTime::<Utc>::from_timestamp(timestamp, 0).unwrap_or_default();
+                    dt.format("%Y-%m-%d %H:%M:%S").to_string()
+                })
+                .unwrap_or_else(|| "N/A".to_string());
+
+            // Format update time if available
+            let updated = secret_obj
+                .get("updated_at")
+                .and_then(|v| v.as_i64().or_else(|| v.as_u64().map(|n| n as i64)))
+                .map(|timestamp| {
+                    let dt = DateTime::<Utc>::from_timestamp(timestamp, 0).unwrap_or_default();
+                    dt.format("%Y-%m-%d %H:%M:%S").to_string()
+                })
+                .unwrap_or_else(|| "N/A".to_string());
+
+            // Add row to table
+            table.add_row(prettytable::Row::new(vec![
+                prettytable::Cell::new(id),
+                prettytable::Cell::new(name),
+                prettytable::Cell::new(namespace),
+                prettytable::Cell::new(data),
+                prettytable::Cell::new(&created),
+                prettytable::Cell::new(&updated),
+            ]));
+        }
+    }
+
+    // Set table format and print
+    table.set_format(*prettytable::format::consts::FORMAT_CLEAN);
+    table.printstd();
+
+    Ok(())
+}
+
 pub async fn get_accelerators(platform: Option<String>) -> Result<(), Box<dyn Error>> {
     use nebulous::accelerator::aws::AwsProvider;
     use nebulous::accelerator::base::{AcceleratorProvider, Config};

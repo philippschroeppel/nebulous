@@ -3,20 +3,16 @@ use crate::accelerator::runpod::RunPodProvider;
 use crate::container::base::{ContainerPlatform, ContainerStatus};
 use crate::entities::containers;
 use crate::models::{
-    RestartPolicy, V1Container, V1ContainerRequest, V1ContainerStatus, V1Meter, V1ResourceMeta,
-    V1UserProfile, V1VolumeConfig, V1VolumePath,
+    RestartPolicy, V1Container, V1ContainerRequest, V1ContainerStatus, V1Meter, V1UserProfile,
+    V1VolumePath,
 };
 use crate::mutation::{self, Mutation};
+use crate::ssh::keys;
 use crate::volumes::rclone::{SymlinkConfig, VolumeConfig, VolumePath};
-use base64::engine::general_purpose::STANDARD;
-use base64::Engine as _;
 use petname;
 use reqwest::{Error, StatusCode};
-use ring::rand::SystemRandom;
-use ring::signature::{Ed25519KeyPair, KeyPair};
 use runpod::*;
 use sea_orm::{ActiveModelTrait, DatabaseConnection, Set};
-use shell_quote::{Bash, QuoteRefExt};
 use short_uuid::ShortUuid;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -47,110 +43,6 @@ impl RunpodPlatform {
         RunpodPlatform {
             runpod_client: RunpodClient::new(api_key),
         }
-    }
-
-    /// Select an appropriate GPU type based on VRAM request
-    fn _select_gpu_type(
-        &self,
-        vram_request: &Option<u32>,
-        gpu_types: &[GpuTypeWithDatacenter],
-    ) -> Option<String> {
-        // If no VRAM request, return None (will use default)
-        let vram_gb = match vram_request {
-            Some(vram) => *vram,
-            None => return None,
-        };
-
-        // Find the smallest GPU that meets the VRAM requirement
-        gpu_types
-            .iter()
-            .filter(|gpu| {
-                if let Some(memory) = gpu.memory_in_gb {
-                    memory >= vram_gb
-                } else {
-                    false
-                }
-            })
-            .min_by_key(|gpu| gpu.memory_in_gb.unwrap_or(0))
-            .map(|gpu| gpu.id.clone())
-    }
-
-    async fn ensure_network_volumes(
-        &self,
-        datacenter_id: &str,
-    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        // Define the single required volume with its size
-        let volume_name = "nebu"; // TODO: this needs to be per owner
-        let size_gb = 500;
-
-        // Get existing network volumes
-        let existing_volumes = self.runpod_client.list_network_volumes().await?;
-
-        // Extract existing volumes in the target datacenter
-        let existing_volumes_in_dc: Vec<&NetworkVolume> = existing_volumes
-            .iter()
-            .filter(|vol| vol.data_center_id == datacenter_id)
-            .collect();
-
-        let existing_volume_names: Vec<String> = existing_volumes_in_dc
-            .iter()
-            .map(|vol| vol.name.clone())
-            .collect();
-
-        info!(
-            "[Runpod Controller] Existing network volumes in datacenter {}: {:?}",
-            datacenter_id, existing_volume_names
-        );
-
-        // Check if our volume already exists
-        let volume_id = if existing_volume_names.contains(&volume_name.to_string()) {
-            info!(
-                "[Runpod Controller] Network volume '{}' already exists in datacenter {}",
-                volume_name, datacenter_id
-            );
-
-            // Find and return the ID of the existing volume
-            existing_volumes_in_dc
-                .iter()
-                .find(|vol| vol.name == volume_name)
-                .map(|vol| vol.id.clone())
-                .ok_or_else(|| format!("Volume '{}' exists but ID not found", volume_name))?
-        } else {
-            info!(
-                "[Runpod Controller] Creating network volume '{}' with size {}GB in datacenter {}",
-                volume_name, size_gb, datacenter_id
-            );
-
-            // Create the network volume
-            let create_request = NetworkVolumeCreateInput {
-                name: volume_name.to_string(),
-                size: size_gb,
-                data_center_id: datacenter_id.to_string(),
-            };
-
-            match self
-                .runpod_client
-                .create_network_volume(create_request)
-                .await
-            {
-                Ok(volume) => {
-                    info!(
-                        "[Runpod Controller] Successfully created network volume '{}' (id = {})",
-                        volume_name, volume.id
-                    );
-                    volume.id
-                }
-                Err(e) => {
-                    error!(
-                        "[Runpod Controller] Error creating network volume '{}': {:?}",
-                        volume_name, e
-                    );
-                    return Err(e.into());
-                }
-            }
-        };
-
-        Ok(volume_id)
     }
 
     /// Report metrics to OpenMeter for a running container
@@ -912,67 +804,16 @@ impl RunpodPlatform {
             }
         }
 
-        // Check if we got data back
-        // if let Some(datacenters) = gpu_types_response.data {
-        //     // Collect all GPU types from all datacenters
-        //     let mut all_gpu_types = Vec::new();
-
-        //     info!("[Runpod Controller] Available datacenters and GPU types:");
-        //     for datacenter in &datacenters {
-        //         info!(
-        //             "[Runpod Controller] Datacenter: {} ({})",
-        //             datacenter.name, datacenter.id
-        //         );
-
-        //         // Remove the Option check since gpu_types is already a Vec
-        //         for gpu_type in &datacenter.gpu_types {
-        //             info!(
-        //                 "[Runpod Controller]  ID: {}, Name: {}, Memory: {} GB",
-        //                 gpu_type.id, gpu_type.display_name, gpu_type.memory_in_gb as u32
-        //             );
-
-        //             // Store GPU type with datacenter info
-        //             all_gpu_types.push(GpuTypeWithDatacenter {
-        //                 id: gpu_type.id.clone(),
-        //                 memory_in_gb: Some(gpu_type.memory_in_gb as u32),
-        //                 data_center_id: datacenter.id.clone(),
-        //             });
-        //         }
-        //     }
-
-        //     info!("[Runpod Controller] Using GPU type: {}", runpod_gpu_type_id);
-
-        //     // Determine datacenter ID based on selected GPU type
-        //     if let Some(gpu_info) = all_gpu_types.iter().find(|g| g.id == runpod_gpu_type_id) {
-        //         datacenter_id = gpu_info.data_center_id.clone();
-        //     }
-        // } else if let Some(errors) = gpu_types_response.errors {
-        //     let error_messages: Vec<String> = errors.iter().map(|e| e.message.clone()).collect();
-        //     error!("[Runpod Controller] GraphQL errors: {:?}", error_messages);
-        //     return Err(Box::<dyn std::error::Error>::from(format!(
-        //         "Error fetching GPU types: GraphQL errors: {:?}",
-        //         error_messages
-        //     )));
-        // } else {
-        //     error!("[Runpod Controller] No data or errors returned from GPU types query");
-        //     return Err(Box::<dyn std::error::Error>::from(
-        //         "Error fetching GPU types: No data or errors returned",
-        //     ));
-        // }
-
-        // Now call ensure_network_volumes with the datacenter ID - directly await
-        // let network_volume_id = self
-        //     .ensure_network_volumes(&datacenter_id)
-        //     .await
-        //     .map_err(|e| {
-        //         Box::<dyn std::error::Error>::from(format!(
-        //             "Failed to ensure network volume exists: {}",
-        //             e
-        //         ))
-        //     })?;
-
         // --- ADDED: Generate SSH key pair and store the private key as a secret ---
-        let (ssh_private_key, ssh_public_key) = Self::generate_ssh_key()?;
+        let (ssh_private_key, ssh_public_key) = keys::generate_ssh_keypair()?;
+        debug!(
+            "[Runpod Controller] Generated SSH private key: {}",
+            ssh_private_key
+        );
+        debug!(
+            "[Runpod Controller] Generated SSH public key: {}",
+            ssh_public_key
+        );
         mutation::Mutation::store_ssh_keypair(
             db,
             &model.id,
@@ -984,10 +825,22 @@ impl RunpodPlatform {
 
         let mut env_vec = Vec::new();
 
-        env_vec.push(runpod::EnvVar {
-            key: "RUNPOD_SSH_PUBLIC_KEY".to_string(),
-            value: ssh_public_key,
-        });
+        match std::env::var("RUNPOD_PRIVATE_KEY") {
+            Ok(runpod_private_key) => info!(
+                "[Runpod Controller] Using static RUNPOD_PRIVATE_KEY environment variable: {}",
+                runpod_private_key
+            ),
+            Err(_) => {
+                info!(
+                    "[Runpod Controller] Using generated RUNPOD_SSH_PUBLIC_KEY: {}",
+                    ssh_public_key
+                );
+                env_vec.push(runpod::EnvVar {
+                    key: "RUNPOD_SSH_PUBLIC_KEY".to_string(),
+                    value: ssh_public_key,
+                });
+            }
+        }
 
         for (key, value) in self.get_common_env(&model, db).await {
             env_vec.push(runpod::EnvVar { key, value });
@@ -1058,6 +911,36 @@ impl RunpodPlatform {
         let docker_command = self.build_command(&model);
         info!("[Runpod Controller] Docker command: {:?}", docker_command);
 
+        let datacenters = self
+            .runpod_client
+            .find_datacenters_with_desired_gpu(&runpod_gpu_type_id, requested_gpu_count)
+            .await
+            .expect("Failed to find datacenters");
+
+        // grab the first datacenter
+        let datacenter = datacenters.first().unwrap();
+        println!("\n\nselected datacenter: {:?}", datacenter);
+
+        let volume = match self
+            .runpod_client
+            .ensure_volume_in_datacenter(
+                &model
+                    .owner_id
+                    .replace(".", "-")
+                    .replace("@", "-")
+                    .replace("+", "-")
+                    .replace("_", "-"),
+                &datacenter.id,
+                500,
+            )
+            .await
+        {
+            Ok(vol) => vol,
+            Err(e) => {
+                panic!("Error ensuring volume in datacenter: {:?}", e);
+            }
+        };
+
         // 5) Create an on-demand instance instead of a spot instance
         let create_request = CreateOnDemandPodRequest {
             cloud_type: Some("SECURE".to_string()),
@@ -1072,11 +955,9 @@ impl RunpodPlatform {
             docker_args: None,
             docker_entrypoint: docker_command.clone(),
             ports: Some(vec!["8000/tcp".to_string(), "8080/http".to_string()]),
-            // volume_mount_path: Some("/nebu/cache".to_string()),
-            volume_mount_path: None,
             env: env_vec,
-            // network_volume_id: Some(network_volume_id),
-            network_volume_id: None,
+            network_volume_id: Some(volume.id),
+            volume_mount_path: Some("/nebu/cache".to_string()),
         };
 
         info!(
@@ -1146,55 +1027,6 @@ impl RunpodPlatform {
         Ok(pod_id)
     }
 
-    /// Generates an Ed25519 SSH key pair using ring, returning `(private_key, public_key)`
-    /// in OpenSSH-compatible formats.
-    ///
-    /// Example public key format (typical):
-    /// ```text
-    /// ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA...
-    /// ```
-    ///
-    /// Example private key format (with headers):
-    /// ```text
-    /// -----BEGIN OPENSSH PRIVATE KEY-----
-    /// AAAAB3NzaC1yc2...
-    /// -----END OPENSSH PRIVATE KEY-----
-    /// ```
-    fn generate_ssh_key() -> Result<(String, String), Box<dyn std::error::Error + Send + Sync>> {
-        use base64::engine::general_purpose::STANDARD;
-        use ring::rand::SystemRandom;
-        use ring::signature::{Ed25519KeyPair, KeyPair};
-
-        // 1) Generate the keypair
-        let rng = SystemRandom::new();
-        let pkcs8_bytes = Ed25519KeyPair::generate_pkcs8(&rng)
-            .map_err(|e| format!("Failed to generate pkcs8: {:?}", e))?;
-        let keypair = Ed25519KeyPair::from_pkcs8(pkcs8_bytes.as_ref())
-            .map_err(|e| format!("Failed to parse Ed25519 keypair: {:?}", e))?;
-
-        // 2) Format public key as the usual "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA..."
-        let ssh_public_key = format!(
-            "ssh-ed25519 {}",
-            STANDARD.encode(keypair.public_key().as_ref())
-        );
-
-        // 3) Store the private key as PKCS#8 with a "PRIVATE KEY" header/footer (not "OPENSSH PRIVATE KEY")
-        let mut encoded_private_key = Vec::new();
-        encoded_private_key.extend_from_slice(b"-----BEGIN PRIVATE KEY-----\n");
-        encoded_private_key.extend_from_slice(STANDARD.encode(pkcs8_bytes.as_ref()).as_bytes());
-        encoded_private_key.extend_from_slice(b"\n-----END PRIVATE KEY-----\n");
-
-        // 4) Convert binary to a UTF-8 String
-        let ssh_private_key = String::from_utf8(encoded_private_key)
-            .map_err(|e| format!("Failed converting private key to UTF-8: {:?}", e))?;
-
-        debug!("[Runpod Controller] SSH private key: {}", ssh_private_key);
-        debug!("[Runpod Controller] SSH public key: {}", ssh_public_key);
-
-        // Return them as (private_key, public_key)
-        Ok((ssh_private_key, ssh_public_key))
-    }
-
     fn build_command(&self, model: &containers::Model) -> Option<Vec<String>> {
         let cmd = model.command.clone()?;
 
@@ -1232,6 +1064,9 @@ impl RunpodPlatform {
     {nebu_install}
     echo "[DEBUG] Done installing nebu; checking version..."
     nebu --version
+
+    echo "[DEBUG] Setting HF_HOME to /nebu/cache/huggingface"
+    mkdir -p /nebu/cache/huggingface
     
     echo "[DEBUG] Invoking nebu sync..."
     nebu sync volumes --config /nebu/sync.yaml --interval-seconds 5 \
@@ -1302,7 +1137,12 @@ done
         info!("[Runpod Controller] Resource name: {:?}", resource_name);
         info!("[Runpod Controller] Fetching pod host id...");
 
-        let pod_host_id = self.runpod_client.get_pod_host_id(&resource_name).await?;
+        let pod_host_id = match self.runpod_client.get_pod_host_id(&resource_name).await? {
+            Some(pod_host_id) => pod_host_id,
+            None => {
+                return Err(format!("No pod host id found for container {}", container_id).into())
+            }
+        };
         info!("[Runpod Controller] Fetched pod host id: {:?}", pod_host_id);
 
         // 3) Fetch the SSH key pair from the database
@@ -1325,7 +1165,7 @@ done
         // 5) Execute the command over SSH
         let output = crate::ssh::exec::exec_ssh_command(
             "ssh.runpod.io",
-            &resource_name,
+            &pod_host_id,
             &ssh_private_key,
             cmd,
         )
