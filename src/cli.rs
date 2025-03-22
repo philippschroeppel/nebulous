@@ -46,8 +46,28 @@ pub enum Commands {
         port: u16,
     },
 
+    /// Proxy a command.
+    Proxy {
+        #[command(subcommand)]
+        command: ProxyCommands,
+    },
+
     /// Login to a Nebulous API server.
     Login,
+}
+
+#[derive(Subcommand)]
+pub enum ProxyCommands {
+    /// Proxy local shell commands over HTTP.
+    Shell {
+        /// The host to bind to.
+        #[arg(long, default_value = "0.0.0.0")]
+        host: String,
+
+        /// The port to bind to.
+        #[arg(short, long, default_value_t = 8080)]
+        port: u16,
+    },
 }
 
 /// Subcommands for syncing

@@ -2,7 +2,7 @@ mod cli;
 mod commands;
 mod models;
 
-use crate::cli::{Cli, Commands, CreateCommands, DeleteCommands, GetCommands};
+use crate::cli::{Cli, Commands, CreateCommands, DeleteCommands, GetCommands, ProxyCommands};
 use clap::Parser;
 use cli::SyncCommands;
 use std::error::Error;
@@ -84,6 +84,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Commands::Delete { command } => match command {
             DeleteCommands::Containers { id } => {
                 commands::delete_cmd::delete_container(id).await?;
+            }
+        },
+        Commands::Proxy { command } => match command {
+            ProxyCommands::Shell { host, port } => {
+                commands::proxy_cmd::run_sync_cmd_server(&host, port).await?;
             }
         },
         Commands::Login => {
