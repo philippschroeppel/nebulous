@@ -493,32 +493,38 @@ Run a postgres and redis instance locally. This can be done easily with docker.
 docker run -d --name redis -p 6379:6379 redis:latest
 docker run -d --name postgres -p 5432:5432 postgres:latest
 ```
-   
-To use OpenMeter for metered billing, you will need to open an account with either [their cloud](https://openmeter.cloud/) or run their [open source](https://github.com/openmeterio/openmeter) and set the `OPENMETER_API_KEY` and `OPENMETER_URL` environment variables.
-   
-To use Tailnet, you will need to open an account with [Tailscale](https://tailscale.com/) or run your own [HeadScale](https://github.com/juanfont/headscale) instance and set the `TAILSCALE_API_KEY` and `TAILSCALE_TAILNET` environment variables.
+
+To configure the secrets store you will need an encryption key. This can be generated with the following command.
+```sh
+openssl rand -base64 32 | tr -dc '[:alnum:]' | head -c 32
+```
+Then set this to the `NEBU_ENCRYPTION_KEY` environment variable.   
+     
+To optionally use OpenMeter for metered billing, you will need to open an account with either [their cloud](https://openmeter.cloud/) or run their [open source](https://github.com/openmeterio/openmeter) and set the `OPENMETER_API_KEY` and `OPENMETER_URL` environment variables.   
+     
+To optionally use Tailnet, you will need to open an account with [Tailscale](https://tailscale.com/) or run your own [HeadScale](https://github.com/juanfont/headscale) instance and set the `TAILSCALE_API_KEY` and `TAILSCALE_TAILNET` environment variables.
    
 Install locally
 ```
 make install
 ```
-
+   
 Run the server
 ```
 nebu serve
 ```
-
+   
 Login to the auth server. When you do, set the server to `http://localhost:3000`.
 ```
 nebu login
 ```
-
+   
 Now you can create resources
 
 ```sh
 nebu create container -f examples/containers/trl_small.yaml
 ```
-
+   
 When you make changes, simple run `make install` and `nebu serve` again.
 
 ## Inspiration

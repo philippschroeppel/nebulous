@@ -25,7 +25,7 @@ spec:
           ports:
             - containerPort: 3000
           env:
-            - name: SECRET_ENCRYPTION_KEY
+            - name: NEBU_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.encryptionKey.secret.name }}

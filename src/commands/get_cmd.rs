@@ -80,6 +80,7 @@ pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
         prettytable::Cell::new("STATUS"),
         prettytable::Cell::new("ACCELERATOR"),
         prettytable::Cell::new("PUBLIC IP"),
+        prettytable::Cell::new("TAILNET URL"),
         prettytable::Cell::new("CREATED"),
     ]));
 
@@ -141,6 +142,12 @@ pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
                 .and_then(|status_obj| status_obj.get("public_ip"))
                 .and_then(Value::as_str)
                 .unwrap_or("N/A");
+            let tailnet_url = container_obj
+                .get("status")
+                .and_then(Value::as_object)
+                .and_then(|status_obj| status_obj.get("tailnet_url"))
+                .and_then(Value::as_str)
+                .unwrap_or("N/A");
 
             // Format creation time if available
             let created = container_obj
@@ -165,6 +172,7 @@ pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
                 prettytable::Cell::new(status),
                 prettytable::Cell::new(accelerator),
                 prettytable::Cell::new(public_ip),
+                prettytable::Cell::new(tailnet_url),
                 prettytable::Cell::new(&created),
             ]));
         }

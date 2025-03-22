@@ -417,6 +417,7 @@ impl RunpodPlatform {
                                 None,
                                 None,
                                 pod_info.public_ip.clone(),
+                                None,
                             )
                             .await
                             {
@@ -488,6 +489,7 @@ impl RunpodPlatform {
                                                     Some("Pod no longer exists".to_string()),
                                                     None,
                                                     None,
+                                                    None,
                                                 )
                                                 .await
                                                 {
@@ -511,6 +513,7 @@ impl RunpodPlatform {
                                                     container_id.to_string(),
                                                     Some(ContainerStatus::Completed.to_string()),
                                                     Some("Pod no longer exists".to_string()),
+                                                    None,
                                                     None,
                                                     None,
                                                 )
@@ -558,6 +561,7 @@ impl RunpodPlatform {
                                     Some("Pod was deleted or does not exist.".to_string()),
                                     None,
                                     None,
+                                    None,
                                 )
                                 .await
                             {
@@ -600,6 +604,7 @@ impl RunpodPlatform {
                             container_id.to_string(),
                             Some(ContainerStatus::Failed.to_string()),
                             Some("Too many consecutive errors".to_string()),
+                            None,
                             None,
                             None,
                         )
@@ -685,6 +690,7 @@ impl RunpodPlatform {
             db,
             model.id.clone(),
             Some(ContainerStatus::Creating.to_string()),
+            None,
             None,
             None,
             None,
@@ -929,7 +935,9 @@ impl RunpodPlatform {
         }
         info!("[Runpod Controller] Environment variables: {:?}", env_vec);
 
-        let docker_command = self.build_command(&model);
+        let hostname = format!("{}.{}.container", model.namespace, model.name);
+
+        let docker_command = self.build_command(&model, &hostname);
         info!("[Runpod Controller] Docker command: {:?}", docker_command);
 
         let datacenters = self
@@ -1013,6 +1021,7 @@ impl RunpodPlatform {
                         None,
                         Some(nebu_gpu_type_id),
                         pod.public_ip,
+                        Some(format!("http://{}", hostname)),
                     )
                     .await?;
 
@@ -1048,10 +1057,8 @@ impl RunpodPlatform {
         Ok(pod_id)
     }
 
-    fn build_command(&self, model: &containers::Model) -> Option<Vec<String>> {
+    fn build_command(&self, model: &containers::Model, hostname: &str) -> Option<Vec<String>> {
         let cmd = model.command.clone()?;
-
-        let hostname = format!("{}.{}.nebu", model.namespace, model.name);
 
         // Statements to install curl if missing:
         let curl_install = r#"
@@ -1099,7 +1106,7 @@ impl RunpodPlatform {
     tailscaled --tun=userspace-networking --socks5-server=localhost:1055 --outbound-http-proxy-listen=localhost:1055  > "$HOME/.logs/tailscaled.log" 2>&1 &
 
     echo "[DEBUG] Starting tailscale up..."
-    tailscale up --auth-key=$TAILSCALE_AUTH_KEY --hostname="{hostname}" --ssh
+    tailscale up --auth-key=$TS_AUTHKEY --hostname="{hostname}" --ssh
 
     echo "[DEBUG] Invoking nebu sync..."
     nebu sync volumes --config /nebu/sync.yaml --interval-seconds 5 \
@@ -1405,6 +1412,7 @@ impl ContainerPlatform for RunpodPlatform {
                 accelerator: None,
                 public_ip: None,
                 cost_per_hr: None,
+                tailnet_url: None,
             }))),
             platform: Set(Some("runpod".to_string())),
             platforms: Set(None),
@@ -1481,6 +1489,7 @@ impl ContainerPlatform for RunpodPlatform {
                 accelerator: None,
                 public_ip: None,
                 cost_per_hr: None,
+                tailnet_url: None,
             }),
             restart: config.restart.clone(),
             resources: config.resources.clone(),
@@ -1528,6 +1537,7 @@ impl ContainerPlatform for RunpodPlatform {
                             container.id.clone(),
                             Some(ContainerStatus::Queued.to_string()),
                             Some("Blocked by another running container in queue".to_string()),
+                            None,
                             None,
                             None,
                         )
@@ -1698,6 +1708,7 @@ impl ContainerPlatform for RunpodPlatform {
                                     &db,
                                     id.clone().to_string(),
                                     Some(ContainerStatus::Stopped.to_string()),
+                                    None,
                                     None,
                                     None,
                                     None,

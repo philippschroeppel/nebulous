@@ -117,6 +117,7 @@ pub struct V1ContainerStatus {
     pub accelerator: Option<String>,
     pub public_ip: Option<String>,
     pub cost_per_hr: Option<f64>,
+    pub tailnet_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

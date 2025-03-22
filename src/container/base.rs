@@ -209,10 +209,7 @@ pub trait ContainerPlatform {
         env.insert("NEBU_SERVER".to_string(), config.server.unwrap());
         env.insert("HF_HOME".to_string(), "/nebu/cache/huggingface".to_string());
 
-        env.insert(
-            "TAILSCALE_AUTH_KEY".to_string(),
-            self.get_tailscale_key().await,
-        );
+        env.insert("TS_AUTHKEY".to_string(), self.get_tailscale_key().await);
 
         // env.insert(
         //     "RCLONE_CONFIG_S3REMOTE_ACL".to_string(),
@@ -232,6 +229,9 @@ pub trait ContainerPlatform {
             .tailscale_tailnet
             .clone()
             .expect("tailscale_tailnet not found in config");
+
+        debug!("Tailscale key: {}", tailscale_api_key);
+        debug!("Tailnet: {}", tailnet);
 
         let client = TailscaleClient::new(tailscale_api_key);
 
@@ -258,6 +258,7 @@ pub trait ContainerPlatform {
             .await
             .expect("Failed to create Tailscale auth key");
 
+        debug!("Response: {:?}", response);
         // Return the key string
         let key = response
             .key

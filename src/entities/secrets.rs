@@ -33,12 +33,12 @@ impl ActiveModelBehavior for ActiveModel {}
 impl Model {
     // Get encryption key from environment
     fn get_encryption_key() -> Result<[u8; 32], String> {
-        let key = env::var("SECRET_ENCRYPTION_KEY")
-            .map_err(|_| "SECRET_ENCRYPTION_KEY environment variable not set".to_string())?;
+        let key = env::var("NEBU_ENCRYPTION_KEY")
+            .map_err(|_| "NEBU_ENCRYPTION_KEY environment variable not set".to_string())?;
 
         // Ensure the key is exactly 32 bytes (256 bits)
         if key.len() != 32 {
-            return Err("SECRET_ENCRYPTION_KEY must be exactly 32 bytes".to_string());
+            return Err("NEBU_ENCRYPTION_KEY must be exactly 32 bytes".to_string());
         }
 
         let mut result = [0u8; 32];

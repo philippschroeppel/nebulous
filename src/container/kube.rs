@@ -191,6 +191,7 @@ impl KubePlatform {
                             None,
                             None,
                             None,
+                            None,
                         )
                         .await
                         {
@@ -231,6 +232,7 @@ impl KubePlatform {
                             container_id.to_string(),
                             Some("failed".to_string()),
                             Some("Too many consecutive errors".to_string()),
+                            None,
                             None,
                             None,
                         )
@@ -513,6 +515,7 @@ impl ContainerPlatform for KubePlatform {
                                     accelerator: None,
                                     public_ip: None,
                                     cost_per_hr: None,
+                                    tailnet_url: None,
                                 }))),
                                 meters: Set(config
                                     .meters
@@ -623,6 +626,7 @@ impl ContainerPlatform for KubePlatform {
                 accelerator: None,
                 public_ip: None,
                 cost_per_hr: None,
+                tailnet_url: None,
             }),
             restart: config.restart.clone(),
             resources: config.resources.clone(),

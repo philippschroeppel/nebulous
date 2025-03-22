@@ -82,5 +82,5 @@ EXPOSE 3000
 # Run the binary
 CMD ["sh", "-c", "tailscaled --state=/data/tailscaled.state & \
     sleep 5 && \
-    tailscale up --authkey=$TAILSCALE_AUTH_KEY --hostname=nebu && \
+    tailscale up --authkey=$TS_AUTHKEY --hostname=nebu && \
     exec nebu serve --host 0.0.0.0 --port 3000"]

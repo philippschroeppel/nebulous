@@ -83,6 +83,7 @@ impl Mutation {
         message: Option<String>,
         accelerator: Option<String>,
         public_ip: Option<String>,
+        tailnet_url: Option<String>,
     ) -> Result<containers::Model, DbErr> {
         let container = containers::Entity::find_by_id(id)
             .one(db)
@@ -116,6 +117,9 @@ impl Mutation {
         }
         if let Some(ip) = public_ip {
             existing_status.public_ip = Some(ip);
+        }
+        if let Some(url) = tailnet_url {
+            existing_status.tailnet_url = Some(url);
         }
 
         // 3. Store the merged status back as JSON
