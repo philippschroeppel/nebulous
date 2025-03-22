@@ -1,3 +1,4 @@
+pub mod configure_cmd;
 pub mod create_cmd;
 pub mod delete_cmd;
 pub mod get_cmd;

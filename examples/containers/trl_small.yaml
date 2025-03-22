@@ -1,0 +1,35 @@
+kind: Container
+metadata:
+  name: trl-test-small
+  namespace: test
+  labels:
+    type: training
+image: "huggingface/trl-latest-gpu:latest"
+command: |
+  source activate trl && trl sft \
+    --model_name_or_path $MODEL \
+    --dataset_name trl-lib/Capybara \
+    --dataset_train_split "train[:1000]" \
+    --dataset_test_split "test[:20]" \
+    --output_dir /output \
+    --torch_dtype bfloat16 \
+    --use_peft true
+platform: runpod
+env:
+  - key: MODEL
+    value: Qwen/Qwen2.5-0.5B-Instruct
+  - key: DATASET
+    value: trl-lib/Capybara
+volumes:
+  - source: /output
+    dest: s3://nebulous-rs/test/trl-test-small
+    driver: RCLONE_SYNC
+    continuous: true
+accelerators:
+  - "1:L4"
+meters:
+  - cost: 0.01
+    unit: second
+    metric: runtime
+    currency: USD
+restart: Never

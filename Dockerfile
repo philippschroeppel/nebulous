@@ -65,6 +65,9 @@ RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2
     ./aws/install && \
     rm -rf awscliv2.zip aws
 
+# Install Tailscale
+RUN curl -fsSL https://tailscale.com/install.sh | sh
+
 # Create directory for SQLite database
 RUN mkdir -p /data
 WORKDIR /data
@@ -77,4 +80,7 @@ ENV DATABASE_URL=sqlite:/data/nebulous.db
 EXPOSE 3000
 
 # Run the binary
-CMD ["nebu", "serve", "--host", "0.0.0.0", "--port", "3000"]
+CMD ["sh", "-c", "tailscaled --state=/data/tailscaled.state & \
+    sleep 5 && \
+    tailscale up --authkey=$TAILSCALE_AUTH_KEY --hostname=nebu && \
+    exec nebu serve --host 0.0.0.0 --port 3000"]

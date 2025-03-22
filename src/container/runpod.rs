@@ -826,6 +826,20 @@ impl RunpodPlatform {
 
         let mut env_vec = Vec::new();
 
+        let proxy_value = "socks5h://127.0.0.1:1055".to_string();
+        env_vec.push(runpod::EnvVar {
+            key: "HTTP_PROXY".to_string(),
+            value: proxy_value.clone(),
+        });
+        env_vec.push(runpod::EnvVar {
+            key: "HTTPS_PROXY".to_string(),
+            value: proxy_value.clone(),
+        });
+        env_vec.push(runpod::EnvVar {
+            key: "ALL_PROXY".to_string(),
+            value: proxy_value.clone(),
+        });
+
         match std::env::var("RUNPOD_PUBLIC_KEY") {
             Ok(runpod_public_key) => {
                 info!(
@@ -1037,6 +1051,8 @@ impl RunpodPlatform {
     fn build_command(&self, model: &containers::Model) -> Option<Vec<String>> {
         let cmd = model.command.clone()?;
 
+        let hostname = format!("{}.{}.nebu", model.namespace, model.name);
+
         // Statements to install curl if missing:
         let curl_install = r#"
             echo "[DEBUG] Installing curl (if not present)..."
@@ -1056,11 +1072,12 @@ impl RunpodPlatform {
             fi
         "#;
 
-        let log_file = "/nebu_container.log";
+        let log_file = "$HOME/.logs/nebu_container.log";
 
         // Wrap the user command in parentheses and add a semicolon to ensure it's treated as a complete statement
         let base_script = format!(
             r#"
+    mkdir -p "$HOME/.logs"
     set -x
     exec > >(tee -a {log_file}) 2>&1
 
@@ -1074,7 +1091,16 @@ impl RunpodPlatform {
 
     echo "[DEBUG] Setting HF_HOME to /nebu/cache/huggingface"
     mkdir -p /nebu/cache/huggingface
-    
+
+    echo "[DEBUG] Installing tailscale..."
+    curl -fsSL https://tailscale.com/install.sh | sh
+
+    echo "[DEBUG] Starting tailscale daemon ..."
+    tailscaled --tun=userspace-networking --socks5-server=localhost:1055 --outbound-http-proxy-listen=localhost:1055  > "$HOME/.logs/tailscaled.log" 2>&1 &
+
+    echo "[DEBUG] Starting tailscale up..."
+    tailscale up --auth-key=$TAILSCALE_AUTH_KEY --hostname="{hostname}" --ssh
+
     echo "[DEBUG] Invoking nebu sync..."
     nebu sync volumes --config /nebu/sync.yaml --interval-seconds 5 \
         --create-if-missing --watch --background --block-once --config-from-env

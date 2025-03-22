@@ -6,9 +6,9 @@ use open;
 use rpassword;
 
 pub async fn execute() -> Result<(), Box<dyn Error>> {
-    let hub_address = "https://hub.agentlabs.xyz"; // Use your actual hub address
+    let hub_address = "https://tutor.agentlabs.xyz"; // Use your actual hub address
 
-    let url = format!("{}/cli-login", hub_address);
+    let url = format!("{}/settings/api", hub_address);
 
     println!("\nVisit {} to get an API key\n", url);
 

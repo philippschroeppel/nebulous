@@ -1,4 +1,6 @@
 use crate::auth::agent::create_agent_key;
+use crate::config::GlobalConfig;
+use crate::config::CONFIG;
 use crate::entities::containers;
 use crate::models::{V1Container, V1ContainerRequest, V1CreateAgentKeyRequest, V1UserProfile};
 use crate::query::Query;
@@ -7,7 +9,8 @@ use std::collections::HashMap;
 use std::env;
 use std::fmt;
 use std::str::FromStr;
-use tracing::info;
+use tailscale_client::TailscaleClient;
+use tracing::{debug, info};
 
 /// Enum for container status
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
@@ -175,7 +178,7 @@ pub trait ContainerPlatform {
         model: &containers::Model,
         db: &DatabaseConnection,
     ) -> HashMap<String, String> {
-        let config = crate::config::GlobalConfig::read().unwrap();
+        let config = GlobalConfig::read().unwrap();
         let mut env = HashMap::new();
 
         let agent_key = Query::get_agent_key(db, model.id.clone()).await.unwrap();
@@ -206,6 +209,11 @@ pub trait ContainerPlatform {
         env.insert("NEBU_SERVER".to_string(), config.server.unwrap());
         env.insert("HF_HOME".to_string(), "/nebu/cache/huggingface".to_string());
 
+        env.insert(
+            "TAILSCALE_AUTH_KEY".to_string(),
+            self.get_tailscale_key().await,
+        );
+
         // env.insert(
         //     "RCLONE_CONFIG_S3REMOTE_ACL".to_string(),
         //     "private".to_string(),
@@ -213,6 +221,51 @@ pub trait ContainerPlatform {
 
         // Add more common environment variables as needed
         env
+    }
+
+    async fn get_tailscale_key(&self) -> String {
+        let tailscale_api_key = CONFIG
+            .tailscale_api_key
+            .clone()
+            .expect("TAILSCALE_API_KEY not found in config");
+        let tailnet = CONFIG
+            .tailscale_tailnet
+            .clone()
+            .expect("tailscale_tailnet not found in config");
+
+        let client = TailscaleClient::new(tailscale_api_key);
+
+        // Build the request body with the capabilities you need
+        let request_body = tailscale_client::CreateAuthKeyRequest {
+            description: Some("Nebu ephemeral key".to_string()), // or use any desired description
+            expirySeconds: None,                                 // or Some(...) to set a time limit
+            capabilities: tailscale_client::Capabilities {
+                devices: tailscale_client::Devices {
+                    create: Some(tailscale_client::CreateOpts {
+                        reusable: Some(false),
+                        ephemeral: Some(true), // If true, the key can only add ephemeral nodes
+                        preauthorized: Some(true), // If true, automatically approves devices
+                        tags: Some(vec![]),
+                    }),
+                },
+            },
+        };
+
+        // The second parameter below (true) often corresponds to “override” in some older client versions;
+        // adjust as needed based on your Tailscale library’s signature.
+        let response = client
+            .create_auth_key(&tailnet, true, &request_body)
+            .await
+            .expect("Failed to create Tailscale auth key");
+
+        // Return the key string
+        let key = response
+            .key
+            .expect("Server did not return a value in `key`");
+
+        debug!("Tailscale key: {}", key);
+
+        key
     }
 
     async fn get_agent_key(

@@ -72,7 +72,7 @@ restart: Never
 Replace `my-bucket` with your bucket name, and make sure your aws and runpod credentials are in your environment.
 
 ```sh
-nebu create container -f examples/containers/trl.yaml
+nebu create container -f examples/containers/trl_small.yaml
 ```
 
 Alternatively, create a container on EC2 with 1 L40s GPU
@@ -482,6 +482,44 @@ nebu delete secrets my-secret -n my-app
 ## Contributing
 
 Please open an issue or submit a PR.
+
+## Developing
+
+Add all the environment variables shown in the [.env_](.env_) file to your environment.
+
+Run a postgres and redis instance locally. This can be done easily with docker.
+
+```sh
+docker run -d --name redis -p 6379:6379 redis:latest
+docker run -d --name postgres -p 5432:5432 postgres:latest
+```
+   
+To use OpenMeter for metered billing, you will need to open an account with either [their cloud](https://openmeter.cloud/) or run their [open source](https://github.com/openmeterio/openmeter) and set the `OPENMETER_API_KEY` and `OPENMETER_URL` environment variables.
+   
+To use Tailnet, you will need to open an account with [Tailscale](https://tailscale.com/) or run your own [HeadScale](https://github.com/juanfont/headscale) instance and set the `TAILSCALE_API_KEY` and `TAILSCALE_TAILNET` environment variables.
+   
+Install locally
+```
+make install
+```
+
+Run the server
+```
+nebu serve
+```
+
+Login to the auth server. When you do, set the server to `http://localhost:3000`.
+```
+nebu login
+```
+
+Now you can create resources
+
+```sh
+nebu create container -f examples/containers/trl_small.yaml
+```
+
+When you make changes, simple run `make install` and `nebu serve` again.
 
 ## Inspiration
 
