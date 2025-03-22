@@ -17,7 +17,7 @@ pub struct Model {
     pub id: String,
     pub namespace: String,
     pub name: String,
-    pub owner_id: String,
+    pub owner: String,
     pub owner_ref: Option<String>,
     pub image: String,
     pub env: Option<Json>,
@@ -35,6 +35,8 @@ pub struct Model {
     pub labels: Option<Json>,
     pub meters: Option<Json>,
     pub queue: Option<String>,
+    pub ports: Option<Vec<String>>,
+    pub public_ip: bool,
     pub timeout: Option<String>,
     pub resources: Option<Json>,
     pub restart: String,
@@ -147,7 +149,7 @@ impl Model {
             name: self.name.clone(),
             namespace: self.namespace.clone(),
             id: self.id.clone(),
-            owner_id: self.owner_id.clone(),
+            owner: self.owner.clone(),
             owner_ref: self.owner_ref.clone(),
             created_at: self.created_at.timestamp(),
             updated_at: self.updated_at.timestamp(),
@@ -172,6 +174,8 @@ impl Model {
             status,
             resources,
             ssh_keys,
+            ports: self.ports.clone(),
+            public_ip: self.public_ip.clone(),
         };
 
         Ok(container)

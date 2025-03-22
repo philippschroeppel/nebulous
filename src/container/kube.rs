@@ -496,7 +496,7 @@ impl ContainerPlatform for KubePlatform {
                                     .and_then(|meta| meta.namespace.clone())
                                     .unwrap_or_else(|| "default".to_string())),
                                 name: Set(name.clone().unwrap()),
-                                owner_id: Set(owner_id.to_string()),
+                                owner: Set(owner_id.to_string()),
                                 owner_ref: Set(owner_ref.clone()),
                                 image: Set(config.image.clone()),
                                 env: Set(config.env.clone().map(|vars| serde_json::json!(vars))),
@@ -531,6 +531,8 @@ impl ContainerPlatform for KubePlatform {
                                 controller_data: Set(None),
                                 public_addr: Set(None),
                                 private_ip: Set(None),
+                                ports: Set(config.ports.clone()),
+                                public_ip: Set(config.public_ip.clone().unwrap_or(false)),
                                 resources: Set(config
                                     .resources
                                     .clone()
@@ -595,7 +597,7 @@ impl ContainerPlatform for KubePlatform {
                     .and_then(|meta| meta.namespace.clone())
                     .unwrap_or_else(|| "default".to_string()),
                 id: id.clone(),
-                owner_id: owner_id.to_string(),
+                owner: owner_id.to_string(),
                 owner_ref: owner_ref.clone(),
                 created_at: chrono::Utc::now().timestamp(),
                 updated_at: chrono::Utc::now().timestamp(),
@@ -624,6 +626,8 @@ impl ContainerPlatform for KubePlatform {
             }),
             restart: config.restart.clone(),
             resources: config.resources.clone(),
+            ports: config.ports.clone(),
+            public_ip: config.public_ip.clone().unwrap_or(false),
         })
     }
 

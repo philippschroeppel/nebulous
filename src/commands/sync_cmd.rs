@@ -198,6 +198,8 @@ pub async fn execute_wait(
 ) -> Result<(), Box<dyn std::error::Error>> {
     use nebulous::volumes::rclone::{check_paths, VolumeConfig};
 
+    let _rclone_config = rclone::setup_rclone_config_from_env()?;
+
     loop {
         // Load the config (re-reads each loop in case it changes)
         let config = match VolumeConfig::read_from_file(config_path) {

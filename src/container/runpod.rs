@@ -376,7 +376,7 @@ impl RunpodPlatform {
                                     container_id.clone(),
                                     pause_seconds,
                                     meters,
-                                    container.owner_id.clone(),
+                                    container.owner.clone(),
                                     Some(pod_info.cost_per_hr),
                                     gpu_type,
                                 )
@@ -817,22 +817,29 @@ impl RunpodPlatform {
         mutation::Mutation::store_ssh_keypair(
             db,
             &model.id,
+            &model.namespace,
             &ssh_private_key,
             &ssh_public_key,
-            &model.owner_id,
+            &model.owner,
         )
         .await?;
 
         let mut env_vec = Vec::new();
 
-        match std::env::var("RUNPOD_PRIVATE_KEY") {
-            Ok(runpod_private_key) => info!(
-                "[Runpod Controller] Using static RUNPOD_PRIVATE_KEY environment variable: {}",
-                runpod_private_key
-            ),
+        match std::env::var("RUNPOD_PUBLIC_KEY") {
+            Ok(runpod_public_key) => {
+                info!(
+                    "[Runpod Controller] Using static RUNPOD_PUBLIC_KEY environment variable: {:?}",
+                    runpod_public_key
+                );
+                // env_vec.push(runpod::EnvVar {
+                //     key: "RUNPOD_SSH_PUBLIC_KEY".to_string(),
+                //     value: runpod_public_key,
+                // });
+            }
             Err(_) => {
                 info!(
-                    "[Runpod Controller] Using generated RUNPOD_SSH_PUBLIC_KEY: {}",
+                    "[Runpod Controller] Using generated RUNPOD_PUBLIC_KEY: {}",
                     ssh_public_key
                 );
                 env_vec.push(runpod::EnvVar {
@@ -925,7 +932,7 @@ impl RunpodPlatform {
             .runpod_client
             .ensure_volume_in_datacenter(
                 &model
-                    .owner_id
+                    .owner
                     .replace(".", "-")
                     .replace("@", "-")
                     .replace("+", "-")
@@ -954,7 +961,7 @@ impl RunpodPlatform {
             image_name: Some(model.image.clone()),
             docker_args: None,
             docker_entrypoint: docker_command.clone(),
-            ports: Some(vec!["8000/tcp".to_string(), "8080/http".to_string()]),
+            ports: Some(vec!["22/tcp".to_string(), "8080/http".to_string()]),
             env: env_vec,
             network_volume_id: Some(volume.id),
             volume_mount_path: Some("/nebu/cache".to_string()),
@@ -1164,13 +1171,34 @@ done
 
         // 5) Execute the command over SSH
         let output = crate::ssh::exec::exec_ssh_command(
-            "ssh.runpod.io",
+            "ssh.runpod.io:22",
             &pod_host_id,
             &ssh_private_key,
             cmd,
         )
         .await?;
-        info!("[Runpod Controller] Check done file output: {}", output);
+        info!(
+            "[Runpod Controller] Check done file output: '{}'",
+            output.trim()
+        );
+
+        info!("raw output.trim() = {:?}", output.trim());
+        info!("len = {}", output.trim().len());
+        for (i, b) in output.trim().as_bytes().iter().enumerate() {
+            info!("byte[{}] = {:#04x}", i, b);
+        }
+
+        if output.trim() == "0".to_string() {
+            info!("[Runpod Controller] ITS ZERO!!");
+        } else {
+            info!("[Runpod Controller] ITS not zero!!");
+        }
+
+        if output.trim() == "1".to_string() {
+            info!("[Runpod Controller] ITS ONE!!");
+        } else {
+            info!("[Runpod Controller] ITS not one!!");
+        }
 
         // 6) If output contains "1", the file exists, otherwise it doesn't
         let file_exists = output.trim() == "1";
@@ -1337,7 +1365,7 @@ impl ContainerPlatform for RunpodPlatform {
             id: Set(id.clone()),
             namespace: Set(namespace.clone()),
             name: Set(name.clone().unwrap_or(petname::petname(3, "-").unwrap())),
-            owner_id: Set(owner_id.to_string()),
+            owner: Set(owner_id.to_string()),
             owner_ref: Set(owner_ref.clone()),
             image: Set(config.image.clone()),
             env: Set(config.env.clone().map(|vars| serde_json::json!(vars))),
@@ -1377,6 +1405,8 @@ impl ContainerPlatform for RunpodPlatform {
             ssh_keys: Set(config.ssh_keys.clone().map(|keys| serde_json::json!(keys))),
             public_addr: Set(None),
             private_ip: Set(None),
+            ports: Set(config.ports.clone()),
+            public_ip: Set(config.public_ip.clone().unwrap_or(false)),
             created_by: Set(Some(owner_id.to_string())),
             updated_at: Set(chrono::Utc::now().into()),
             created_at: Set(chrono::Utc::now().into()),
@@ -1399,7 +1429,7 @@ impl ContainerPlatform for RunpodPlatform {
                 name: name.unwrap_or(petname::petname(3, "-").unwrap()),
                 namespace: namespace.clone(),
                 id: id.clone(),
-                owner_id: owner_id.to_string(),
+                owner: owner_id.to_string(),
                 owner_ref: owner_ref.clone(),
                 created_at: chrono::Utc::now().timestamp(),
                 updated_at: chrono::Utc::now().timestamp(),
@@ -1428,6 +1458,8 @@ impl ContainerPlatform for RunpodPlatform {
             }),
             restart: config.restart.clone(),
             resources: config.resources.clone(),
+            ports: config.ports.clone(),
+            public_ip: config.public_ip.clone().unwrap_or(false),
         })
     }
 
@@ -1552,7 +1584,7 @@ impl ContainerPlatform for RunpodPlatform {
 
         // Then call exec_ssh_command or whatever you need:
         let output = crate::ssh::exec::exec_ssh_command(
-            "ssh.runpod.io",
+            "ssh.runpod.io:22",
             &resource_name,
             &ssh_private_key,
             command,
@@ -1597,7 +1629,7 @@ impl ContainerPlatform for RunpodPlatform {
         //    Modify this as needed (for tailing, for instance).
         let command = format!("cat {}", log_file);
         let output = crate::ssh::exec::exec_ssh_command(
-            "ssh.runpod.io",
+            "ssh.runpod.io:22",
             &resource_name,
             &ssh_private_key,
             &command,

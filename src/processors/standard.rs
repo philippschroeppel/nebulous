@@ -157,13 +157,15 @@ impl StandardProcessor {
                 name: Some(format!("processor-{}", processor.name)),
                 namespace: Some(processor.namespace.clone()),
                 // The rest can be left empty if you only need partial data:
-                owner_id: Some(processor.owner_id.clone()),
+                owner: Some(processor.owner.clone()),
                 labels: Some(labels),
                 owner_ref: Some(processor.id.clone()),
             }),
             // Optional fields
             kind: "Container".to_string(),
             platform: Some(parsed_container.platform.clone()),
+            ports: parsed_container.ports,
+            public_ip: Some(parsed_container.public_ip),
         };
 
         // 5) Create a ContainerPlatform — in this case, Runpod.
@@ -171,7 +173,7 @@ impl StandardProcessor {
 
         // 6) For each replica, optionally modify the request with different names.
         //    Then declare the container with runpod, storing in DB + provisioning in RunPod.
-        let owner_id = processor.owner_id.clone();
+        let owner_id = processor.owner.clone();
         let user_profile = V1UserProfile {
             email: processor
                 .created_by
@@ -364,7 +366,7 @@ impl ProcessorPlatform for StandardProcessor {
                 .namespace
                 .clone()
                 .unwrap_or("default".to_string())),
-            owner_id: Set(owner_id.to_string()),
+            owner: Set(owner_id.to_string()),
             created_by: Set(Some(user_profile.email.clone())),
 
             // Any JSON fields from config (e.g., container & scale).

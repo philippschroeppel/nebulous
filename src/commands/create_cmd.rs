@@ -80,7 +80,7 @@ pub async fn create_container(
             metadata: Some(V1ResourceMetaRequest {
                 name: command.name,
                 namespace: command.namespace,
-                owner_id: None,
+                owner: None,
                 owner_ref: None,
                 labels: labels,
             }),
@@ -95,6 +95,8 @@ pub async fn create_container(
                 max_memory: command.max_memory,
             }),
             ssh_keys: None,
+            ports: None,
+            public_ip: None,
         }
     };
 

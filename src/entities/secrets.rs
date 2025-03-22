@@ -14,7 +14,9 @@ pub struct Model {
     #[sea_orm(primary_key, column_type = "Text", auto_increment = false)]
     pub id: String,
     pub name: String,
-    pub owner_id: String,
+    pub namespace: String,
+    pub owner: String,
+    pub owner_ref: Option<String>,
     pub encrypted_value: String,
     pub nonce: String, // Store the nonce used for encryption
     pub labels: Option<Json>,
@@ -100,7 +102,8 @@ impl Model {
     pub fn new(
         id: String,
         name: String,
-        owner_id: String,
+        namespace: String,
+        owner: String,
         value: &str,
         created_by: Option<String>,
         labels: Option<Json>,
@@ -111,7 +114,9 @@ impl Model {
         Ok(Self {
             id,
             name,
-            owner_id,
+            namespace,
+            owner,
+            owner_ref: None,
             encrypted_value,
             nonce,
             labels,

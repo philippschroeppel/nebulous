@@ -206,6 +206,7 @@ impl Mutation {
     pub async fn store_ssh_keypair(
         db: &DatabaseConnection,
         container_id: &str,
+        namespace: &str,
         private_key: &str,
         public_key: &str,
         owner_id: &str,
@@ -219,6 +220,7 @@ impl Mutation {
         let private_secret_model = secrets::Model::new(
             private_secret_id.clone(),
             format!("SSH private key for container {}", container_id),
+            namespace.to_string(),
             owner_id.to_string(),
             private_key,
             Some(owner_id.to_string()),
@@ -234,6 +236,7 @@ impl Mutation {
         let public_secret_model = secrets::Model::new(
             public_secret_id.clone(),
             format!("SSH public key for container {}", container_id),
+            namespace.to_string(),
             owner_id.to_string(),
             public_key,
             Some(owner_id.to_string()),

@@ -22,10 +22,46 @@ use serde_json::json;
 pub async fn get_container(
     State(state): State<AppState>,
     Extension(user_profile): Extension<V1UserProfile>,
+    Path((namespace, name)): Path<(String, String)>,
+) -> Result<Json<V1Container>, (StatusCode, Json<serde_json::Value>)> {
+    let db_pool = &state.db_pool;
+
+    let container =
+        match Query::find_container_by_namespace_and_name(db_pool, &namespace, &name).await {
+            Ok(container) => container,
+            Err(e) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("Database error: {}", e)})),
+                ));
+            }
+        };
+
+    if container.is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Container not found"})),
+        ));
+    }
+
+    _get_container_by_id(db_pool, &container.unwrap().id.to_string(), &user_profile).await
+}
+
+pub async fn get_container_by_id(
+    State(state): State<AppState>,
+    Extension(user_profile): Extension<V1UserProfile>,
     Path(id): Path<String>,
 ) -> Result<Json<V1Container>, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
 
+    _get_container_by_id(db_pool, &id, &user_profile).await
+}
+
+pub async fn _get_container_by_id(
+    db_pool: &DatabaseConnection,
+    id: &str,
+    user_profile: &V1UserProfile,
+) -> Result<Json<V1Container>, (StatusCode, Json<serde_json::Value>)> {
     let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
         orgs.keys().cloned().collect()
     } else {
@@ -51,7 +87,7 @@ pub async fn get_container(
             name: container.name.clone(),
             namespace: container.namespace.clone(),
             id: container.id.to_string(),
-            owner_id: container.owner_id,
+            owner: container.owner.clone(),
             created_at: container.created_at.timestamp(),
             updated_at: container.updated_at.timestamp(),
             created_by: container.created_by.unwrap_or_default(),
@@ -87,6 +123,8 @@ pub async fn get_container(
         ssh_keys: container
             .ssh_keys
             .and_then(|v| serde_json::from_value(v).ok()),
+        ports: container.ports,
+        public_ip: container.public_ip,
     };
 
     Ok(Json(out_container))
@@ -129,7 +167,7 @@ pub async fn list_containers(
                 name: c.name,
                 namespace: c.namespace,
                 id: c.id.to_string(),
-                owner_id: c.owner_id,
+                owner: c.owner,
                 created_at: c.created_at.timestamp(),
                 updated_at: c.updated_at.timestamp(),
                 created_by: c.created_by.unwrap_or_default(),
@@ -155,6 +193,8 @@ pub async fn list_containers(
             timeout: c.timeout,
             resources: c.resources.and_then(|v| serde_json::from_value(v).ok()),
             ssh_keys: c.ssh_keys.and_then(|v| serde_json::from_value(v).ok()),
+            ports: c.ports,
+            public_ip: c.public_ip,
         })
         .collect();
 
@@ -195,10 +235,46 @@ pub async fn create_container(
 pub async fn delete_container(
     State(state): State<AppState>,
     Extension(user_profile): Extension<V1UserProfile>,
+    Path((namespace, name)): Path<(String, String)>,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    let db_pool = &state.db_pool;
+
+    let container =
+        match Query::find_container_by_namespace_and_name(db_pool, &namespace, &name).await {
+            Ok(container) => container,
+            Err(e) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("Database error: {}", e)})),
+                ));
+            }
+        };
+
+    if container.is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Container not found"})),
+        ));
+    }
+
+    _delete_container_by_id(db_pool, &container.unwrap().id.to_string(), &user_profile).await
+}
+
+pub async fn delete_container_by_id(
+    State(state): State<AppState>,
+    Extension(user_profile): Extension<V1UserProfile>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
 
+    _delete_container_by_id(db_pool, &id, &user_profile).await
+}
+
+pub async fn _delete_container_by_id(
+    db_pool: &DatabaseConnection,
+    id: &str,
+    user_profile: &V1UserProfile,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
     let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
         orgs.keys().cloned().collect()
     } else {
@@ -219,7 +295,7 @@ pub async fn delete_container(
         })?;
 
     // Check if user has permission to delete this container
-    let owner_id = container.owner_id.clone();
+    let owner_id = container.owner.clone();
 
     let platform = platform_factory(container.platform.unwrap().clone());
 
@@ -234,12 +310,14 @@ pub async fn delete_container(
         })?;
 
     // Delete the container
-    Mutation::delete_container(db_pool, id).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Failed to delete container: {}", e)})),
-        )
-    })?;
+    Mutation::delete_container(db_pool, id.to_string())
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Failed to delete container: {}", e)})),
+            )
+        })?;
 
     // Return just a 200 OK status code
     Ok(StatusCode::OK)

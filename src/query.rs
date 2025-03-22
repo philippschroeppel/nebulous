@@ -14,10 +14,10 @@ pub struct Query;
 impl Query {
     pub async fn find_containers_by_owners(
         db: &DatabaseConnection,
-        owner_ids: &[&str],
+        owners: &[&str],
     ) -> Result<Vec<containers::Model>, DbErr> {
         containers::Entity::find()
-            .filter(containers::Column::OwnerId.is_in(owner_ids.iter().copied()))
+            .filter(containers::Column::Owner.is_in(owners.iter().copied()))
             .all(db)
             .await
     }
@@ -28,14 +28,26 @@ impl Query {
         containers::Entity::find_by_id(id).one(db).await
     }
 
+    pub async fn find_container_by_namespace_and_name(
+        db: &DatabaseConnection,
+        namespace: &str,
+        name: &str,
+    ) -> Result<Option<containers::Model>, DbErr> {
+        containers::Entity::find()
+            .filter(containers::Column::Namespace.eq(namespace))
+            .filter(containers::Column::Name.eq(name))
+            .one(db)
+            .await
+    }
+
     pub async fn find_container_by_id_and_owners(
         db: &DatabaseConnection,
         id: &str,
-        owner_ids: &[&str],
+        owners: &[&str],
     ) -> Result<containers::Model, DbErr> {
         let result = containers::Entity::find()
             .filter(containers::Column::Id.eq(id))
-            .filter(containers::Column::OwnerId.is_in(owner_ids.iter().copied()))
+            .filter(containers::Column::Owner.is_in(owners.iter().copied()))
             .one(db)
             .await?;
 
@@ -238,11 +250,11 @@ impl Query {
     pub async fn find_secret_by_id_and_owners(
         db: &DatabaseConnection,
         id: &str,
-        owner_ids: &[&str],
+        owners: &[&str],
     ) -> Result<secrets::Model, DbErr> {
         let result = secrets::Entity::find()
             .filter(secrets::Column::Id.eq(id))
-            .filter(secrets::Column::OwnerId.is_in(owner_ids.iter().copied()))
+            .filter(secrets::Column::Owner.is_in(owners.iter().copied()))
             .one(db)
             .await?;
 
@@ -255,10 +267,10 @@ impl Query {
     /// Fetch all secrets for a given list of owners
     pub async fn find_secrets_by_owners(
         db: &DatabaseConnection,
-        owner_ids: &[&str],
+        owners: &[&str],
     ) -> Result<Vec<secrets::Model>, DbErr> {
         secrets::Entity::find()
-            .filter(secrets::Column::OwnerId.is_in(owner_ids.iter().copied()))
+            .filter(secrets::Column::Owner.is_in(owners.iter().copied()))
             .all(db)
             .await
     }

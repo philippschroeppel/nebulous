@@ -1,28 +1,35 @@
-use ssh2::Session;
 use std::io::Read;
 use std::io::{stdin, stdout, Write};
 use std::net::TcpStream;
 
 use anyhow::Result;
-use async_trait::async_trait;
-use russh::keys::{decode_secret_key, PrivateKey, PrivateKeyWithHashAlg};
+use russh::keys::{decode_secret_key, PrivateKeyWithHashAlg};
 use russh::{client, ChannelMsg, Disconnect};
-use ssh_key;
 use std::{str, sync::Arc};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tracing::debug;
+
+use russh::client::Config;
+use russh::keys::*;
+use russh::*;
+use ssh2::Session;
+use tokio::io::AsyncWriteExt;
 use tokio::net::ToSocketAddrs;
-use tracing::{debug, info};
 
-/// A no-op client handler that just accepts the host key without checking.
-/// In production, you’d want to verify the server’s public key or do known_hosts logic.
-struct ClientHandler;
+struct Client {}
 
-#[allow(unused_variables)]
-#[async_trait::async_trait]
-impl client::Handler for ClientHandler {
+// More SSH event handlers
+// can be defined in this trait
+// In this example, we're only using Channel, so these aren't needed.
+impl client::Handler for Client {
     type Error = russh::Error;
-}
 
+    async fn check_server_key(
+        &mut self,
+        _server_public_key: &ssh_key::PublicKey,
+    ) -> Result<bool, Self::Error> {
+        Ok(true)
+    }
+}
 /// Asynchronous function to execute a command via SSH using `russh`.
 ///
 /// - `host` should be something like "example.com:22" (or ip:port).
@@ -36,96 +43,172 @@ pub async fn exec_ssh_command<A: ToSocketAddrs>(
     username: &str,
     private_key: &str,
     command: &str,
-) -> Result<String>
+) -> anyhow::Result<String>
 where
     A: ToSocketAddrs + std::fmt::Debug,
 {
-    debug!(
-        "Executing SSH command with host: {:?}, username: {}, private_key: {}, command: {}",
-        host, username, private_key, command
-    );
-    // 1) Decode your in-memory Ed25519 private key
-    //    (If your key has a passphrase, pass `Some("pass")` instead of `None`.)
-    let parsed_key = decode_secret_key(private_key, None)
-        .map_err(|e| anyhow::anyhow!("Failed to parse: {}", e))?;
-
-    debug!("Parsed key: {:?}", parsed_key);
-
-    // 2) Create a minimal client config
-    let mut config = client::Config::default();
-    // Example: set a small inactivity timeout
-    config.inactivity_timeout = Some(std::time::Duration::from_secs(5));
+    let mut config = Config::default();
     let config = Arc::new(config);
 
+    // 1) Connect
     debug!("Connecting to SSH server");
-    // 3) Connect to the SSH server
-    let handler = ClientHandler;
-    let mut session = client::connect(config, host, handler)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to connect SSH: {}", e))?;
+    let handler = Client {};
+    let mut session = client::connect(config, host, handler).await?;
 
-    debug!("Connected to SSH server");
+    // 2) Decode your in-memory private key
+    //
+    //    Note: If your key is encrypted (passphrase-protected),
+    //    you’d need to pass `Some("passphrase")` as the second arg.
+    let raw_key = russh::keys::decode_secret_key(private_key, None)?;
 
-    // 4) Authenticate with public key
-    //    If you need e.g. "rsa-sha2-256" you can call `session.best_supported_rsa_hash().await?`
-    //    For Ed25519, we usually pass `None` for the “best_supported_rsa_hash”:
-    let auth_res = session
-        .authenticate_publickey(
-            username,
-            PrivateKeyWithHashAlg::new(Arc::new(parsed_key), None),
-        )
-        .await?;
-
-    debug!("Authenticated with SSH server");
-
-    if !auth_res.success() {
-        return Err(anyhow::anyhow!("SSH authentication failed"));
+    // 3) Authenticate with the remote server
+    let key_with_hash = PrivateKeyWithHashAlg::new(Arc::new(raw_key), Some(HashAlg::Sha256));
+    match session
+        .authenticate_publickey(username, key_with_hash)
+        .await?
+    {
+        russh::client::AuthResult::Success => {
+            // e.g. log success
+            debug!("Authenticated with SSH server");
+        }
+        russh::client::AuthResult::Failure {
+            remaining_methods,
+            partial_success,
+        } => {
+            // e.g. return an error
+            return Err(anyhow::anyhow!(
+                "Public-key authentication failed: partial_success={partial_success:?}",
+            ));
+        }
     }
 
-    // 5) Open a channel and exec your command
+    // 4) Open a channel
     let mut channel = session.channel_open_session().await?;
-    // “false” means “no request for a PTY”; set `true` if you want pseudo-tty allocation
-    channel.exec(false, command).await?;
 
-    debug!("Executed command");
+    // 1) Request a PTY + Shell
+    channel
+        .request_pty(true, "xterm", 80, 24, 0, 0, &[])
+        .await?;
+    channel.request_shell(true).await?;
 
-    // 6) Read the command’s stdout from the channel
+    // 2) Send our command, then a special marker, then exit.
+    //    We’ll look for CMD_DONE_... to know when we're done.
+    let marker = "CMD_DONE_1234"; // Could be a random UUID for uniqueness
+    let script = format!(
+        "{cmd}\necho {marker}\nexit\n",
+        cmd = command,
+        marker = marker
+    );
+
+    let mut writer = channel.make_writer();
+    writer.write_all(script.as_bytes()).await?;
+    channel.eof().await?;
+
+    // 3) Read until we see our marker. We'll gather only
+    //    the lines that come AFTER the echoed command line
+    //    but BEFORE the marker line.
     let mut output = String::new();
+
+    // We'll do line buffering in case Data arrives in fragments
+    let mut buffer = String::new();
+    let mut collecting = false; // are we in the region after the echoed command?
+
     while let Some(msg) = channel.wait().await {
         match msg {
             ChannelMsg::Data { data } => {
-                // Convert bytes to UTF-8 (ignoring invalid sequences).
-                if let Ok(text) = str::from_utf8(&data) {
-                    debug!("Received data: {}", text);
-                    output.push_str(text);
+                if let Ok(text) = std::str::from_utf8(&data) {
+                    buffer.push_str(text);
+
+                    // Process lines that might accumulate in `buffer`
+                    while let Some(newline_idx) = buffer.find('\n') {
+                        // Extract everything up to newline_idx
+                        let raw_line = buffer[..newline_idx].to_string();
+                        let line = raw_line.replace('\r', "");
+                        debug!("Line: '{}'", line.replace('\n', "\\n"));
+
+                        // Remove up to and including the newline character
+                        buffer.drain(..=newline_idx);
+
+                        // Now we decide if we record this line, or skip it
+                        if line.contains(command) {
+                            // We found the line that echoed back our command.
+                            // Start collecting on subsequent lines.
+                            collecting = true;
+                            continue;
+                        }
+                        if line.contains(marker) {
+                            // Marker means we're done collecting the command's output
+                            collecting = false;
+                            continue;
+                        }
+                        if collecting {
+                            // This line is "pure output" from the command
+                            output.push_str(&line);
+                            output.push('\n');
+                        }
+                    }
                 }
             }
-            ChannelMsg::ExitStatus { exit_status } => {
-                // If you need the remote exit code, store `exit_status`.
-                debug!("Received exit status: {}", exit_status);
+            ChannelMsg::Eof | ChannelMsg::Close => {
+                // The remote shell is closed or done
+                break;
             }
-            ChannelMsg::ExitSignal { signal_name, .. } => {
-                // E.g. the remote was signaled. You can handle if you like.
-                debug!("Received exit signal: {:?}", signal_name);
-            }
-            ChannelMsg::Eof => {
-                // The server closed the channel’s sending end
-                debug!("Received EOF");
-            }
-            // Possibly other variants, ignoring them here.
             _ => {}
         }
     }
 
-    // 7) Disconnect politely (optional).
-    session
-        .disconnect(Disconnect::ByApplication, "", "en-US")
-        .await?;
+    // 4) Close channel politely (optional if everything ended anyway)
+    channel.close().await?;
 
-    debug!("Disconnected from SSH server");
-
-    // 8) Return the stdout
+    debug!("Output: {}", output);
     Ok(output)
+}
+
+/// Asynchronous function to execute a command via SSH using [`async_ssh2_tokio`].
+///
+/// - `host` should be just the hostname or IP (e.g. "example.com" or "10.10.10.2").  
+///   We’ll connect on port 22 below.  
+/// - `username` is your SSH username.  
+/// - `private_key` is the **in-memory** Ed25519 (or RSA, etc.) private key contents
+///   in OpenSSH format. If you have a passphrase, use the [`AuthMethod::with_key`]
+///   variant with `Some("your-passphrase")`.
+/// - `command` is the remote command to be executed.
+///
+/// Returns the command's stdout as a `String`.
+pub async fn exec_ssh_command_async_ssh2tokio(
+    host: &str,
+    username: &str,
+    private_key: &str,
+    command: &str,
+) -> Result<String, async_ssh2_tokio::Error> {
+    use async_ssh2_tokio::client::{AuthMethod, Client, ServerCheckMethod};
+
+    // 1) Configure our authentication method. Here, we assume an in-memory private key.
+    //    If your private key has a passphrase, replace `None` with `Some("passphrase")`.
+    let auth_method = AuthMethod::with_key(private_key, None);
+
+    // 2) Connect to the SSH server
+    //
+    //    For demonstration, we do a "no-check" for the server host key.
+    //    In production, you'd generally want to do some key/host-fingerprint checks
+    //    to ensure you're really talking to the correct server.
+    let mut client = Client::connect(
+        (host, 22), // host, port
+        username,
+        auth_method,
+        ServerCheckMethod::NoCheck,
+    )
+    .await?;
+
+    // 3) Execute the remote command
+    let result = client.execute(command).await?;
+
+    // 4) Finally, disconnect if desired (optional, but recommended).
+    //    If not explicitly called, the session/connection will drop when `client` is out of scope.
+    client.disconnect().await?;
+
+    // 5) Return the standard output (stderr is separate in `result.stderr`).
+    Ok(result.stdout)
 }
 
 /// Opens an interactive SSH shell (like an 'ssh' CLI).

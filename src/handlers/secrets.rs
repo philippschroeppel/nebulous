@@ -1,3 +1,4 @@
+use crate::models::{V1ResourceMeta, V1Secret, V1SecretRequest};
 use crate::{
     entities::secrets, models::V1UserProfile, mutation::Mutation, query::Query, state::AppState,
 };
@@ -11,29 +12,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use tracing::info;
-
-#[derive(Serialize, Deserialize, Debug, Default)]
-pub struct V1Secret {
-    pub kind: String,
-    pub id: String,
-    pub name: String,
-    pub owner_id: String,
-    pub created_by: String,
-    pub labels: HashMap<String, serde_json::Value>,
-    pub created_at: i64,
-    pub updated_at: i64,
-    /// Plaintext of the secret (be cautious about returning this!)
-    pub value: Option<String>,
-}
-
-/// Request body used for creating or updating a secret
-#[derive(Serialize, Deserialize, Debug)]
-pub struct V1SecretRequest {
-    pub name: String,
-    pub value: String,
-    #[serde(default)]
-    pub labels: HashMap<String, serde_json::Value>,
-}
 
 /// Handler: List secrets for the current user (and their organizations)
 pub async fn list_secrets(
@@ -72,17 +50,21 @@ pub async fn list_secrets(
             let decrypted_value = secret.decrypt_value().ok(); // returns Result; ignore errors
             V1Secret {
                 kind: "Secret".to_string(),
-                id: secret.id,
-                name: secret.name,
-                owner_id: secret.owner_id,
-                created_by: secret.created_by.unwrap_or_default(),
-                labels: secret
-                    .labels
-                    .as_ref()
-                    .and_then(|v| serde_json::from_value(v.clone()).ok())
-                    .unwrap_or_default(),
-                created_at: secret.created_at.timestamp(),
-                updated_at: secret.updated_at.timestamp(),
+                metadata: V1ResourceMeta {
+                    id: secret.id,
+                    name: secret.name,
+                    namespace: secret.namespace,
+                    owner: secret.owner,
+                    owner_ref: secret.owner_ref,
+                    created_by: secret.created_by.unwrap_or_default(),
+                    labels: secret
+                        .labels
+                        .as_ref()
+                        .and_then(|v| serde_json::from_value(v.clone()).ok())
+                        .unwrap_or_default(),
+                    created_at: secret.created_at.timestamp(),
+                    updated_at: secret.updated_at.timestamp(),
+                },
                 value: decrypted_value,
             }
         })
@@ -127,17 +109,21 @@ pub async fn get_secret(
 
     let secret_response = V1Secret {
         kind: "Secret".to_string(),
-        id: secret_model.id,
-        name: secret_model.name,
-        owner_id: secret_model.owner_id,
-        created_by: secret_model.created_by.unwrap_or_default(),
-        labels: secret_model
-            .labels
-            .as_ref()
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
-            .unwrap_or_default(),
-        created_at: secret_model.created_at.timestamp(),
-        updated_at: secret_model.updated_at.timestamp(),
+        metadata: V1ResourceMeta {
+            id: secret_model.id,
+            name: secret_model.name,
+            namespace: secret_model.namespace,
+            owner: secret_model.owner,
+            owner_ref: secret_model.owner_ref,
+            created_by: secret_model.created_by.unwrap_or_default(),
+            labels: secret_model
+                .labels
+                .as_ref()
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default(),
+            created_at: secret_model.created_at.timestamp(),
+            updated_at: secret_model.updated_at.timestamp(),
+        },
         value: decrypted_value,
     };
 
@@ -155,14 +141,37 @@ pub async fn create_secret(
     // Generate a unique ID for the secret. You might use `short_uuid`, etc.
     let secret_id = format!("secret-{}", uuid::Uuid::new_v4());
 
+    // id: String,
+    // name: String,
+    // namespace: String,
+    // owner: String,
+    // value: &str,
+    // created_by: Option<String>,
+    // labels: Option<Json>,
+
+    // If the name is None, we generate a petname. Otherwise, use the provided name.
+    let name = payload
+        .metadata
+        .name
+        .clone()
+        .unwrap_or_else(|| petname::petname(2, "-").unwrap());
+
+    // Also set the namespace to "default" if not provided
+    let namespace = payload
+        .metadata
+        .namespace
+        .clone()
+        .unwrap_or_else(|| "default".to_string());
+
     // Create the new Model, which will auto-encrypt the secret value
     let secret_model = secrets::Model::new(
         secret_id.clone(),
-        payload.name.clone(),
+        name,
+        namespace,
         user_profile.email.clone(), // owner_id
         &payload.value,
-        Some(user_profile.email.clone()),        // created_by
-        Some(serde_json::json!(payload.labels)), // labels
+        Some(user_profile.email.clone()), // created_by
+        Some(serde_json::json!(payload.metadata.labels)), // labels
     )
     .map_err(|err| {
         (
@@ -195,13 +204,17 @@ pub async fn create_secret(
     // Finally build the response
     let response = V1Secret {
         kind: "Secret".to_string(),
-        id: inserted.id,
-        name: inserted.name,
-        owner_id: inserted.owner_id,
-        created_by,
-        labels,
-        created_at: inserted.created_at.timestamp(),
-        updated_at: inserted.updated_at.timestamp(),
+        metadata: V1ResourceMeta {
+            id: inserted.id,
+            name: inserted.name,
+            namespace: inserted.namespace,
+            owner: inserted.owner,
+            owner_ref: inserted.owner_ref,
+            created_by,
+            labels,
+            created_at: inserted.created_at.timestamp(),
+            updated_at: inserted.updated_at.timestamp(),
+        },
         value: decrypted_value,
     };
 
@@ -240,10 +253,10 @@ pub async fn update_secret(
     let updated_secret = Mutation::update_secret(
         db_pool,
         existing_secret,
-        Some(payload.name.clone()),
+        payload.metadata.name.clone(),
         // Provide new_value if you want to re-encrypt. If you want partial updates, handle Option.
         Some(payload.value.clone()),
-        Some(json!(payload.labels)),
+        Some(json!(payload.metadata.labels)),
     )
     .await
     .map_err(|err| {
@@ -259,17 +272,21 @@ pub async fn update_secret(
     // Build response
     let response = V1Secret {
         kind: "Secret".to_string(),
-        id: updated_secret.id,
-        name: updated_secret.name,
-        owner_id: updated_secret.owner_id,
-        created_by: updated_secret.created_by.unwrap_or_default(),
-        labels: updated_secret
-            .labels
-            .as_ref()
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
-            .unwrap_or_default(),
-        created_at: updated_secret.created_at.timestamp(),
-        updated_at: updated_secret.updated_at.timestamp(),
+        metadata: V1ResourceMeta {
+            id: updated_secret.id,
+            name: updated_secret.name,
+            namespace: updated_secret.namespace,
+            owner: updated_secret.owner,
+            owner_ref: updated_secret.owner_ref,
+            created_by: updated_secret.created_by.unwrap_or_default(),
+            labels: updated_secret
+                .labels
+                .as_ref()
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default(),
+            created_at: updated_secret.created_at.timestamp(),
+            updated_at: updated_secret.updated_at.timestamp(),
+        },
         value: decrypted_value,
     };
 

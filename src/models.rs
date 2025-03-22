@@ -1,3 +1,4 @@
+use openai_api_rs::v1::chat_completion::{ChatCompletionRequest, ChatCompletionResponse};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -57,6 +58,8 @@ pub struct V1ContainerRequest {
     pub queue: Option<String>,
     pub timeout: Option<String>,
     pub ssh_keys: Option<Vec<V1SSHKey>>,
+    pub ports: Option<Vec<String>>,
+    pub public_ip: Option<bool>,
 }
 
 pub enum RestartPolicy {
@@ -90,7 +93,7 @@ pub struct V1ResourceMeta {
     pub name: String,
     pub namespace: String,
     pub id: String,
-    pub owner_id: String,
+    pub owner: String,
     pub created_at: i64,
     pub updated_at: i64,
     pub created_by: String,
@@ -103,7 +106,7 @@ pub struct V1ResourceMetaRequest {
     pub name: Option<String>,
     pub namespace: Option<String>,
     pub labels: Option<HashMap<String, String>>,
-    pub owner_id: Option<String>,
+    pub owner: Option<String>,
     pub owner_ref: Option<String>,
 }
 
@@ -141,6 +144,8 @@ pub struct V1Container {
     pub resources: Option<V1ContainerResources>,
     pub status: Option<V1ContainerStatus>,
     pub ssh_keys: Option<Vec<V1SSHKey>>,
+    pub ports: Option<Vec<String>>,
+    pub public_ip: bool,
 }
 // Add this function to provide a default kind value
 fn default_container_kind() -> String {
@@ -325,4 +330,88 @@ pub struct V1AgentKey {
     pub valid_for: Option<i64>,
     pub org: Option<String>,
     pub role: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct V1Secret {
+    pub kind: String,
+    pub metadata: V1ResourceMeta,
+    pub value: Option<String>,
+}
+
+/// Request body used for creating or updating a secret
+#[derive(Serialize, Deserialize, Debug)]
+pub struct V1SecretRequest {
+    pub metadata: V1ResourceMetaRequest,
+    pub value: String,
+}
+
+//
+// Stream models
+//
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct V1StreamMessage {
+    #[serde(default = "kind_v1_stream_message")]
+    pub kind: String,
+    pub id: String,
+    #[serde(default)]
+    pub content: Value,
+    pub created_at: i64,
+    pub return_stream: Option<String>,
+    pub user_id: Option<String>,
+    pub organizations: Option<Value>,
+    pub handle: Option<String>,
+    pub adapter: Option<String>,
+}
+
+fn kind_v1_stream_message() -> String {
+    "V1StreamMessage".to_string()
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct V1StreamResponseMessage {
+    #[serde(default = "kind_v1_stream_response_message")]
+    pub kind: String,
+    pub id: String,
+    #[serde(default)]
+    pub content: Value,
+    pub created_at: i64,
+    pub user_id: Option<String>,
+}
+
+fn kind_v1_stream_response_message() -> String {
+    "V1StreamResponseMessage".to_string()
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct V1OpenAIStreamMessage {
+    #[serde(default = "kind_v1_openai_stream_message")]
+    pub kind: String,
+    pub id: String,
+    pub content: ChatCompletionRequest,
+    pub created_at: i64,
+    pub return_stream: Option<String>,
+    pub user_id: Option<String>,
+    pub organizations: Option<Value>,
+    pub handle: Option<String>,
+    pub adapter: Option<String>,
+}
+
+fn kind_v1_openai_stream_message() -> String {
+    "V1OpenAIStreamMessage".to_string()
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct V1OpenAIStreamResponse {
+    #[serde(default = "kind_v1_openai_stream_response")]
+    pub kind: String,
+    pub id: String,
+    pub content: ChatCompletionResponse,
+    pub created_at: i64,
+    pub user_id: Option<String>,
+}
+
+fn kind_v1_openai_stream_response() -> String {
+    "V1OpenAIStreamResponse".to_string()
 }

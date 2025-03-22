@@ -56,12 +56,101 @@ except redis.exceptions.ResponseError as e:
 consumer_name = f"consumer-{time.time()}"
 
 # Configure model and sampling parameters
-sampling_params = SamplingParams(max_tokens=8192)
 llm = LLM(model=model_name)
 
 print(
     f"Listening for messages on Redis stream='{redis_stream}' as consumer='{consumer_name}'..."
 )
+
+
+def get_sampling_params(params: dict) -> SamplingParams:
+    """
+    Convert OpenAI-style parameters to vllm SamplingParams.
+    If a parameter has no direct equivalent in vllm, we skip it or set defaults.
+    """
+
+    # From OpenAI params
+    temperature = params.get("temperature", 1.0)
+    top_p = params.get("top_p", 1.0)
+    n = params.get("n", 1)
+
+    # 'max_completion_tokens' takes precedence over 'max_tokens'
+    max_tokens = params.get("max_completion_tokens")
+    if max_tokens is None:
+        max_tokens = params.get("max_tokens", 256)  # default if not provided
+
+    presence_penalty = params.get("presence_penalty", 0.0)
+    frequency_penalty = params.get("frequency_penalty", 0.0)
+    stop = params.get("stop", None)
+    # Could be str or list of str in OpenAI. vllm also accepts Optional[List[str]].
+
+    seed = params.get("seed", None)
+    # vllm seeds are experimental/don't guarantee perfectly reproducible outputs,
+    # but it's included here since OpenAI exposes it.
+
+    # OpenAI allows logprobs=bool and top_logprobs=int
+    # vllm supports logprobs=bool. We'll also pass top_logprobs if present.
+    logprobs = params.get("logprobs", False)
+    top_logprobs = params.get("top_logprobs", None)
+
+    # The 'logit_bias' from OpenAI is a Dict[str, int], mapping token IDs to bias
+    logit_bias = params.get("logit_bias", None)
+
+    # vllm does not have an exact equivalent for 'service_tier', 'user', 'store', etc.
+    # We'll skip them here, or you can handle them separately if needed.
+
+    # We'll read some advanced/optional vllm parameters from the snippet
+    # if they exist in the OpenAI request. Otherwise, we default them.
+    repetition_penalty = 1.0  # default in vllm snippet
+    if "repetition_penalty" in params:
+        # If you want to allow it from some extended param, do so here.
+        repetition_penalty = params["repetition_penalty"]
+
+    top_k = None
+    if "top_k" in params:
+        top_k = params["top_k"]
+
+    min_p = None
+    if "min_p" in params:
+        min_p = params["min_p"]
+
+    # If you'd like to parse more advanced fields, do so similarly.
+    # Example: "best_of", "stop_token_ids", etc.
+
+    # Some advanced text-generation features
+    ignore_eos = False
+    if "ignore_eos" in params:
+        ignore_eos = params["ignore_eos"]
+
+    # Response format ( JSON / plain text / etc. )
+    output_kind = None
+    response_format = params.get("response_format")
+    if response_format and isinstance(response_format, dict):
+        # e.g. { "type": "json_object" } or { "type": "json_schema", ... }
+        if response_format.get("type") == "json_object":
+            output_kind = "json"
+        # If it’s "json_schema", you might also set output_kind="json"
+        # or treat it differently if your model needs special handling.
+
+    return SamplingParams(
+        n=n,
+        presence_penalty=presence_penalty,
+        frequency_penalty=frequency_penalty,
+        repetition_penalty=repetition_penalty,
+        temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+        min_p=min_p,
+        seed=seed,
+        stop=stop,
+        max_tokens=max_tokens,
+        logprobs=logprobs,
+        top_logprobs=top_logprobs,
+        logit_bias=logit_bias,
+        ignore_eos=ignore_eos,
+        output_kind=output_kind,
+    )
+
 
 while True:
     try:
@@ -94,6 +183,8 @@ while True:
                 openai_messages = json.loads(raw_data)
 
                 print(f"OpenAI Messages: {openai_messages}")
+
+                sampling_params = get_sampling_params(openai_messages)
                 # Invoke the model's chat method
                 outputs = llm.chat(openai_messages, sampling_params=sampling_params)
                 print(f"Outputs: {outputs}")

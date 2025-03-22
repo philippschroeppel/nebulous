@@ -256,6 +256,7 @@ pub trait ContainerPlatform {
             container_id.to_string(),
             format!("agent-key-{}", container_id),
             "container-reconciler".to_string(),
+            "container-reconciler".to_string(),
             &agent_key,
             Some(owner_id.to_string()),
             None,
@@ -265,7 +266,9 @@ pub trait ContainerPlatform {
         let active_model = secrets::ActiveModel {
             id: Set(secret.id),
             name: Set(secret.name),
-            owner_id: Set(secret.owner_id),
+            namespace: Set(secret.namespace),
+            owner: Set(secret.owner),
+            owner_ref: Set(secret.owner_ref),
             encrypted_value: Set(secret.encrypted_value),
             nonce: Set(secret.nonce),
             labels: Set(None),
