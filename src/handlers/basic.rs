@@ -3,9 +3,9 @@ use serde_json::json;
 
 pub async fn root_handler() -> impl IntoResponse {
     let response = json!({
-        "name": "nebu",
+        "name": "nebulous",
         "version": env!("CARGO_PKG_VERSION"),
-        "description": "Autoscaling compute clusters for LLMs",
+        "description": "A cross-cloud container orchestration platform",
         "documentation": "https://docs.nebu.sh",
     });
     Json(response)

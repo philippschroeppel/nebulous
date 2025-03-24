@@ -66,6 +66,7 @@ pub async fn list_secrets(
                     updated_at: secret.updated_at.timestamp(),
                 },
                 value: decrypted_value,
+                expires_at: secret.expires_at,
             }
         })
         .collect();
@@ -73,14 +74,78 @@ pub async fn list_secrets(
     Ok(Json(response))
 }
 
-/// Handler: Get a single secret by ID
+/// Handler: Get a single secret by namespace and name
 pub async fn get_secret(
+    State(state): State<AppState>,
+    Extension(user_profile): Extension<V1UserProfile>,
+    Path((namespace, name)): Path<(String, String)>,
+) -> Result<Json<V1Secret>, (StatusCode, Json<serde_json::Value>)> {
+    let db_pool = &state.db_pool;
+
+    // Attempt to retrieve the secret from the DB
+    let secret = Query::find_secret_by_namespace_and_name(db_pool, &namespace, &name)
+        .await
+        .map_err(|err| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Database error: {}", err) })),
+            )
+        })?;
+
+    // If the secret is `None`, return a 404; otherwise, proceed
+    let secret_model = match secret {
+        Some(secret_model) => secret_model,
+        None => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "Secret not found" })),
+            ));
+        }
+    };
+
+    // Decrypt the value if needed
+    let decrypted_value = secret_model.decrypt_value().ok();
+
+    // Build and return the V1Secret response
+    let secret_response = V1Secret {
+        kind: "Secret".to_string(),
+        metadata: V1ResourceMeta {
+            id: secret_model.id,
+            name: secret_model.name,
+            namespace: secret_model.namespace,
+            owner: secret_model.owner,
+            owner_ref: secret_model.owner_ref,
+            created_by: secret_model.created_by.unwrap_or_default(),
+            labels: secret_model
+                .labels
+                .as_ref()
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default(),
+            created_at: secret_model.created_at.timestamp(),
+            updated_at: secret_model.updated_at.timestamp(),
+        },
+        value: decrypted_value,
+        expires_at: secret_model.expires_at,
+    };
+
+    Ok(Json(secret_response))
+}
+
+pub async fn get_secret_by_id(
     State(state): State<AppState>,
     Extension(user_profile): Extension<V1UserProfile>,
     Path(id): Path<String>,
 ) -> Result<Json<V1Secret>, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
 
+    _get_secret_by_id(db_pool, &id, &user_profile).await
+}
+
+pub async fn _get_secret_by_id(
+    db_pool: &DatabaseConnection,
+    id: &str,
+    user_profile: &V1UserProfile,
+) -> Result<Json<V1Secret>, (StatusCode, Json<serde_json::Value>)> {
     // Gather owners
     let mut owner_ids: Vec<String> = user_profile
         .organizations
@@ -125,6 +190,7 @@ pub async fn get_secret(
             updated_at: secret_model.updated_at.timestamp(),
         },
         value: decrypted_value,
+        expires_at: secret_model.expires_at,
     };
 
     Ok(Json(secret_response))
@@ -172,6 +238,7 @@ pub async fn create_secret(
         &payload.value,
         Some(user_profile.email.clone()), // created_by
         Some(serde_json::json!(payload.metadata.labels)), // labels
+        payload.expires_at,
     )
     .map_err(|err| {
         (
@@ -216,20 +283,63 @@ pub async fn create_secret(
             updated_at: inserted.updated_at.timestamp(),
         },
         value: decrypted_value,
+        expires_at: inserted.expires_at,
     };
 
     Ok(Json(response))
 }
 
-/// Handler: Update an existing secret
+/// Handler: Update a secret by namespace/name
 pub async fn update_secret(
+    State(state): State<AppState>,
+    Extension(user_profile): Extension<V1UserProfile>,
+    Path((namespace, name)): Path<(String, String)>,
+    Json(payload): Json<V1SecretRequest>,
+) -> Result<Json<V1Secret>, (StatusCode, Json<serde_json::Value>)> {
+    let db_pool = &state.db_pool;
+
+    // 1) Fetch secret by namespace+name
+    let secret_opt = Query::find_secret_by_namespace_and_name(db_pool, &namespace, &name)
+        .await
+        .map_err(|err| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Database error: {}", err)})),
+            )
+        })?;
+
+    // 2) If not found => 404
+    let secret_model = match secret_opt {
+        Some(s) => s,
+        None => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "Secret not found"})),
+            ));
+        }
+    };
+
+    // 3) Call the shared helper, passing the existing secret's ID
+    _update_secret_by_id(db_pool, &secret_model.id, &user_profile, &payload).await
+}
+
+/// Handler: Update a secret by ID
+pub async fn update_secret_by_id(
     State(state): State<AppState>,
     Extension(user_profile): Extension<V1UserProfile>,
     Path(secret_id): Path<String>,
     Json(payload): Json<V1SecretRequest>,
 ) -> Result<Json<V1Secret>, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
+    _update_secret_by_id(db_pool, &secret_id, &user_profile, &payload).await
+}
 
+pub async fn _update_secret_by_id(
+    db_pool: &DatabaseConnection,
+    secret_id: &str,
+    user_profile: &V1UserProfile,
+    payload: &V1SecretRequest,
+) -> Result<Json<V1Secret>, (StatusCode, Json<serde_json::Value>)> {
     // Gather owners
     let mut owner_ids: Vec<String> = user_profile
         .organizations
@@ -288,19 +398,62 @@ pub async fn update_secret(
             updated_at: updated_secret.updated_at.timestamp(),
         },
         value: decrypted_value,
+        expires_at: updated_secret.expires_at,
     };
 
     Ok(Json(response))
 }
 
-/// Handler: Delete a secret
+/// Handler: Delete a secret by namespace/name
 pub async fn delete_secret(
+    State(state): State<AppState>,
+    Extension(user_profile): Extension<V1UserProfile>,
+    Path((namespace, name)): Path<(String, String)>,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    let db_pool = &state.db_pool;
+
+    // 1) Look up secret by namespace + name
+    let secret_opt = Query::find_secret_by_namespace_and_name(db_pool, &namespace, &name)
+        .await
+        .map_err(|err| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Database error: {}", err) })),
+            )
+        })?;
+
+    // 2) If None => 404
+    let secret_model = match secret_opt {
+        Some(s) => s,
+        None => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "Secret not found" })),
+            ));
+        }
+    };
+
+    // 3) Call the shared helper to delete by ID
+    _delete_secret_by_id(db_pool, &secret_model.id, &user_profile).await
+}
+
+/// Handler: Delete a secret by ID
+pub async fn delete_secret_by_id(
     State(state): State<AppState>,
     Extension(user_profile): Extension<V1UserProfile>,
     Path(secret_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
+    // Just call our shared helper directly
+    _delete_secret_by_id(db_pool, &secret_id, &user_profile).await
+}
 
+/// Handler: Delete a secret
+pub async fn _delete_secret_by_id(
+    db_pool: &DatabaseConnection,
+    secret_id: &str,
+    user_profile: &V1UserProfile,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
     // Gather owners
     let mut owner_ids: Vec<String> = user_profile
         .organizations
@@ -321,7 +474,7 @@ pub async fn delete_secret(
         })?;
 
     // Actually delete
-    let result = Mutation::delete_secret(db_pool, secret_id)
+    let result = Mutation::delete_secret(db_pool, secret_id.to_string())
         .await
         .map_err(|err| {
             (

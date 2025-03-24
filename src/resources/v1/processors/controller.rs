@@ -1,7 +1,7 @@
 use crate::entities::processors;
-use crate::processors::base::ProcessorPlatform;
-use crate::processors::standard::StandardProcessor;
 use crate::query::Query;
+use crate::resources::v1::processors::base::ProcessorPlatform;
+use crate::resources::v1::processors::standard::StandardProcessor;
 use crate::state::AppState;
 use std::sync::Arc;
 use tokio::task::JoinHandle;

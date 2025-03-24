@@ -1,9 +1,8 @@
-use crate::container::base::ContainerPlatform;
-use crate::container::base::ContainerStatus;
 use crate::entities::containers;
 use crate::models::{
     V1Container, V1ContainerRequest, V1ContainerStatus, V1ResourceMeta, V1UserProfile,
 };
+use crate::resources::v1::containers::base::{ContainerPlatform, ContainerStatus};
 use k8s_openapi::api::batch::v1::{Job, JobSpec};
 use k8s_openapi::api::core::v1::{
     Container as K8sContainer, ContainerPort, EnvVar, PodSpec, PodTemplateSpec,
@@ -489,15 +488,18 @@ impl ContainerPlatform for KubePlatform {
                         Ok(_) => {
                             info!("[Kubernetes] Successfully created Job '{:?}'", name);
 
+                            let namespace = config
+                                .metadata
+                                .as_ref()
+                                .and_then(|meta| meta.namespace.clone())
+                                .unwrap_or_else(|| "default".to_string());
+
                             // Create the container record in the database
                             let container = crate::entities::containers::ActiveModel {
                                 id: Set(id.clone()),
-                                namespace: Set(config
-                                    .metadata
-                                    .as_ref()
-                                    .and_then(|meta| meta.namespace.clone())
-                                    .unwrap_or_else(|| "default".to_string())),
+                                namespace: Set(namespace.clone()),
                                 name: Set(name.clone().unwrap()),
+                                full_name: Set(format!("{}/{}", namespace, name.clone().unwrap())),
                                 owner: Set(owner_id.to_string()),
                                 owner_ref: Set(owner_ref.clone()),
                                 image: Set(config.image.clone()),
@@ -506,6 +508,7 @@ impl ContainerPlatform for KubePlatform {
                                     .volumes
                                     .clone()
                                     .map(|vols| serde_json::json!(vols))),
+                                local_volumes: Set(None),
                                 accelerators: Set(config.accelerators.clone()),
                                 cpu_request: Set(None),
                                 memory_request: Set(None),
@@ -513,7 +516,7 @@ impl ContainerPlatform for KubePlatform {
                                     status: Some(ContainerStatus::Pending.to_string()),
                                     message: None,
                                     accelerator: None,
-                                    public_ip: None,
+                                    public_ports: None,
                                     cost_per_hr: None,
                                     tailnet_url: None,
                                 }))),
@@ -534,7 +537,10 @@ impl ContainerPlatform for KubePlatform {
                                 controller_data: Set(None),
                                 public_addr: Set(None),
                                 private_ip: Set(None),
-                                ports: Set(config.ports.clone()),
+                                ports: Set(config
+                                    .ports
+                                    .clone()
+                                    .map(|ports| serde_json::json!(ports))),
                                 public_ip: Set(config.public_ip.clone().unwrap_or(false)),
                                 resources: Set(config
                                     .resources
@@ -624,7 +630,7 @@ impl ContainerPlatform for KubePlatform {
                 status: Some(ContainerStatus::Pending.to_string()),
                 message: None,
                 accelerator: None,
-                public_ip: None,
+                public_ports: None,
                 cost_per_hr: None,
                 tailnet_url: None,
             }),

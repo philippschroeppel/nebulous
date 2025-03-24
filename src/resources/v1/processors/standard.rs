@@ -3,7 +3,7 @@ use crate::entities::processors;
 use crate::models::{
     V1EnvVar, V1Processor, V1ProcessorRequest, V1ResourceMetaRequest, V1UserProfile,
 };
-use crate::processors::base::{ProcessorPlatform, ProcessorStatus};
+use crate::resources::v1::processors::base::{ProcessorPlatform, ProcessorStatus};
 use crate::state::MessageQueue;
 use crate::streams::redis::get_consumer_group_progress;
 use crate::AppState;
@@ -31,13 +31,13 @@ impl StandardProcessor {
         db: &DatabaseConnection,
         processor: processors::Model,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        use crate::container::base::ContainerPlatform;
-        use crate::container::runpod::RunpodPlatform;
         use crate::models::{
             RestartPolicy, V1ContainerRequest, V1ResourceMeta, V1UserProfile, /* etc. */
         };
         use crate::mutation::Mutation;
-        use crate::processors::base::ProcessorStatus;
+        use crate::resources::v1::containers::base::ContainerPlatform;
+        use crate::resources::v1::containers::runpod::RunpodPlatform;
+        use crate::resources::v1::processors::base::ProcessorStatus;
         use tracing::info;
 
         info!("[Processor Controller] Starting processor {}", processor.id);
@@ -496,12 +496,12 @@ impl ProcessorPlatform for StandardProcessor {
         id: &str,
         db: &DatabaseConnection,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        use crate::container::base::ContainerPlatform;
-        use crate::container::factory::platform_factory;
-        use crate::container::runpod::RunpodPlatform;
         use crate::entities::processors;
         use crate::models::V1UserProfile;
         use crate::query::Query; // so we can find containers by owner_ref or processor_id
+        use crate::resources::v1::containers::base::ContainerPlatform;
+        use crate::resources::v1::containers::factory::platform_factory;
+        use crate::resources::v1::containers::runpod::RunpodPlatform;
         use sea_orm::{EntityTrait, ModelTrait};
 
         // 1) Find the processor in the database by `id`.

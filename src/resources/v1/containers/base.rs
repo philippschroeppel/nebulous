@@ -314,6 +314,7 @@ pub trait ContainerPlatform {
             &agent_key,
             Some(owner_id.to_string()),
             None,
+            None,
         )?;
 
         // Convert to active model for insertion
@@ -329,6 +330,7 @@ pub trait ContainerPlatform {
             created_by: Set(secret.created_by),
             updated_at: Set(secret.updated_at),
             created_at: Set(secret.created_at),
+            expires_at: Set(None),
         };
 
         // Insert into database

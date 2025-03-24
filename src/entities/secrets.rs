@@ -23,6 +23,7 @@ pub struct Model {
     pub created_by: Option<String>,
     pub updated_at: DateTimeWithTimeZone,
     pub created_at: DateTimeWithTimeZone,
+    pub expires_at: Option<i32>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -107,6 +108,7 @@ impl Model {
         value: &str,
         created_by: Option<String>,
         labels: Option<Json>,
+        expires_at: Option<i32>,
     ) -> Result<Self, String> {
         let (encrypted_value, nonce) = Self::encrypt_value(value)?;
         let now = chrono::Utc::now().into();
@@ -123,6 +125,7 @@ impl Model {
             created_by,
             updated_at: now,
             created_at: now,
+            expires_at,
         })
     }
 }

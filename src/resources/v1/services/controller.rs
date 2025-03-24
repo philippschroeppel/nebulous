@@ -1,5 +1,7 @@
-use crate::entities::containers;
+use crate::entities::processors;
 use crate::query::Query;
+use crate::resources::v1::processors::base::ProcessorPlatform;
+use crate::resources::v1::processors::standard::StandardProcessor;
 use crate::state::AppState;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
@@ -20,13 +22,13 @@ struct ReconcilerData {
 
 /// A global map from some container "thread_id" -> the running JoinHandle.
 /// We’ll store the `thread_id` in DB and look it up here to see if it’s finished.
-static CONTAINER_RECON_TASKS: Lazy<DashMap<String, JoinHandle<()>>> = Lazy::new(DashMap::new);
+static PROCESSOR_RECON_TASKS: Lazy<DashMap<String, JoinHandle<()>>> = Lazy::new(DashMap::new);
 
-pub struct ContainerController {
+pub struct ProcessorController {
     app_state: Arc<AppState>,
 }
 
-impl ContainerController {
+impl ProcessorController {
     pub fn new(app_state: Arc<AppState>) -> Self {
         Self { app_state }
     }
@@ -34,22 +36,22 @@ impl ContainerController {
     /// The main loop that spawns or skips reconciliation tasks (threads).
     /// Each container’s `controller_data` field will hold the JSON specifying its `thread_id`.
     pub async fn reconcile(&self) {
-        info!("[Container Controller] Starting container reconciliation process");
+        info!("[Processor Controller] Starting processor reconciliation process");
 
-        match Query::find_all_active_containers(&self.app_state.db_pool).await {
-            Ok(containers) => {
+        match Query::find_all_active_processors(&self.app_state.db_pool).await {
+            Ok(processors) => {
                 debug!(
-                    "[DEBUG:controller.rs:reconcile] Found {} containers to reconcile",
-                    containers.len()
+                    "[DEBUG:controller.rs:reconcile] Found {} processors to reconcile",
+                    processors.len()
                 );
-                for container in containers {
+                for processor in processors {
                     debug!(
-                        "[DEBUG:controller.rs:reconcile] Inspecting container {}",
-                        container.id
+                        "[DEBUG:controller.rs:reconcile] Inspecting processor {}",
+                        processor.id
                     );
                     // Attempt to parse `controller_data` as `ReconcilerData`.
                     let mut existing_data =
-                        match container.parse_controller_data::<ReconcilerData>() {
+                        match processor.parse_controller_data::<ReconcilerData>() {
                             Ok(Some(data)) => data,
                             _ => ReconcilerData { thread_id: None },
                         };
@@ -61,7 +63,7 @@ impl ContainerController {
 
                     // If there's already a thread_id, check if it's still alive.
                     if let Some(thread_id) = &existing_data.thread_id {
-                        if let Some(handle_ref) = CONTAINER_RECON_TASKS.get(thread_id) {
+                        if let Some(handle_ref) = PROCESSOR_RECON_TASKS.get(thread_id) {
                             // If handle still running, skip starting a new one.
                             debug!(
                                 "[DEBUG:controller.rs:reconcile] handle_ref.is_finished() = {}",
@@ -69,8 +71,8 @@ impl ContainerController {
                             );
                             if !handle_ref.is_finished() {
                                 info!(
-                                    "[Container Controller] Container {} has a running reconcile thread; skipping.",
-                                    container.id
+                                    "[Processor Controller] Processor {} has a running reconcile thread; skipping.",
+                                    processor.id
                                 );
                                 continue;
                             } else {
@@ -86,15 +88,15 @@ impl ContainerController {
                                 );
 
                                 // Now remove from the map
-                                let removed = CONTAINER_RECON_TASKS.remove(thread_id);
+                                let removed = PROCESSOR_RECON_TASKS.remove(thread_id);
                                 debug!("[DEBUG:controller.rs] remove(...) returned: {:?}", removed);
                             }
                         }
                     }
 
                     debug!(
-                        "[DEBUG:controller.rs:reconcile] Spawning a new reconcile task for container {}",
-                        container.id
+                        "[DEBUG:controller.rs:reconcile] Spawning a new reconcile task for processor {}",
+                        processor.id
                     );
 
                     // Otherwise, we spawn a fresh task.
@@ -104,58 +106,59 @@ impl ContainerController {
                     // Persist new `thread_id` in `controller_data`, so if we lose the process,
                     // we at least know which container was last assigned which thread ID.
                     if let Err(e) = Self::store_thread_id_in_db(
-                        &container,
+                        &processor,
                         &existing_data,
                         &self.app_state.db_pool,
                     )
                     .await
                     {
                         error!(
-                            "[Container Controller] Failed to store new thread_id for container {}: {:?}",
-                            container.id, e
+                            "[Processor Controller] Failed to store new thread_id for processor {}: {:?}",
+                            processor.id, e
                         );
                         continue;
                     }
+                    let app_state = Arc::clone(&self.app_state);
+                    let processor_clone = processor.clone();
 
                     // Actually spawn a background task
                     let handle = tokio::spawn({
                         let db_pool = self.app_state.db_pool.clone();
-                        let container_clone = container.clone();
                         async move {
                             info!(
-                                "[Container Controller] Reconciling container {} in background task",
-                                container_clone.id
+                                "[Processor Controller] Reconciling processor {} in background task",
+                                processor_clone.id
                             );
                             debug!(
-                                "[DEBUG:controller.rs:spawn] Calling platform.reconcile for container {}",
-                                container_clone.id
+                                "[DEBUG:controller.rs:spawn] Calling platform.reconcile for processor {}",
+                                processor_clone.id
                             );
                             // If your platform_factory is async, call it here.
-                            let platform_name = container_clone
-                                .platform
-                                .clone()
-                                .unwrap_or_else(|| "runpod".to_string());
-                            let platform =
-                                crate::container::factory::platform_factory(platform_name);
-                            platform.reconcile(&container_clone, &db_pool).await;
+                            let platform = StandardProcessor::new(app_state.clone());
+                            platform.reconcile(&processor_clone, &db_pool).await;
+
+                            // TODO: Implement platform reconciliation
+                            // let platform =
+                            //     crate::container::factory::platform_factory(platform_name);
+                            // platform.reconcile(&processor_clone, &db_pool).await;
                             debug!(
-                                "[DEBUG:controller.rs:spawn] Returned from platform.reconcile for container {}",
-                                container_clone.id
+                                "[DEBUG:controller.rs:spawn] Returned from platform.reconcile for processor {}",
+                                processor_clone.id
                             );
                             info!(
-                                "[Container Controller] Container {} reconcile task finished.",
-                                container_clone.id
+                                "[Processor Controller] Processor {} reconcile task finished.",
+                                processor_clone.id
                             )
                         }
                     });
 
                     // Store handle in the map
-                    CONTAINER_RECON_TASKS.insert(new_thread_id, handle);
+                    PROCESSOR_RECON_TASKS.insert(new_thread_id, handle);
                 }
             }
             Err(e) => {
                 error!(
-                    "[Container Controller] Failed to fetch containers for reconciliation: {:?}",
+                    "[Processor Controller] Failed to fetch processors for reconciliation: {:?}",
                     e
                 );
             }
@@ -165,7 +168,7 @@ impl ContainerController {
 
     /// Helper to save the updated `controller_data` back into the DB.
     async fn store_thread_id_in_db(
-        container: &containers::Model,
+        processor: &processors::Model,
         rec_data: &ReconcilerData,
         db_pool: &sea_orm::DatabaseConnection,
     ) -> Result<(), sea_orm::DbErr> {
@@ -173,7 +176,7 @@ impl ContainerController {
         let data_json = serde_json::to_value(rec_data).unwrap_or_default();
 
         // Build an ActiveModel for the update
-        let mut active = containers::ActiveModel::from(container.clone());
+        let mut active = processors::ActiveModel::from(processor.clone());
         active.controller_data = sea_orm::ActiveValue::Set(Some(data_json));
 
         // Perform the update
@@ -182,13 +185,13 @@ impl ContainerController {
     }
 }
 
-impl ContainerController {
+impl ProcessorController {
     /// Spawns a background Tokio task to run the controller reconciliation loop
     pub fn spawn_reconciler(&self) -> tokio::task::JoinHandle<()> {
         let app_state_clone = Arc::clone(&self.app_state);
 
         tokio::spawn(async move {
-            let controller = ContainerController::new(app_state_clone);
+            let controller = ProcessorController::new(app_state_clone);
 
             // Create an infinite loop to continuously reconcile containers
             loop {

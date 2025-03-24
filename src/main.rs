@@ -94,6 +94,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Commands::Login => {
             commands::login_cmd::execute().await?;
         }
+        Commands::Exec(args) => {
+            commands::exec_cmd::exec_cmd(args).await?;
+        }
     }
 
     Ok(())

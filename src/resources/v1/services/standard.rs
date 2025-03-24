@@ -3,7 +3,7 @@ use crate::entities::processors;
 use crate::models::{
     V1EnvVar, V1Processor, V1ProcessorRequest, V1ResourceMetaRequest, V1UserProfile,
 };
-use crate::processors::base::{ProcessorPlatform, ProcessorStatus};
+use crate::resources::v1::processors::base::{ProcessorPlatform, ProcessorStatus};
 use crate::state::MessageQueue;
 use crate::streams::redis::get_consumer_group_progress;
 use crate::AppState;
@@ -31,13 +31,13 @@ impl StandardProcessor {
         db: &DatabaseConnection,
         processor: processors::Model,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        use crate::container::base::ContainerPlatform;
-        use crate::container::runpod::RunpodPlatform;
         use crate::models::{
             RestartPolicy, V1ContainerRequest, V1ResourceMeta, V1UserProfile, /* etc. */
         };
         use crate::mutation::Mutation;
-        use crate::processors::base::ProcessorStatus;
+        use crate::resources::v1::containers::base::ContainerPlatform;
+        use crate::resources::v1::containers::runpod::RunpodPlatform;
+        use crate::resources::v1::processors::base::ProcessorStatus;
         use tracing::info;
 
         info!("[Processor Controller] Starting processor {}", processor.id);
@@ -157,13 +157,15 @@ impl StandardProcessor {
                 name: Some(format!("processor-{}", processor.name)),
                 namespace: Some(processor.namespace.clone()),
                 // The rest can be left empty if you only need partial data:
-                owner_id: Some(processor.owner_id.clone()),
+                owner: Some(processor.owner.clone()),
                 labels: Some(labels),
                 owner_ref: Some(processor.id.clone()),
             }),
             // Optional fields
             kind: "Container".to_string(),
             platform: Some(parsed_container.platform.clone()),
+            ports: parsed_container.ports,
+            public_ip: Some(parsed_container.public_ip),
         };
 
         // 5) Create a ContainerPlatform — in this case, Runpod.
@@ -171,7 +173,7 @@ impl StandardProcessor {
 
         // 6) For each replica, optionally modify the request with different names.
         //    Then declare the container with runpod, storing in DB + provisioning in RunPod.
-        let owner_id = processor.owner_id.clone();
+        let owner_id = processor.owner.clone();
         let user_profile = V1UserProfile {
             email: processor
                 .created_by
@@ -364,7 +366,7 @@ impl ProcessorPlatform for StandardProcessor {
                 .namespace
                 .clone()
                 .unwrap_or("default".to_string())),
-            owner_id: Set(owner_id.to_string()),
+            owner: Set(owner_id.to_string()),
             created_by: Set(Some(user_profile.email.clone())),
 
             // Any JSON fields from config (e.g., container & scale).
@@ -494,12 +496,12 @@ impl ProcessorPlatform for StandardProcessor {
         id: &str,
         db: &DatabaseConnection,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        use crate::container::base::ContainerPlatform;
-        use crate::container::factory::platform_factory;
-        use crate::container::runpod::RunpodPlatform;
         use crate::entities::processors;
         use crate::models::V1UserProfile;
         use crate::query::Query; // so we can find containers by owner_ref or processor_id
+        use crate::resources::v1::containers::base::ContainerPlatform;
+        use crate::resources::v1::containers::factory::platform_factory;
+        use crate::resources::v1::containers::runpod::RunpodPlatform;
         use sea_orm::{EntityTrait, ModelTrait};
 
         // 1) Find the processor in the database by `id`.

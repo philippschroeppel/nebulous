@@ -1,8 +1,8 @@
 # Nebulous
 
-A cross-cloud container orchestrator
+A globally distributed container orchestrator
 
-Think of it as a Kubernetes that can span clouds with a focus on accelerated compute and AI workloads. Ships as a single binary, performant and lightweight via Rust.   
+Think of it as a Kubernetes that can span clouds and regions with a focus on __accelerated compute__. Ships as a single binary, performant and lightweight via Rust.   
    
 Why not Kubernetes? See [why_not_kube.md](docs/why_not_kube.md)   
    
@@ -17,19 +17,16 @@ curl -fsSL -H "Cache-Control: no-cache" https://raw.githubusercontent.com/agents
 
 ## Usage
 
-Run a local API server
+Prefer a pythonic interface? Try [nebulous-py](https://github.com/agentsea/nebulous-py)
+
+Run a local API server on docker
 ```sh
-nebu serve
+nebu serve --docker
 ```
 
 Login to an API server
 ```sh
 nebu login --url http://localhost:3000
-```
-
-Alternatively, login to our cloud
-```sh
-nebu login
 ```
 
 ### Containers
@@ -40,16 +37,14 @@ kind: Container
 metadata:
   name: trl-job
   namespace: training
-  labels:
-    type: llm-training
 image: "huggingface/trl-latest-gpu:latest"
+platform: runpod
 command: |
   source activate trl && trl sft --model_name_or_path $MODEL \
       --dataset_name $DATASET \
       --output_dir /output \
       --torch_dtype bfloat16 \
       --use_peft true
-platform: runpod
 env:
   - key: MODEL
     value: Qwen/Qwen2.5-7B 
@@ -62,11 +57,6 @@ volumes:
     continuous: true
 accelerators:
   - "2:A100_SXM"
-meters:
-  - cost: 0.01
-    unit: second
-    metric: runtime
-    currency: USD
 restart: Never
 ```
 Replace `my-bucket` with your bucket name, and make sure your aws and runpod credentials are in your environment.
@@ -127,7 +117,7 @@ nebu cp /path/to/file trl-job:/path/to/file -n training
 
 Send an http request to a container [in progress]
 ```text
-curl http://<name>.<namespace>.<kind>.nebu:8000
+curl http://{name}-{namespace}-{kind}:8000
 ```
 * _Requires tailnet to be enabled_
 
@@ -312,12 +302,12 @@ Processors are best used for bursty async jobs, or low latency stream processing
 ```yaml
 kind: Processor
 metadata:
-  name: summarizer
+  name: translator
   namespace: my-app
-stream: my-app:workers:summarize
+stream: my-app:workers:translator
 container:
-  image: corge/summarizer:latest
-  command: "redis-cli XREAD COUNT 10 STREAMS my-app:workers:summarize"
+  image: corge/translator:latest
+  command: "redis-cli XREAD COUNT 10 STREAMS my-app:workers:translator"
   platform: gce
   accelerators:
     - "1:A40"
@@ -334,7 +324,7 @@ scale:
     duration: 10m
 ```
 ```sh
-nebu create processor -f examples/processors/summarizer.yaml
+nebu create processor -f examples/processors/translator.yaml
 ```
 
 Processors can also scale to zero.
@@ -347,7 +337,7 @@ Processors can enforce schemas.
 
 ```yaml
 schema:
-  - name: text_to_summarize
+  - name: text_to_translate
     type: string
     required: true
 ```
@@ -355,13 +345,13 @@ schema:
 Send data to a processor stream
 
 ```sh
-nebu send processor summarizer --data '{"text_to_summarize": "Dlrow Olleh"} -n my-app'
+nebu send processor translator --data '{"text_to_translate": "Dlrow Olleh"} -n my-app'
 ```
 
 Read data from a processor stream
 
 ```text
-nebu read processor summarizer --num 10
+nebu read processor translator --num 10
 ```
 
 List all processors
@@ -374,8 +364,8 @@ Processors can use containers across different platforms. [in progress]
 
 ```yaml
 container:
-  image: corge/summarizer:latest
-  command: "redis-cli XREAD COUNT 10 STREAMS my-app:workers:summarize"
+  image: corge/translator:latest
+  command: "redis-cli XREAD COUNT 10 STREAMS my-app:workers:translator"
   platforms:
     - gce
     - runpod
@@ -451,7 +441,7 @@ metadata:
   namespace: my-app
 ```
    
-Resources within a given namespace are network isolated using [Tailnet](https://tailscale.com/kb/1136/tailnet), and can be accessed by simply using `http://<name>.<namespace>.<kind>.nebu` e.g. `http://vllm-server.my-app.container.nebu`.
+Resources within a given namespace are network isolated using [Tailnet](https://tailscale.com/kb/1136/tailnet), and can be accessed by simply using `http://{name}-{namespace}-{kind}:8000` e.g. `http://vllm-myapp-container:8000`.
     
 Nebulous cloud provides a free hosted [HeadScale](https://github.com/juanfont/headscale) instance to connect your resources, or you can bring your own by simply setting the `NEBU_HEADSCALE_URL` environment variable.   
 
@@ -479,6 +469,10 @@ Delete a secret
 nebu delete secrets my-secret -n my-app
 ```
 
+## SDK
+
+Python https://github.com/agentsea/nebulous-py   
+   
 ## Contributing
 
 Please open an issue or submit a PR.

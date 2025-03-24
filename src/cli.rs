@@ -54,6 +54,33 @@ pub enum Commands {
 
     /// Login to a Nebulous API server.
     Login,
+
+    /// Execute a command inside a container via Tailscale SSH.
+    Exec(ExecArgs),
+}
+
+// The struct that captures all CLI fields for the Exec command.
+#[derive(Args)]
+pub struct ExecArgs {
+    /// Whether to pass `-i` (interactive)
+    #[arg(short = 'i', long, default_value_t = false)]
+    pub interactive: bool,
+
+    /// Whether to pass `-t` (tty)
+    #[arg(short = 't', long, default_value_t = false)]
+    pub tty: bool,
+
+    /// Container's namespace
+    #[arg(long)]
+    pub namespace: String,
+
+    /// Container's name
+    #[arg(long)]
+    pub name: String,
+
+    /// The command (and args) to run in the container
+    #[arg(long, short)]
+    pub command: String,
 }
 
 #[derive(Subcommand)]

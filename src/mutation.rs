@@ -2,11 +2,11 @@ use crate::entities::containers;
 use crate::entities::processors;
 use crate::entities::secrets;
 use crate::models::V1ProcessorStatus;
-use crate::models::{V1ContainerStatus, V1UpdateContainer};
+use crate::models::{V1ContainerStatus, V1Port, V1UpdateContainer};
 use sea_orm::prelude::Json;
 use sea_orm::*;
 use serde_json::json;
-use tracing::info;
+use tracing::{debug, info};
 
 pub struct Mutation;
 
@@ -82,7 +82,7 @@ impl Mutation {
         status: Option<String>,
         message: Option<String>,
         accelerator: Option<String>,
-        public_ip: Option<String>,
+        ports: Option<Vec<V1Port>>,
         tailnet_url: Option<String>,
     ) -> Result<containers::Model, DbErr> {
         let container = containers::Entity::find_by_id(id)
@@ -107,23 +107,32 @@ impl Mutation {
 
         // 2. Merge in only the new fields
         if let Some(s) = status {
+            debug!("[Mutation] Updating container status to {:?}", s);
             existing_status.status = Some(s);
         }
         if let Some(m) = message {
+            debug!("[Mutation] Updating container message to {:?}", m);
             existing_status.message = Some(m);
         }
         if let Some(a) = accelerator {
+            debug!("[Mutation] Updating container accelerator to {:?}", a);
             existing_status.accelerator = Some(a);
         }
-        if let Some(ip) = public_ip {
-            existing_status.public_ip = Some(ip);
+        if let Some(ports) = ports {
+            debug!("[Mutation] Updating container ports to {:?}", ports);
+            existing_status.public_ports = Some(ports);
         }
         if let Some(url) = tailnet_url {
+            debug!("[Mutation] Updating container tailnet_url to {:?}", url);
             existing_status.tailnet_url = Some(url);
         }
 
         // 3. Store the merged status back as JSON
         container.status = Set(Some(serde_json::json!(existing_status)));
+        debug!(
+            "[Mutation] Updating container status to {:?}",
+            container.status
+        );
         container.updated_at = Set(chrono::Utc::now().into());
 
         info!(
@@ -214,6 +223,7 @@ impl Mutation {
         private_key: &str,
         public_key: &str,
         owner_id: &str,
+        expires_at: Option<i32>,
     ) -> Result<(secrets::Model, secrets::Model), Box<dyn std::error::Error + Send + Sync>> {
         // 1) Create unique IDs for the secrets (you can pick your own naming).
         let private_secret_id = format!("ssh-private-key-{}", container_id);
@@ -229,6 +239,7 @@ impl Mutation {
             private_key,
             Some(owner_id.to_string()),
             None, // Labels optional
+            expires_at,
         )
         .map_err(|e| {
             format!(
@@ -245,6 +256,7 @@ impl Mutation {
             public_key,
             Some(owner_id.to_string()),
             None, // Labels optional
+            expires_at,
         )
         .map_err(|e| {
             format!(

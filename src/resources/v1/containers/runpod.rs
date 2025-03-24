@@ -1,12 +1,13 @@
 use crate::accelerator::base::AcceleratorProvider;
 use crate::accelerator::runpod::RunPodProvider;
-use crate::container::base::{ContainerPlatform, ContainerStatus};
 use crate::entities::containers;
 use crate::models::{
-    RestartPolicy, V1Container, V1ContainerRequest, V1ContainerStatus, V1Meter, V1UserProfile,
-    V1VolumePath,
+    RestartPolicy, V1Container, V1ContainerRequest, V1ContainerStatus, V1Meter, V1Port,
+    V1UserProfile, V1VolumePath,
 };
 use crate::mutation::{self, Mutation};
+use crate::resources::v1::containers::base::{ContainerPlatform, ContainerStatus};
+use crate::ssh::exec::run_ssh_command_ts;
 use crate::ssh::keys;
 use crate::volumes::rclone::{SymlinkConfig, VolumeConfig, VolumePath};
 use petname;
@@ -201,17 +202,60 @@ impl RunpodPlatform {
             match meter_client.ingest_events(&[cloud_event]).await {
                 Ok(_) => {
                     debug!(
-                        "[Runpod Controller] Successfully reported meter {} for container {}",
-                        meter.metric, container_id
+                        "[Runpod Controller] Successfully reported meter {:?} for container {}",
+                        meter, container_id
                     );
                 }
                 Err(e) => {
                     error!(
-                        "[Runpod Controller] Failed to report meter {} for container {}: {}",
-                        meter.metric, container_id, e
+                        "[Runpod Controller] Failed to report meter {:?} for container {}: {}",
+                        meter, container_id, e
                     );
                 }
             }
+        }
+    }
+
+    pub async fn get_public_ports_for_pod(
+        &self,
+        pod_id: &str,
+    ) -> Result<Vec<V1Port>, Box<dyn std::error::Error + Send + Sync>> {
+        // Fetch all pods (with their ports) from RunPod
+        let pods_with_ports_data = self.runpod_client.fetch_my_pods_with_ports().await?;
+
+        // Find the matching pod by ID
+        let maybe_pod = pods_with_ports_data
+            .data
+            .unwrap()
+            .myself
+            .pods
+            .into_iter()
+            .find(|p| p.id == pod_id);
+
+        // If the pod was found, extract its public ports as Vec<V1Port>
+        if let Some(pod) = maybe_pod {
+            // The `runtime` field is optional, so check if it’s present
+            if let Some(runtime) = pod.runtime {
+                // Filter only the public ports, then map fields into our V1Port model
+                let public_ports: Vec<V1Port> = runtime
+                    .ports
+                    .into_iter()
+                    .filter(|port| port.is_ip_public)
+                    .map(|port| V1Port {
+                        port: port.public_port as u16,
+                        protocol: Some("tcp".to_string()),
+                        public_ip: Some(port.ip),
+                    })
+                    .collect();
+
+                Ok(public_ports)
+            } else {
+                // If there's no runtime info, return an empty list
+                Ok(vec![])
+            }
+        } else {
+            // If we couldn't find a pod with this ID, return an error
+            Err(format!("No pod found for ID: {}", pod_id).into())
         }
     }
 
@@ -300,6 +344,16 @@ impl RunpodPlatform {
                     consecutive_errors = 0;
 
                     if let Some(pod_info) = pod_response.data {
+                        let ports = match self.get_public_ports_for_pod(&pod_id_to_watch).await {
+                            Ok(ports) => ports,
+                            Err(e) => {
+                                error!(
+                                    "[Runpod Controller] Error fetching ports for my pods: {}",
+                                    e
+                                );
+                                vec![]
+                            }
+                        };
                         // Extract status information using desired_status field
                         let current_status = match pod_info.desired_status.as_str() {
                             "RUNNING" => ContainerStatus::Running,
@@ -416,7 +470,7 @@ impl RunpodPlatform {
                                 Some(current_status.to_string()),
                                 None,
                                 None,
-                                pod_info.public_ip.clone(),
+                                Some(ports),
                                 None,
                             )
                             .await
@@ -827,24 +881,11 @@ impl RunpodPlatform {
             &ssh_private_key,
             &ssh_public_key,
             &model.owner,
+            None,
         )
         .await?;
 
         let mut env_vec = Vec::new();
-
-        let proxy_value = "socks5h://127.0.0.1:1055".to_string();
-        env_vec.push(runpod::EnvVar {
-            key: "HTTP_PROXY".to_string(),
-            value: proxy_value.clone(),
-        });
-        env_vec.push(runpod::EnvVar {
-            key: "HTTPS_PROXY".to_string(),
-            value: proxy_value.clone(),
-        });
-        env_vec.push(runpod::EnvVar {
-            key: "ALL_PROXY".to_string(),
-            value: proxy_value.clone(),
-        });
 
         match std::env::var("RUNPOD_PUBLIC_KEY") {
             Ok(runpod_public_key) => {
@@ -935,7 +976,7 @@ impl RunpodPlatform {
         }
         info!("[Runpod Controller] Environment variables: {:?}", env_vec);
 
-        let hostname = format!("{}.{}.container", model.namespace, model.name);
+        let hostname = format!("{}-{}-container", model.namespace, model.name);
 
         let docker_command = self.build_command(&model, &hostname);
         info!("[Runpod Controller] Docker command: {:?}", docker_command);
@@ -1020,7 +1061,7 @@ impl RunpodPlatform {
                         Some(ContainerStatus::Created.to_string()),
                         None,
                         Some(nebu_gpu_type_id),
-                        pod.public_ip,
+                        None,
                         Some(format!("http://{}", hostname)),
                     )
                     .await?;
@@ -1060,6 +1101,8 @@ impl RunpodPlatform {
     fn build_command(&self, model: &containers::Model, hostname: &str) -> Option<Vec<String>> {
         let cmd = model.command.clone()?;
 
+        let proxy_value = "socks5h://127.0.0.1:1055".to_string();
+
         // Statements to install curl if missing:
         let curl_install = r#"
             echo "[DEBUG] Installing curl (if not present)..."
@@ -1078,6 +1121,17 @@ impl RunpodPlatform {
                 || echo 'Failed to install nebu'
             fi
         "#;
+
+        // Here’s the new portion for checking tailscale before installing
+        let tailscale_install = r#"
+    echo "[DEBUG] Installing tailscale (if not present)..."
+    if ! command -v tailscale &> /dev/null; then
+        echo "[DEBUG] Tailscale not installed. Installing..."
+        curl -fsSL https://tailscale.com/install.sh | sh
+    else
+        echo "[DEBUG] Tailscale already installed."
+    fi
+"#;
 
         let log_file = "$HOME/.logs/nebu_container.log";
 
@@ -1099,14 +1153,28 @@ impl RunpodPlatform {
     echo "[DEBUG] Setting HF_HOME to /nebu/cache/huggingface"
     mkdir -p /nebu/cache/huggingface
 
-    echo "[DEBUG] Installing tailscale..."
-    curl -fsSL https://tailscale.com/install.sh | sh
+    {tailscale_install}
 
     echo "[DEBUG] Starting tailscale daemon ..."
     tailscaled --tun=userspace-networking --socks5-server=localhost:1055 --outbound-http-proxy-listen=localhost:1055  > "$HOME/.logs/tailscaled.log" 2>&1 &
 
+    echo "[DEBUG] Waiting for tailscale to start..."
+    for i in $(seq 1 10); do
+        if tailscale status >/dev/null 2>&1; then
+            echo "[DEBUG] Tailscale is up"
+            break
+        else
+            echo "[DEBUG] Tailscale not up yet, retrying..."
+            sleep 1
+        fi
+    done
+
     echo "[DEBUG] Starting tailscale up..."
     tailscale up --auth-key=$TS_AUTHKEY --hostname="{hostname}" --ssh
+
+    export HTTP_PROXY={proxy_value}
+    export HTTPS_PROXY={proxy_value}
+    export ALL_PROXY={proxy_value}
 
     echo "[DEBUG] Invoking nebu sync..."
     nebu sync volumes --config /nebu/sync.yaml --interval-seconds 5 \
@@ -1203,13 +1271,16 @@ done
         info!("[Runpod Controller] Done file check command: {}", cmd);
 
         // 5) Execute the command over SSH
-        let output = crate::ssh::exec::exec_ssh_command(
-            "ssh.runpod.io:22",
-            &pod_host_id,
-            &ssh_private_key,
-            cmd,
-        )
-        .await?;
+        let output = match run_ssh_command_ts(
+            &container_model.namespace,
+            &container_model.name,
+            cmd.split_whitespace().map(|s| s.to_string()).collect(),
+            false,
+            false,
+        ) {
+            Ok(output) => output,
+            Err(e) => return Err(e.into()),
+        };
         info!(
             "[Runpod Controller] Check done file output: '{}'",
             output.trim()
@@ -1393,16 +1464,20 @@ impl ContainerPlatform for RunpodPlatform {
             .as_ref()
             .and_then(|meta| meta.owner_ref.clone());
 
+        let name = name.unwrap_or(petname::petname(3, "-").unwrap());
+
         // Create the container record in the database
         let container = crate::entities::containers::ActiveModel {
             id: Set(id.clone()),
             namespace: Set(namespace.clone()),
-            name: Set(name.clone().unwrap_or(petname::petname(3, "-").unwrap())),
+            name: Set(name.clone()),
+            full_name: Set(format!("{}/{}", namespace, name)),
             owner: Set(owner_id.to_string()),
             owner_ref: Set(owner_ref.clone()),
             image: Set(config.image.clone()),
             env: Set(config.env.clone().map(|vars| serde_json::json!(vars))),
             volumes: Set(config.volumes.clone().map(|vols| serde_json::json!(vols))),
+            local_volumes: Set(None),
             accelerators: Set(config.accelerators.clone()),
             cpu_request: Set(None),
             memory_request: Set(None),
@@ -1410,7 +1485,7 @@ impl ContainerPlatform for RunpodPlatform {
                 status: Some(ContainerStatus::Defined.to_string()),
                 message: None,
                 accelerator: None,
-                public_ip: None,
+                public_ports: None,
                 cost_per_hr: None,
                 tailnet_url: None,
             }))),
@@ -1439,7 +1514,7 @@ impl ContainerPlatform for RunpodPlatform {
             ssh_keys: Set(config.ssh_keys.clone().map(|keys| serde_json::json!(keys))),
             public_addr: Set(None),
             private_ip: Set(None),
-            ports: Set(config.ports.clone()),
+            ports: Set(config.ports.clone().map(|ports| serde_json::json!(ports))),
             public_ip: Set(config.public_ip.clone().unwrap_or(false)),
             created_by: Set(Some(owner_id.to_string())),
             updated_at: Set(chrono::Utc::now().into()),
@@ -1460,7 +1535,7 @@ impl ContainerPlatform for RunpodPlatform {
         Ok(V1Container {
             kind: "Container".to_string(),
             metadata: crate::models::V1ResourceMeta {
-                name: name.unwrap_or(petname::petname(3, "-").unwrap()),
+                name: name.clone(),
                 namespace: namespace.clone(),
                 id: id.clone(),
                 owner: owner_id.to_string(),
@@ -1487,7 +1562,7 @@ impl ContainerPlatform for RunpodPlatform {
                 status: Some(ContainerStatus::Defined.to_string()),
                 message: None,
                 accelerator: None,
-                public_ip: None,
+                public_ports: None,
                 cost_per_hr: None,
                 tailnet_url: None,
             }),

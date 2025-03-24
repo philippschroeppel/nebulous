@@ -20,6 +20,8 @@ pub struct V1Meter {
     pub currency: String,
     pub unit: String,
     pub metric: String,
+    pub request_json_path: Option<String>,
+    pub response_json_path: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -50,6 +52,7 @@ pub struct V1ContainerRequest {
     pub env: Option<Vec<V1EnvVar>>,
     pub command: Option<String>,
     pub volumes: Option<Vec<V1VolumePath>>,
+    // pub local_volumes: Option<Vec<V1VolumePath>>,
     pub accelerators: Option<Vec<String>>,
     pub resources: Option<V1ContainerResources>,
     pub meters: Option<Vec<V1Meter>>,
@@ -58,7 +61,7 @@ pub struct V1ContainerRequest {
     pub queue: Option<String>,
     pub timeout: Option<String>,
     pub ssh_keys: Option<Vec<V1SSHKey>>,
-    pub ports: Option<Vec<String>>,
+    pub ports: Option<Vec<V1PortRequest>>,
     pub public_ip: Option<bool>,
 }
 
@@ -111,11 +114,25 @@ pub struct V1ResourceMetaRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct V1Port {
+    pub port: u16,
+    pub protocol: Option<String>,
+    pub public_ip: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct V1PortRequest {
+    pub port: u16,
+    pub protocol: Option<String>,
+    pub public: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct V1ContainerStatus {
     pub status: Option<String>,
     pub message: Option<String>,
     pub accelerator: Option<String>,
-    pub public_ip: Option<String>,
+    pub public_ports: Option<Vec<V1Port>>,
     pub cost_per_hr: Option<f64>,
     pub tailnet_url: Option<String>,
 }
@@ -145,7 +162,7 @@ pub struct V1Container {
     pub resources: Option<V1ContainerResources>,
     pub status: Option<V1ContainerStatus>,
     pub ssh_keys: Option<Vec<V1SSHKey>>,
-    pub ports: Option<Vec<String>>,
+    pub ports: Option<Vec<V1PortRequest>>,
     pub public_ip: bool,
 }
 // Add this function to provide a default kind value
@@ -338,6 +355,7 @@ pub struct V1Secret {
     pub kind: String,
     pub metadata: V1ResourceMeta,
     pub value: Option<String>,
+    pub expires_at: Option<i32>,
 }
 
 /// Request body used for creating or updating a secret
@@ -345,6 +363,7 @@ pub struct V1Secret {
 pub struct V1SecretRequest {
     pub metadata: V1ResourceMetaRequest,
     pub value: String,
+    pub expires_at: Option<i32>,
 }
 
 //

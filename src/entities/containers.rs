@@ -6,8 +6,8 @@ use serde_json::Value as Json;
 use std::collections::HashMap;
 
 use crate::models::{
-    V1Container, V1ContainerResources, V1ContainerStatus, V1EnvVar, V1Meter, V1ResourceMeta,
-    V1SSHKey, V1VolumePath,
+    V1Container, V1ContainerResources, V1ContainerStatus, V1EnvVar, V1Meter, V1PortRequest,
+    V1ResourceMeta, V1SSHKey, V1VolumePath,
 };
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
@@ -17,11 +17,14 @@ pub struct Model {
     pub id: String,
     pub namespace: String,
     pub name: String,
+    #[sea_orm(unique, column_type = "Text")]
+    pub full_name: String,
     pub owner: String,
     pub owner_ref: Option<String>,
     pub image: String,
     pub env: Option<Json>,
     pub volumes: Option<Json>,
+    pub local_volumes: Option<Json>,
     pub accelerators: Option<Vec<String>>,
     pub cpu_request: Option<String>,
     pub memory_request: Option<String>,
@@ -35,7 +38,7 @@ pub struct Model {
     pub labels: Option<Json>,
     pub meters: Option<Json>,
     pub queue: Option<String>,
-    pub ports: Option<Vec<String>>,
+    pub ports: Option<Json>,
     pub public_ip: bool,
     pub timeout: Option<String>,
     pub resources: Option<Json>,
@@ -133,6 +136,15 @@ impl Model {
         }
     }
 
+    /// Attempt to parse `ports` into a vector of `V1PortRequest`.
+    pub fn parse_ports(&self) -> Result<Option<Vec<V1PortRequest>>, serde_json::Error> {
+        if let Some(json_value) = &self.ports {
+            serde_json::from_value(json_value.clone()).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Construct a full V1Container from the current model row.
     /// Returns a serde_json Error if any JSON parsing in subfields fails.
     pub fn to_v1_container(&self) -> Result<V1Container, serde_json::Error> {
@@ -143,7 +155,7 @@ impl Model {
         let meters = self.parse_meters()?;
         let resources = self.parse_resources()?;
         let ssh_keys = self.parse_ssh_keys()?;
-
+        let ports = self.parse_ports()?;
         // Build metadata; fill with defaults or unwrap as needed
         let metadata = crate::models::V1ResourceMeta {
             name: self.name.clone(),
@@ -174,7 +186,7 @@ impl Model {
             status,
             resources,
             ssh_keys,
-            ports: self.ports.clone(),
+            ports: ports.clone(),
             public_ip: self.public_ip.clone(),
         };
 

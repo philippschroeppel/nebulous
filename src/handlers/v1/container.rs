@@ -1,21 +1,19 @@
 // src/handlers/containers.rs
 
-use crate::container::factory::platform_factory;
 use crate::models::{
     V1Container, V1ContainerList, V1ContainerRequest, V1ResourceMeta, V1UserProfile,
 };
+use crate::resources::v1::containers::factory::platform_factory;
 
 // Adjust the crate paths below to match your own project structure:
 use crate::mutation::Mutation;
 use crate::query::Query;
 use crate::state::AppState;
 
-use axum::extract::Query as QueryExtractor;
 use axum::{
     extract::Extension, extract::Json, extract::Path, extract::State, http::StatusCode,
     response::IntoResponse,
 };
-use petname::Generator;
 use sea_orm::*;
 use serde_json::json;
 
@@ -123,7 +121,7 @@ pub async fn _get_container_by_id(
         ssh_keys: container
             .ssh_keys
             .and_then(|v| serde_json::from_value(v).ok()),
-        ports: container.ports,
+        ports: container.ports.and_then(|v| serde_json::from_value(v).ok()),
         public_ip: container.public_ip,
     };
 
@@ -193,7 +191,7 @@ pub async fn list_containers(
             timeout: c.timeout,
             resources: c.resources.and_then(|v| serde_json::from_value(v).ok()),
             ssh_keys: c.ssh_keys.and_then(|v| serde_json::from_value(v).ok()),
-            ports: c.ports,
+            ports: c.ports.and_then(|v| serde_json::from_value(v).ok()),
             public_ip: c.public_ip,
         })
         .collect();

@@ -1,5 +1,6 @@
 use std::io::Read;
 use std::io::{stdin, stdout, Write};
+use std::io::{Error as IoError, ErrorKind};
 use std::net::TcpStream;
 
 use anyhow::Result;
@@ -12,8 +13,80 @@ use russh::client::Config;
 use russh::keys::*;
 use russh::*;
 use ssh2::Session;
+use std::process::Command;
 use tokio::io::AsyncWriteExt;
 use tokio::net::ToSocketAddrs;
+
+/// Execute a command on a container (accessible via Tailscale SSH).
+///
+/// # Arguments
+///
+/// * `namespace` - The container's namespace
+/// * `name` - The container's name
+/// * `opts` - SSH options, including interactive, tty, and the command itself
+///
+/// # Example
+///
+/// ```rust
+/// let opts = ExecSshOptions {
+///     interactive: true,
+///     tty: true,
+///     command: vec!["ls".to_string(), "-lah".to_string()],
+/// };
+/// if let Err(e) = run_ssh_command("default", "mycontainer", &opts) {
+///     eprintln!("Failed to exec via SSH: {:?}", e);
+/// }
+/// ```
+pub fn run_ssh_command_ts(
+    namespace: &str,
+    name: &str,
+    command: Vec<String>,
+    interactive: bool,
+    tty: bool,
+) -> Result<String, IoError> {
+    debug!("Running SSH command: '{:?}' on {namespace}/{name} with interactive={interactive} and tty={tty}", command);
+    // Our Tailscale host is {name}-{namespace}-container
+    let hostname = format!("{}-{}-container", name, namespace);
+
+    let mut ssh_cmd = Command::new("ssh");
+
+    if interactive {
+        // This assumes the user wants an interactive session - in practice you misght
+        // provide a path to a key rather than just `-i`, or conditionally handle it differently
+        ssh_cmd.arg("-i");
+    }
+
+    if tty {
+        ssh_cmd.arg("-t");
+    }
+
+    // Tailscale hostname
+    ssh_cmd.arg(&hostname);
+
+    // Then append the command arguments
+    ssh_cmd.args(command);
+
+    // Instead of .status(), we capture the child's output
+    let output = ssh_cmd
+        .output()
+        .map_err(|err| IoError::new(ErrorKind::Other, format!("Failed to spawn ssh: {err}")))?;
+
+    debug!("SSH command output: {:?}", output);
+    // Check exit code
+    if !output.status.success() {
+        return Err(IoError::new(
+            ErrorKind::Other,
+            format!(
+                "SSH command failed with status: {:?}\nStderr:\n{}",
+                output.status.code(),
+                String::from_utf8_lossy(&output.stderr),
+            ),
+        ));
+    }
+
+    // Convert stdout bytes into a String
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
 
 struct Client {}
 

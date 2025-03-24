@@ -60,6 +60,8 @@ pub async fn create_container(
                 unit: command.meter_unit.clone().unwrap_or_default(),
                 metric: command.meter_metric.clone().unwrap_or_default(),
                 currency: command.meter_currency.clone().unwrap_or_default(),
+                request_json_path: None,
+                response_json_path: None,
             }])
         } else {
             None

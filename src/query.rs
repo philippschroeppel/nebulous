@@ -1,9 +1,9 @@
 // src/query.rs
-use crate::container::base::ContainerStatus;
 use crate::entities::containers;
 use crate::entities::processors;
 use crate::entities::secrets;
 use crate::models::V1ContainerStatus;
+use crate::resources::v1::containers::base::ContainerStatus;
 use sea_orm::sea_query::{Expr, Func};
 use sea_orm::Value;
 use sea_orm::*;
@@ -111,7 +111,7 @@ impl Query {
     pub async fn find_all_active_containers(
         db: &DatabaseConnection,
     ) -> Result<Vec<containers::Model>, DbErr> {
-        use crate::container::base::ContainerStatus;
+        use crate::resources::v1::containers::base::ContainerStatus;
         use sea_orm::sea_query::{Expr, Func};
         use sea_orm::{Condition, Value};
 
@@ -145,7 +145,7 @@ impl Query {
     /// Fetches all containers with a specific status
     pub async fn find_containers_by_status(
         db: &DatabaseConnection,
-        status: crate::container::base::ContainerStatus,
+        status: crate::resources::v1::containers::base::ContainerStatus,
     ) -> Result<Vec<containers::Model>, DbErr> {
         containers::Entity::find()
             .filter(containers::Column::Status.eq(status.to_string()))
@@ -264,6 +264,18 @@ impl Query {
         )))
     }
 
+    pub async fn find_secret_by_namespace_and_name(
+        db: &DatabaseConnection,
+        namespace: &str,
+        name: &str,
+    ) -> Result<Option<secrets::Model>, DbErr> {
+        secrets::Entity::find()
+            .filter(secrets::Column::Namespace.eq(namespace))
+            .filter(secrets::Column::Name.eq(name))
+            .one(db)
+            .await
+    }
+
     /// Fetch all secrets for a given list of owners
     pub async fn find_secrets_by_owners(
         db: &DatabaseConnection,
@@ -279,7 +291,7 @@ impl Query {
     pub async fn find_all_active_processors(
         db: &DatabaseConnection,
     ) -> Result<Vec<processors::Model>, DbErr> {
-        use crate::processors::base::ProcessorStatus;
+        use crate::resources::v1::processors::base::ProcessorStatus;
         use sea_orm::sea_query::{Expr, Func};
         use sea_orm::{Condition, Value};
 
