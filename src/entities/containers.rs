@@ -48,6 +48,7 @@ pub struct Model {
     pub created_by: Option<String>,
     pub desired_status: Option<String>,
     pub controller_data: Option<Json>,
+    pub container_user: Option<String>,
     pub ssh_keys: Option<Json>,
     pub updated_at: DateTimeWithTimeZone,
     pub created_at: DateTimeWithTimeZone,

@@ -6,6 +6,7 @@ use crate::models::{
     V1UserProfile, V1VolumePath,
 };
 use crate::mutation::{self, Mutation};
+use crate::oci::client::get_container_default_user;
 use crate::resources::v1::containers::base::{ContainerPlatform, ContainerStatus};
 use crate::ssh::exec::run_ssh_command_ts;
 use crate::ssh::keys;
@@ -384,7 +385,17 @@ impl RunpodPlatform {
                                 == RestartPolicy::Never.to_string().to_lowercase()
                             {
                                 info!("[Runpod Controller] checking for /done.txt");
-                                match self.check_done_file(&container_id, db).await {
+                                match self
+                                    .check_done_file(
+                                        &container_id,
+                                        &container
+                                            .container_user
+                                            .clone()
+                                            .unwrap_or("root".to_string()),
+                                        db,
+                                    )
+                                    .await
+                                {
                                     Ok(true) => {
                                         info!(
                                     "[Runpod Controller] /done.txt found for container {} -> deleting container",
@@ -914,6 +925,17 @@ impl RunpodPlatform {
             env_vec.push(runpod::EnvVar { key, value });
         }
 
+        debug!(
+            "[Runpod Controller] Getting container default user for image: {}",
+            model.image
+        );
+        let container_user = get_container_default_user(&model.image).await?;
+        debug!(
+            "[Runpod Controller] Container default user: {}",
+            container_user
+        );
+        Mutation::update_container_user(db, model.id.clone(), Some(container_user.clone())).await?;
+
         // Add NEBU_SYNC_CONFIG environment variable with serialized volumes configuration
         match model.parse_volumes() {
             Ok(Some(volumes)) => {
@@ -1136,6 +1158,10 @@ impl RunpodPlatform {
 
         let log_file = "$HOME/.logs/nebu_container.log";
 
+        // export ALL_PROXY={proxy_value}  # TODO: this is problematic for DNS resolution but we may need it
+        // export HTTP_PROXY={proxy_value}
+        // export HTTPS_PROXY={proxy_value}
+
         // Wrap the user command in parentheses and add a semicolon to ensure it's treated as a complete statement
         let base_script = format!(
             r#"
@@ -1172,10 +1198,6 @@ impl RunpodPlatform {
 
     echo "[DEBUG] Starting tailscale up..."
     tailscale up --auth-key=$TS_AUTHKEY --hostname="{hostname}" --ssh
-
-    export HTTP_PROXY={proxy_value}
-    export HTTPS_PROXY={proxy_value}
-    export ALL_PROXY={proxy_value}
 
     echo "[DEBUG] Invoking nebu sync..."
     nebu sync volumes --config /nebu/sync.yaml --interval-seconds 5 \
@@ -1229,6 +1251,7 @@ done
     pub async fn check_done_file(
         &self,
         container_id: &str,
+        container_user: &str,
         db: &DatabaseConnection,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         // 1) Fetch the container from the database
@@ -1277,7 +1300,7 @@ done
             cmd.split_whitespace().map(|s| s.to_string()).collect(),
             false,
             false,
-            Some("root"), // TODO: where should this come from?
+            Some(container_user),
         ) {
             Ok(output) => output,
             Err(e) => return Err(e.into()),
@@ -1517,6 +1540,7 @@ impl ContainerPlatform for RunpodPlatform {
             private_ip: Set(None),
             ports: Set(config.ports.clone().map(|ports| serde_json::json!(ports))),
             public_ip: Set(config.public_ip.clone().unwrap_or(false)),
+            container_user: Set(None),
             created_by: Set(Some(owner_id.to_string())),
             updated_at: Set(chrono::Utc::now().into()),
             created_at: Set(chrono::Utc::now().into()),
@@ -1695,13 +1719,21 @@ impl ContainerPlatform for RunpodPlatform {
             .ok_or_else(|| format!("No SSH public key found for container {}", container_id))?;
 
         // Then call exec_ssh_command or whatever you need:
-        let output = crate::ssh::exec::exec_ssh_command(
-            "ssh.runpod.io:22",
-            &resource_name,
-            &ssh_private_key,
-            command,
-        )
-        .await?;
+        let output = match crate::ssh::exec::run_ssh_command_ts(
+            &container_id,
+            command.split_whitespace().map(|s| s.to_string()).collect(),
+            false,
+            false,
+            Some(
+                &container_model
+                    .container_user
+                    .clone()
+                    .unwrap_or("root".to_string()),
+            ),
+        ) {
+            Ok(output) => output,
+            Err(e) => return Err(e.into()),
+        };
 
         // For now, just log the result; adapt as needed
         tracing::info!("[Runpod Controller] SSH command output:\n{}", output);
@@ -1714,7 +1746,7 @@ impl ContainerPlatform for RunpodPlatform {
         container_id: &str,
         db: &DatabaseConnection,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        let log_file = "/nebu_container.log";
+        let log_file = "$HOME/.logs/nebu_container.log";
 
         // 1) Fetch the container from the database
         let container_model =
@@ -1745,7 +1777,12 @@ impl ContainerPlatform for RunpodPlatform {
             command.split_whitespace().map(|s| s.to_string()).collect(),
             false,
             false,
-            Some("root"), // TODO: where should this come from?
+            Some(
+                &container_model
+                    .container_user
+                    .clone()
+                    .unwrap_or("root".to_string()),
+            ),
         ) {
             Ok(output) => output,
             Err(e) => return Err(e.into()),

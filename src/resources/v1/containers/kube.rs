@@ -535,6 +535,7 @@ impl ContainerPlatform for KubePlatform {
                                 timeout: Set(config.timeout.clone()),
                                 desired_status: Set(Some("pending".to_string())),
                                 controller_data: Set(None),
+                                container_user: Set(None),
                                 public_addr: Set(None),
                                 private_ip: Set(None),
                                 ports: Set(config

@@ -12,6 +12,8 @@ pub mod handlers;
 pub mod middleware;
 pub mod models;
 pub mod mutation;
+pub mod neblet;
+pub mod oci;
 pub mod org;
 pub mod proxy;
 pub mod query;

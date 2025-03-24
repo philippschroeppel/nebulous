@@ -214,6 +214,30 @@ impl Mutation {
         Ok(result)
     }
 
+    /// Mutation to update the container user
+    pub async fn update_container_user(
+        db: &DatabaseConnection,
+        id: String,
+        container_user: Option<String>,
+    ) -> Result<containers::Model, DbErr> {
+        let container = containers::Entity::find_by_id(id)
+            .one(db)
+            .await?
+            .ok_or(DbErr::Custom("Container not found".to_string()))?;
+
+        // Convert the Model to an ActiveModel for updates
+        let mut container_am: containers::ActiveModel = container.into();
+
+        // Set the new container user
+        container_am.container_user = Set(container_user);
+
+        // Always update the `updated_at` timestamp
+        container_am.updated_at = Set(chrono::Utc::now().into());
+
+        // Persist changes
+        container_am.update(db).await
+    }
+
     /// Store a container's SSH keypair (private & public) in the `secrets` table.
     /// Returns tuples (private_key_secret, public_key_secret).
     pub async fn store_ssh_keypair(

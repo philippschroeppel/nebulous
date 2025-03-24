@@ -1,6 +1,6 @@
 [package]
 name = "nebulous"
-version = "0.1.45"
+version = "0.1.46"
 edition = "2021"
 description = "A Rust library for nebulous operations"
 license = "MIT"
@@ -79,3 +79,5 @@ tailscale-client = "0.1.4"
 http-body = "1.0.1"
 hickory-server = "0.25.1"
 warp = "0.3.7"
+bollard = "0.18.1"
+oci-distribution = "0.11.0"

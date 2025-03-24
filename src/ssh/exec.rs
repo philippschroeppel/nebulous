@@ -42,7 +42,7 @@ pub fn run_ssh_command_ts(
     command: Vec<String>,
     interactive: bool,
     tty: bool,
-    username: Option<&str>, // <-- add `username` if desired
+    username: Option<&str>,
 ) -> Result<String, IoError> {
     debug!(
         "Running SSH command: '{:?}' on {hostname} as {:?} with interactive={interactive} and tty={tty}",
@@ -51,7 +51,10 @@ pub fn run_ssh_command_ts(
 
     let mut ssh_cmd = Command::new("ssh");
 
-    // Example usage of `username`:
+    // Disable host key checking and skip writing to known_hosts:
+    ssh_cmd.arg("-o").arg("StrictHostKeyChecking=no");
+    ssh_cmd.arg("-o").arg("UserKnownHostsFile=/dev/null");
+
     if let Some(u) = username {
         // Option A: "ssh user@host"
         ssh_cmd.arg(format!("{u}@{hostname}"));
@@ -69,10 +72,10 @@ pub fn run_ssh_command_ts(
         ssh_cmd.arg("-t");
     }
 
-    // Then append the command arguments
+    // Append the command to be run
     ssh_cmd.args(command);
 
-    // Capture output, check status, etc.
+    // Capture output
     let output = ssh_cmd
         .output()
         .map_err(|err| IoError::new(ErrorKind::Other, format!("Failed to spawn ssh: {err}")))?;
@@ -90,6 +93,7 @@ pub fn run_ssh_command_ts(
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
+
 struct Client {}
 
 // More SSH event handlers

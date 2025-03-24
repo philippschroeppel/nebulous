@@ -91,6 +91,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 commands::proxy_cmd::run_sync_cmd_server(&host, port).await?;
             }
         },
+        Commands::Daemon {
+            host,
+            port,
+            background,
+        } => {
+            commands::daemon_cmd::execute_daemon(&host, port, background).await?;
+        }
         Commands::Login => {
             commands::login_cmd::execute().await?;
         }

@@ -52,6 +52,21 @@ pub enum Commands {
         command: ProxyCommands,
     },
 
+    /// Serve the daemon.
+    Daemon {
+        /// The address to bind to.
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+
+        /// The port to bind to.
+        #[arg(short, long, default_value_t = 3000)]
+        port: u16,
+
+        /// Run in the background (detached) if true.
+        #[arg(short, long, default_value_t = false)]
+        background: bool,
+    },
+
     /// Login to a Nebulous API server.
     Login,
 
