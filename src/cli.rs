@@ -126,7 +126,7 @@ pub enum SyncCommands {
         interval_seconds: u64,
 
         /// Create the config file if it doesn't exist.
-        #[arg(short, long, default_value_t = false)]
+        #[arg(long, default_value_t = false)]
         create_if_missing: bool,
 
         /// Run in the background.
@@ -138,11 +138,11 @@ pub enum SyncCommands {
         background: bool,
 
         /// Block until the one time sync paths are complete.
-        #[arg(short, long, default_value_t = false)]
+        #[arg(long, default_value_t = false)]
         block_once: bool,
 
         /// Sync from the NEBU_SYNC_CONFIG environment variable.
-        #[arg(short, long, default_value_t = false)]
+        #[arg(long, default_value_t = false)]
         config_from_env: bool,
     },
 

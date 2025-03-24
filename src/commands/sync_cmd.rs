@@ -1,6 +1,5 @@
 use nebulous::volumes::rclone;
 use std::error::Error;
-use tokio::time::{sleep, Duration};
 
 // Example config
 //---
@@ -85,6 +84,7 @@ pub async fn execute_sync(
             let interval_str = interval_seconds.to_string();
             let args = vec![
                 "sync",
+                "volumes",
                 "--config",
                 &config_path,
                 "--interval-seconds",
@@ -94,7 +94,10 @@ pub async fn execute_sync(
             ];
 
             // Create log files for stdout and stderr
-            let log_dir = std::env::var("NEBU_LOG_DIR").unwrap_or_else(|_| "./logs".to_string());
+            let log_dir = std::env::var("NEBU_LOG_DIR").unwrap_or_else(|_| {
+                let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+                format!("{}/logs", home)
+            });
             std::fs::create_dir_all(&log_dir)?;
 
             let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
@@ -136,6 +139,7 @@ pub async fn execute_sync(
             println!("Starting one-time sync in background...");
             let args = vec![
                 "sync",
+                "volumes",
                 "--config",
                 &config_path,
                 if create_if_missing {
@@ -146,7 +150,10 @@ pub async fn execute_sync(
             ];
 
             // Create log files for stdout and stderr
-            let log_dir = std::env::var("NEBU_LOG_DIR").unwrap_or_else(|_| "./logs".to_string());
+            let log_dir = std::env::var("NEBU_LOG_DIR").unwrap_or_else(|_| {
+                let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+                format!("{}/logs", home)
+            });
             std::fs::create_dir_all(&log_dir)?;
 
             let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");

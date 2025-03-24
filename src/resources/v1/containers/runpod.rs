@@ -6,7 +6,7 @@ use crate::models::{
     V1UserProfile, V1VolumePath,
 };
 use crate::mutation::{self, Mutation};
-use crate::oci::client::get_container_default_user;
+use crate::oci::client::pull_and_parse_config;
 use crate::resources::v1::containers::base::{ContainerPlatform, ContainerStatus};
 use crate::ssh::exec::run_ssh_command_ts;
 use crate::ssh::keys;
@@ -654,7 +654,7 @@ impl RunpodPlatform {
                     break;
                 }
                 Err(e) => {
-                    error!("[Runpod Controller] Error fetching pod status: {}", e);
+                    error!("[Runpod Controller] Error fetching pods status: {}", e);
                     consecutive_errors += 1;
 
                     // If we've had too many consecutive errors, mark the job as failed
@@ -929,12 +929,32 @@ impl RunpodPlatform {
             "[Runpod Controller] Getting container default user for image: {}",
             model.image
         );
-        let container_user = get_container_default_user(&model.image).await?;
+        // A "match" to catch errors, log them, and possibly do something else
+        let (parsed_manifest, container_user) = match pull_and_parse_config(&model.image).await {
+            Ok((parsed_manifest, container_user)) => (parsed_manifest, container_user),
+            Err(err) => {
+                error!(
+                    "[Runpod Controller] Failed pulling/parsing config for image '{}': {:#}",
+                    model.image, err
+                );
+                // We can either choose to return immediately with Err or
+                // fallback to defaults. For now, just return the error:
+                return Err(err);
+            }
+        };
+
         debug!(
-            "[Runpod Controller] Container default user: {}",
+            "[Runpod Controller] Container default user from OCI config: {}",
             container_user
         );
-        Mutation::update_container_user(db, model.id.clone(), Some(container_user.clone())).await?;
+
+        // If you want a graceful fallback to 'root' in case container_user is empty:
+        let final_user = if container_user.is_empty() {
+            "root".to_string()
+        } else {
+            container_user.clone()
+        };
+        Mutation::update_container_user(db, model.id.clone(), Some(final_user)).await?;
 
         // Add NEBU_SYNC_CONFIG environment variable with serialized volumes configuration
         match model.parse_volumes() {
@@ -1200,6 +1220,10 @@ impl RunpodPlatform {
     tailscale up --auth-key=$TS_AUTHKEY --hostname="{hostname}" --ssh
 
     echo "[DEBUG] Invoking nebu sync..."
+    nebu sync volumes --config /nebu/sync.yaml --interval-seconds 5 \
+        --create-if-missing --config-from-env
+
+    echo "[DEBUG] Invoking nebu sync background..."
     nebu sync volumes --config /nebu/sync.yaml --interval-seconds 5 \
         --create-if-missing --watch --background --block-once --config-from-env
     
