@@ -33,6 +33,26 @@ app.kubernetes.io/instance: {{ .Release.Name | trunc 63 | trimSuffix "-" }}
 {{- printf "%s-local-role" .Release.Name }}
 {{- end }}
 
+{{- define "headscale.name" -}}
+headscale
+{{- end }}
+
+{{- define "headscale.serviceName" -}}
+{{- default (include "headscale.name" .) .Values.headscale.service.nameOverride }}
+{{- end }}
+
+{{- define "headscale.namespace" -}}
+{{- default (include "nebulous.namespace" .) .Values.headscale.namespaceOverride }}
+{{- end }}
+
+{{- define "tailscale.host" -}}
+{{- if .Values.headscale.enabled }}
+{{- include "headscale.serviceName" . }}.{{- include "headscale.namespace" . }}.svc.cluster.local
+{{- else }}
+{{- required ".Values.tailscale.host is required" .Values.tailscale.host }}
+{{- end }}
+{{- end }}
+
 {{- define "postgres.name" -}}
 postgres
 {{- end }}
@@ -49,9 +69,13 @@ postgres
 redis
 {{- end }}
 
+{{- define "redis.serviceName" -}}
+{{- default (include "redis.name" .) .Values.redis.service.nameOverride }}
+{{- end }}
+
 {{- define "redis.host" -}}
 {{- if .Values.redis.create }}
-{{- include "redis.name" . }}.{{- include "nebulous.namespace" . }}.svc.cluster.local
+{{- include "redis.serviceName" . }}.{{- include "nebulous.namespace" . }}.svc.cluster.local
 {{- else }}
 {{- required ".Values.redis.auth.host is required" .Values.redis.auth.host }}
 {{- end }}

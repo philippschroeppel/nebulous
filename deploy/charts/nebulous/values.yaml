@@ -44,6 +44,10 @@ messageQueue:
   # -- The message queue type. The currently only supported value is "redis".
   type: "redis"
 
+tailscale:
+  # -- The Tailscale host to connect to. If headscale.enabled is true, this is ignored.
+  host: ""
+
 encryptionKey:
   secret:
     # -- The name of the secret containing the 32 byte encryption key.
@@ -142,6 +146,12 @@ redis:
   # -- The redis image tag. Ignored unless 'create' is true.
   imageTag: "latest"
 
+  service:
+    # -- The annotations to add to the Kubernetes service.
+    annotations: {}
+    # -- Override the name of the Kubernetes service.
+    nameOverride: ""
+
   ingress:
     # -- If enabled, create an Ingress resource. Ignored unless 'create' is true.
     enabled: false
@@ -152,6 +162,34 @@ redis:
     ingressClassName: ""
     # -- The host field of the Ingress rule.
     host: ""
+
+## Headscale configuration
+headscale:
+  # -- If enabled, create a Headscale deployment and service. Overrides tailscale configuration.
+  enabled: false
+  # -- Namespace override for the Headscale deployment.
+  namespaceOverride: ""
+  # -- The Headscale image tag.
+  imageTag: "latest"
+  # -- The domain under which the Headscale server is exposed.
+  domain: ""
+
+  service:
+    # -- The port of the Kubernetes service.
+    port: 3000
+    # -- The annotations to add to the Kubernetes service.
+    annotations: {}
+    # -- Override the name of the Kubernetes service.
+    nameOverride: ""
+
+  ingress:
+    # -- If enabled, create an Ingress resource. Ignored unless 'enabled' is true.
+    enabled: false
+
+    # -- Annotations to add to the Ingress resource.
+    annotations: {}
+    # -- The ingress class.
+    ingressClassName: ""
 
 ## Provider configuration
 providers:

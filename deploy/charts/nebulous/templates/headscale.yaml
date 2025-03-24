@@ -1,0 +1,91 @@
+{{- if .Values.headscale.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "headscale.name" . }}
+  namespace: {{ include "headscale.namespace" . }}
+data:
+  config.yaml: |
+    server_url: {{ printf "https://%s:433" .Values.headscale.domain }}
+    listen_addr: 0.0.0.0:8080
+    metrics_listen_addr: 0.0.0.0:9090
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "headscale.name" . }}
+  namespace: {{ include "headscale.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ include "headscale.name" . }}
+  template:
+    spec:
+      containers:
+        - name: headscale
+          image: "headscale/headscale:{{ .Values.headscale.imageTag }}"
+          restartPolicy: unless-stopped
+          ports:
+            - containerPort: 8080
+            - containerPort: 9090
+          volumeMounts:
+            - mountPath: /etc/headscale
+              name: config
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "headscale.name" . }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "headscale.serviceName" . }}
+  namespace: {{ include "headscale.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+  {{- with .Values.headscale.service.annotations }}
+    annotations:
+        {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    app: {{ include "headscale.name" . }}
+  ports:
+    - protocol: TCP
+      port: {{ .Values.headscale.service.port }}
+      targetPort: 8080
+  type: ClusterIP
+---
+{{- if .Values.headscale.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "headscale.serviceName" . }}
+  namespace: {{ include "headscale.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+  {{- with .Values.headscale.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.headscale.ingress.ingressClassName }}
+  ingressClassName: {{.}}
+  {{- end }}
+  rules:
+    - http:
+        paths:
+          - backend:
+              service:
+                name: {{ include "headscale.name" . }}
+                port:
+                  number: {{ .Values.headscale.service.port }}
+            path: /
+            pathType: Prefix
+      {{- with .Values.headscale.domain }}
+      host: {{.}}
+      {{- end }}
+{{- end }}
+{{- end }}
