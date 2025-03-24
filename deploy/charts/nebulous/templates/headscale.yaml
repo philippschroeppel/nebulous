@@ -6,9 +6,14 @@ metadata:
   namespace: {{ include "headscale.namespace" . }}
 data:
   config.yaml: |
-    server_url: {{ printf "https://%s:433" .Values.headscale.domain }}
+    server_url: {{ printf "https://%s:443" .Values.headscale.domain }}
     listen_addr: 0.0.0.0:8080
     metrics_listen_addr: 0.0.0.0:9090
+    # TLS termination happens at the Ingress level
+    # (see https://headscale.net/stable/ref/integration/reverse-proxy/#tls)
+    tls_cert_path: ""
+    tls_key_path: ""
+    
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -33,10 +38,15 @@ spec:
           volumeMounts:
             - mountPath: /etc/headscale
               name: config
+            - mountPath: /mnt/sqlite
+              name: sqlite
       volumes:
         - name: config
           configMap:
             name: {{ include "headscale.name" . }}
+        - name: sqlite
+          persistentVolumeClaim:
+            claimName: {{ .Values.headscale.sqlite.claimName }}
 ---
 apiVersion: v1
 kind: Service

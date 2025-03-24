@@ -34,6 +34,20 @@ helm install nebulous nebulous/nebulous -f values.yaml \
 | encryptionKey.encodedValue | string | `""` | The 32 byte encryption key encoded in base64. Not recommended for production. |
 | encryptionKey.secret.keys.encryption_key | string | `"ENCRYPTION_KEY"` | The key in the secret containing the encryption key. |
 | encryptionKey.secret.name | string | `"nebulous-secret"` | The name of the secret containing the 32 byte encryption key. |
+| headscale.domain | string | `""` | The domain under which the Headscale server is exposed. |
+| headscale.enabled | bool | `false` | If enabled, create a Headscale deployment and service. Overrides tailscale configuration. |
+| headscale.imageTag | string | `"latest"` | The Headscale image tag. |
+| headscale.ingress.annotations | object | `{}` | Annotations to add to the Ingress resource. |
+| headscale.ingress.enabled | bool | `false` | If enabled, create an Ingress resource. Ignored unless 'enabled' is true. |
+| headscale.ingress.ingressClassName | string | `""` | The ingress class. |
+| headscale.namespaceOverride | string | `""` | Namespace override for the Headscale deployment. |
+| headscale.service.annotations | object | `{}` | The annotations to add to the Kubernetes service. |
+| headscale.service.nameOverride | string | `""` | Override the name of the Kubernetes service. |
+| headscale.service.port | int | `3000` | The port of the Kubernetes service. |
+| headscale.sqlite.claimName | string | `"headscale-pvc"` | The name of the PersistentVolumeClaim for the Headscale sqlite database. |
+| headscale.sqlite.createPersistentVolumeClaim | bool | `true` |  |
+| headscale.sqlite.size | string | `"10Gi"` |  |
+| headscale.sqlite.storageClassName | string | `""` |  |
 | image.pullPolicy | string | `"IfNotPresent"` |  |
 | image.repository | string | `"us-docker.pkg.dev/agentsea-dev/nebulous/server"` | The repository to pull the server image from. |
 | image.tag | string | `""` | The nebulous image tag. Defaults to the Helm chart's appVersion. |
@@ -74,6 +88,8 @@ helm install nebulous nebulous/nebulous -f values.yaml \
 | redis.secret.keys.connection_string | string | `"CONNECTION_STRING"` | The key in the secret containing the Redis connection string. |
 | redis.secret.keys.password | string | `"PASSWORD"` | The key in the secret containing the Redis password. |
 | redis.secret.name | string | `"redis-secret"` | Name of the secret with the Redis connection string and password. |
+| redis.service.annotations | object | `{}` | The annotations to add to the Kubernetes service. |
+| redis.service.nameOverride | string | `""` | Override the name of the Kubernetes service. |
 | service.annotations | object | `{}` | Annotations to add to the Kubernetes service. |
 | service.nameOverride | string | `""` | Override the name of the Kubernetes service. |
 | service.port | int | `3000` | The port of the Kubernetes service. |
@@ -94,4 +110,7 @@ helm install nebulous nebulous/nebulous -f values.yaml \
 | storage.model.createPersistentVolumeClaim | bool | `true` |  |
 | storage.model.size | string | `"1000Gi"` |  |
 | storage.model.storageClassName | string | `""` |  |
+| tailscale.host | string | `""` | The Tailscale host to connect to. If headscale.enabled is true, this is ignored. |
+| tailscale.secret.keys.host | string | `"URL"` | The key in the secret containing the Tailscale host. |
+| tailscale.secret.name | string | `"tailscale-secret"` | Name of the secret with the Redis connection string and password. |
 

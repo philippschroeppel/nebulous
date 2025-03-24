@@ -48,6 +48,13 @@ tailscale:
   # -- The Tailscale host to connect to. If headscale.enabled is true, this is ignored.
   host: ""
 
+  secret:
+    # -- Name of the secret with the Redis connection string and password.
+    name: "tailscale-secret"
+    keys:
+     # -- The key in the secret containing the Tailscale host.
+     host: "URL"
+
 encryptionKey:
   secret:
     # -- The name of the secret containing the 32 byte encryption key.
@@ -173,6 +180,15 @@ headscale:
   imageTag: "latest"
   # -- The domain under which the Headscale server is exposed.
   domain: ""
+
+  sqlite:
+    # -- The name of the PersistentVolumeClaim for the Headscale sqlite database.
+    claimName: "headscale-pvc"
+    # -- The size of the PersistentVolumeClaim for the Headscale sqlite database.
+
+    createPersistentVolumeClaim: true
+    size: "10Gi"
+    storageClassName: ""
 
   service:
     # -- The port of the Kubernetes service.
