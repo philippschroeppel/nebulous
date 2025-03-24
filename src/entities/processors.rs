@@ -17,6 +17,8 @@ pub struct Model {
     pub id: String,
     pub namespace: String,
     pub name: String,
+    #[sea_orm(unique, column_type = "Text")]
+    pub full_name: String,
     pub labels: Option<Json>,
     pub owner: String,
     pub container: Option<Json>,

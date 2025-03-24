@@ -5,6 +5,7 @@ use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info};
 
+use anyhow::Result;
 use dashmap::DashMap;
 use once_cell::sync::Lazy;
 use sea_orm::ActiveModelTrait;

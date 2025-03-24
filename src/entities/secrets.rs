@@ -15,6 +15,8 @@ pub struct Model {
     pub id: String,
     pub name: String,
     pub namespace: String,
+    #[sea_orm(unique, column_type = "Text")]
+    pub full_name: String,
     pub owner: String,
     pub owner_ref: Option<String>,
     pub encrypted_value: String,
@@ -115,8 +117,9 @@ impl Model {
 
         Ok(Self {
             id,
-            name,
-            namespace,
+            name: name.clone(),
+            namespace: namespace.clone(),
+            full_name: format!("{namespace}/{name}"),
             owner,
             owner_ref: None,
             encrypted_value,

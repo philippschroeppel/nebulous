@@ -209,7 +209,10 @@ pub trait ContainerPlatform {
         env.insert("NEBU_SERVER".to_string(), config.server.unwrap());
         env.insert("HF_HOME".to_string(), "/nebu/cache/huggingface".to_string());
 
-        env.insert("TS_AUTHKEY".to_string(), self.get_tailscale_key().await);
+        env.insert(
+            "TS_AUTHKEY".to_string(),
+            self.get_tailscale_key(model).await,
+        );
 
         // env.insert(
         //     "RCLONE_CONFIG_S3REMOTE_ACL".to_string(),
@@ -220,7 +223,11 @@ pub trait ContainerPlatform {
         env
     }
 
-    async fn get_tailscale_key(&self) -> String {
+    async fn get_tailscale_name(&self, model: &containers::Model) -> String {
+        format!("{}-{}-container", model.namespace, model.name)
+    }
+
+    async fn get_tailscale_key(&self, model: &containers::Model) -> String {
         let tailscale_api_key = CONFIG
             .tailscale_api_key
             .clone()
@@ -234,6 +241,22 @@ pub trait ContainerPlatform {
         debug!("Tailnet: {}", tailnet);
 
         let client = TailscaleClient::new(tailscale_api_key);
+
+        let name = self.get_tailscale_name(model).await;
+
+        debug!("Ensuring no existing Tailscale device for {}", name);
+        match client
+            .remove_device_by_name(&"-".to_string(), &name, None)
+            .await
+        {
+            Ok(_) => {
+                debug!("Ensured no existing Tailscale device for {}", name);
+            }
+            Err(e) => {
+                debug!("Error removing Tailscale auth key for {}: {}", name, e);
+                panic!("Error removing Tailscale auth key for {}: {}", name, e);
+            }
+        }
 
         // Build the request body with the capabilities you need
         let request_body = tailscale_client::CreateAuthKeyRequest {
@@ -317,11 +340,17 @@ pub trait ContainerPlatform {
             None,
         )?;
 
+        let namespace = secret.namespace.clone();
+        let name = secret.name.clone();
+
+        let full_name = format!("{namespace}/{name}");
+
         // Convert to active model for insertion
         let active_model = secrets::ActiveModel {
             id: Set(secret.id),
-            name: Set(secret.name),
-            namespace: Set(secret.namespace),
+            name: Set(name),
+            namespace: Set(namespace),
+            full_name: Set(full_name),
             owner: Set(secret.owner),
             owner_ref: Set(secret.owner_ref),
             encrypted_value: Set(secret.encrypted_value),
