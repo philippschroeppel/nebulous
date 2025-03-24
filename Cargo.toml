@@ -1,6 +1,6 @@
 [package]
 name = "nebulous"
-version = "0.1.44"
+version = "0.1.45"
 edition = "2021"
 description = "A Rust library for nebulous operations"
 license = "MIT"
@@ -77,3 +77,5 @@ openai-api-rs = "6.0.3"
 async-ssh2-tokio = "0.8.14"
 tailscale-client = "0.1.4"
 http-body = "1.0.1"
+hickory-server = "0.25.1"
+warp = "0.3.7"

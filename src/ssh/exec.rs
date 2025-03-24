@@ -38,21 +38,30 @@ use tokio::net::ToSocketAddrs;
 /// }
 /// ```
 pub fn run_ssh_command_ts(
-    namespace: &str,
-    name: &str,
+    hostname: &str,
     command: Vec<String>,
     interactive: bool,
     tty: bool,
+    username: Option<&str>, // <-- add `username` if desired
 ) -> Result<String, IoError> {
-    debug!("Running SSH command: '{:?}' on {namespace}/{name} with interactive={interactive} and tty={tty}", command);
-    // Our Tailscale host is {name}-{namespace}-container
-    let hostname = format!("{}-{}-container", name, namespace);
+    debug!(
+        "Running SSH command: '{:?}' on {hostname} as {:?} with interactive={interactive} and tty={tty}",
+        command, username
+    );
 
     let mut ssh_cmd = Command::new("ssh");
 
+    // Example usage of `username`:
+    if let Some(u) = username {
+        // Option A: "ssh user@host"
+        ssh_cmd.arg(format!("{u}@{hostname}"));
+        // or Option B: "ssh -l user host"
+        //   ssh_cmd.arg("-l").arg(u).arg(hostname);
+    } else {
+        ssh_cmd.arg(hostname);
+    }
+
     if interactive {
-        // This assumes the user wants an interactive session - in practice you misght
-        // provide a path to a key rather than just `-i`, or conditionally handle it differently
         ssh_cmd.arg("-i");
     }
 
@@ -60,19 +69,14 @@ pub fn run_ssh_command_ts(
         ssh_cmd.arg("-t");
     }
 
-    // Tailscale hostname
-    ssh_cmd.arg(&hostname);
-
     // Then append the command arguments
     ssh_cmd.args(command);
 
-    // Instead of .status(), we capture the child's output
+    // Capture output, check status, etc.
     let output = ssh_cmd
         .output()
         .map_err(|err| IoError::new(ErrorKind::Other, format!("Failed to spawn ssh: {err}")))?;
 
-    debug!("SSH command output: {:?}", output);
-    // Check exit code
     if !output.status.success() {
         return Err(IoError::new(
             ErrorKind::Other,
@@ -84,10 +88,8 @@ pub fn run_ssh_command_ts(
         ));
     }
 
-    // Convert stdout bytes into a String
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
-
 struct Client {}
 
 // More SSH event handlers

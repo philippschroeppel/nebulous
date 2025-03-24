@@ -5,6 +5,7 @@ pub mod auth;
 pub mod cli;
 pub mod config;
 pub mod db;
+pub mod dns;
 pub mod entities;
 pub mod errors;
 pub mod handlers;

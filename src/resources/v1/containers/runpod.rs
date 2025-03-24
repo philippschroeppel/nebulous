@@ -976,7 +976,8 @@ impl RunpodPlatform {
         }
         info!("[Runpod Controller] Environment variables: {:?}", env_vec);
 
-        let hostname = format!("{}-{}-container", model.namespace, model.name);
+        let hostname = model.id.clone();
+        info!("[Runpod Controller] Hostname: {}", hostname);
 
         let docker_command = self.build_command(&model, &hostname);
         info!("[Runpod Controller] Docker command: {:?}", docker_command);
@@ -1272,11 +1273,11 @@ done
 
         // 5) Execute the command over SSH
         let output = match run_ssh_command_ts(
-            &container_model.namespace,
-            &container_model.name,
+            &container_model.id,
             cmd.split_whitespace().map(|s| s.to_string()).collect(),
             false,
             false,
+            Some("root"), // TODO: where should this come from?
         ) {
             Ok(output) => output,
             Err(e) => return Err(e.into()),
@@ -1739,13 +1740,16 @@ impl ContainerPlatform for RunpodPlatform {
         // 4) SSH into the container and retrieve the log file
         //    Modify this as needed (for tailing, for instance).
         let command = format!("cat {}", log_file);
-        let output = crate::ssh::exec::exec_ssh_command(
-            "ssh.runpod.io:22",
-            &resource_name,
-            &ssh_private_key,
-            &command,
-        )
-        .await?;
+        let output = match crate::ssh::exec::run_ssh_command_ts(
+            &container_id,
+            command.split_whitespace().map(|s| s.to_string()).collect(),
+            false,
+            false,
+            Some("root"), // TODO: where should this come from?
+        ) {
+            Ok(output) => output,
+            Err(e) => return Err(e.into()),
+        };
 
         Ok(output)
     }

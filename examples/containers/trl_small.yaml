@@ -8,15 +8,19 @@ image: "huggingface/trl-latest-gpu:latest"
 command: |
   source activate trl && trl sft \
     --model_name_or_path $MODEL \
-    --dataset_name trl-lib/Capybara \
+    --dataset_name agentsea/Capybara-slim \
     --dataset_train_split "train" \
     --dataset_test_split "test" \
     --output_dir /output \
     --torch_dtype bfloat16 \
     --max_seq_length 2048 \
-    --per_device_train_batch_size 4 \
-    --per_device_eval_batch_size 4 \
-    --use_peft true
+    --per_device_train_batch_size 2 \
+    --per_device_eval_batch_size 2 \
+    --use_peft true \
+    --save_strategy steps \
+    --save_steps 1 \
+    --save_total_limit 3 \
+    --num_train_epochs 1
 platform: runpod
 env:
   - key: MODEL
