@@ -46,7 +46,7 @@ headscale
 {{- end }}
 
 {{- define "tailscale.host" -}}
-{{- if .Values.headscale.enabled }}
+{{- if .Values.headscale.create }}
 {{- include "headscale.serviceName" . }}.{{- include "headscale.namespace" . }}.svc.cluster.local
 {{- else }}
 {{- required ".Values.tailscale.host is required" .Values.tailscale.host }}

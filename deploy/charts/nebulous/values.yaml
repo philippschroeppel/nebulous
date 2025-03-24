@@ -172,8 +172,8 @@ redis:
 
 ## Headscale configuration
 headscale:
-  # -- If enabled, create a Headscale deployment and service. Overrides tailscale configuration.
-  enabled: false
+  # -- If true, create a Headscale deployment and service. Overrides tailscale configuration.
+  create: false
   # -- Namespace override for the Headscale deployment.
   namespaceOverride: ""
   # -- The Headscale image tag.
@@ -192,7 +192,7 @@ headscale:
 
   service:
     # -- The port of the Kubernetes service.
-    port: 3000
+    port: 80
     # -- The annotations to add to the Kubernetes service.
     annotations: {}
     # -- Override the name of the Kubernetes service.

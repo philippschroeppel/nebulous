@@ -1,4 +1,4 @@
-{{- if .Values.headscale.enabled }}
+{{- if .Values.headscale.create }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -13,7 +13,6 @@ data:
     # (see https://headscale.net/stable/ref/integration/reverse-proxy/#tls)
     tls_cert_path: ""
     tls_key_path: ""
-    
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -66,6 +65,22 @@ spec:
     - protocol: TCP
       port: {{ .Values.headscale.service.port }}
       targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "headscale.name" . }}-metrics
+  namespace: {{ include "headscale.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: {{ include "headscale.name" . }}
+  ports:
+    - protocol: TCP
+      port: 9090
+      targetPort: 9090
   type: ClusterIP
 ---
 {{- if .Values.headscale.ingress.enabled }}
