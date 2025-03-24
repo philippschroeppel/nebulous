@@ -321,13 +321,47 @@ pub async fn _delete_container_by_id(
     Ok(StatusCode::OK)
 }
 
-pub async fn fetch_container_logs(
+pub async fn fetch_container_logs_by_id(
     State(state): State<AppState>,
     Extension(user_profile): Extension<V1UserProfile>,
     Path(id): Path<String>,
 ) -> Result<Json<String>, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
 
+    _fetch_container_logs_by_id(db_pool, &id, &user_profile).await
+}
+
+pub async fn fetch_container_logs(
+    State(state): State<AppState>,
+    Extension(user_profile): Extension<V1UserProfile>,
+    Path((namespace, name)): Path<(String, String)>,
+) -> Result<Json<String>, (StatusCode, Json<serde_json::Value>)> {
+    let db_pool = &state.db_pool;
+
+    let container = Query::find_container_by_namespace_and_name(db_pool, &namespace, &name)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Database error: {}", e)})),
+            )
+        })?;
+
+    if container.is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Container not found"})),
+        ));
+    }
+
+    _fetch_container_logs_by_id(db_pool, &container.unwrap().id.to_string(), &user_profile).await
+}
+
+pub async fn _fetch_container_logs_by_id(
+    db_pool: &DatabaseConnection,
+    id: &str,
+    user_profile: &V1UserProfile,
+) -> Result<Json<String>, (StatusCode, Json<serde_json::Value>)> {
     // Collect owner IDs from user_profile to use in your `Query` call
     let mut owner_ids: Vec<String> = user_profile
         .organizations

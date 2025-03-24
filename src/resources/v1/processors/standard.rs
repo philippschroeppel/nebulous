@@ -91,11 +91,13 @@ impl StandardProcessor {
         if let Some(password) = redis_password.clone() {
             env.push(V1EnvVar {
                 key: "REDIS_PASSWORD".to_string(),
-                value: password.clone(),
+                value: Some(password.clone()),
+                secret_name: None,
             });
             env.push(V1EnvVar {
                 key: "REDISCLI_AUTH".to_string(),
-                value: password.clone(),
+                value: Some(password.clone()),
+                secret_name: None,
             });
         }
 
@@ -115,23 +117,28 @@ impl StandardProcessor {
         };
         env.push(V1EnvVar {
             key: "REDIS_URL".to_string(),
-            value: redis_url.clone(),
+            value: Some(redis_url.clone()),
+            secret_name: None,
         });
         env.push(V1EnvVar {
             key: "REDIS_HOST".to_string(),
-            value: CONFIG.redis_host.clone(),
+            value: Some(CONFIG.redis_host.clone()),
+            secret_name: None,
         });
         env.push(V1EnvVar {
             key: "REDIS_PORT".to_string(),
-            value: CONFIG.redis_port.clone(),
+            value: Some(CONFIG.redis_port.clone()),
+            secret_name: None,
         });
         env.push(V1EnvVar {
             key: "REDIS_CONSUMER_GROUP".to_string(),
-            value: processor.id.clone(),
+            value: Some(processor.id.clone()),
+            secret_name: None,
         });
         env.push(V1EnvVar {
             key: "REDIS_STREAM".to_string(),
-            value: processor.stream.clone().unwrap_or_default(),
+            value: Some(processor.stream.clone().unwrap_or_default()),
+            secret_name: None,
         });
 
         // 4) Add processor ID to the labels so we can track which processor it belongs to.

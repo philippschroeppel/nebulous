@@ -67,6 +67,15 @@ pub enum Commands {
         background: bool,
     },
 
+    /// Fetch logs for a container.
+    Logs {
+        /// Container namespace.
+        namespace: String,
+
+        /// Container name.
+        name: String,
+    },
+
     /// Login to a Nebulous API server.
     Login,
 
@@ -96,6 +105,29 @@ pub struct ExecArgs {
     /// The command (and args) to run in the container
     #[arg(long, short)]
     pub command: String,
+}
+
+/// Secret creation parameters
+#[derive(Args)]
+pub struct SecretCommands {
+    /// Secret name
+    pub name: String,
+
+    /// Secret namespace
+    #[arg(long)]
+    pub namespace: Option<String>,
+
+    /// The secret value. (If none given, you must provide a file instead)
+    #[arg(long)]
+    pub value: Option<String>,
+
+    /// Time (in seconds from epoch or similar) for the secret to expire
+    #[arg(long)]
+    pub expires_at: Option<i32>,
+
+    /// Read the secret value from a file.
+    #[arg(short = 'f', long)]
+    pub file: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -165,6 +197,12 @@ pub enum CreateCommands {
     Containers {
         #[command(flatten)]
         command: ContainerCommands,
+    },
+
+    /// Create a secret.
+    Secrets {
+        #[command(flatten)]
+        command: SecretCommands,
     },
 }
 

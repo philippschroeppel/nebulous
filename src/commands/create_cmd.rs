@@ -44,7 +44,11 @@ pub async fn create_container(
         let env = command.env.map(|env_vec| {
             env_vec
                 .into_iter()
-                .map(|(key, value)| V1EnvVar { key, value })
+                .map(|(key, value)| V1EnvVar {
+                    key,
+                    value: Some(value),
+                    ..Default::default()
+                })
                 .collect::<Vec<V1EnvVar>>()
         });
 
@@ -126,4 +130,70 @@ pub async fn create_container(
     }
 
     Ok(())
+}
+
+pub async fn create_secret(
+    command: crate::cli::SecretCommands, // define your CLI struct accordingly
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("Creating secret...");
+
+    // Build the metadata (reused whether file is provided or not)
+    let metadata = nebulous::models::V1ResourceMetaRequest {
+        name: Some(command.name.clone()),
+        namespace: Some(command.namespace.clone().unwrap_or("default".to_string())),
+        ..Default::default()
+    };
+
+    // Construct the request object depending on whether a file is provided
+    let secret_request = if let Some(file) = command.file {
+        // If the user provided a file, read *raw* contents as the secret value
+        println!("Reading secret file: {}", file);
+        let file_content = std::fs::read_to_string(&file)?;
+        println!("File content read");
+
+        nebulous::models::V1SecretRequest {
+            metadata,
+            value: file_content,
+            expires_at: command.expires_at,
+        }
+    } else {
+        // Otherwise, ensure a `--value` was provided on the CLI
+        if command.value.is_none() {
+            return Err("Missing required secret value (or a file)".into());
+        }
+
+        // Construct the request object directly from CLI arguments
+        nebulous::models::V1SecretRequest {
+            metadata,
+            value: command.value.clone().unwrap(),
+            expires_at: command.expires_at,
+        }
+    };
+
+    // Issue the request to your server
+    let client = reqwest::Client::new();
+    let config = nebulous::config::GlobalConfig::read()?;
+    let server = config.server.ok_or("Server not configured")?;
+    let api_key = config.api_key.ok_or("API key not configured")?;
+
+    // POST /v1/secrets with Authorization header
+    let url = format!("{}/v1/secrets", server);
+    let response = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .json(&secret_request)
+        .send()
+        .await?;
+
+    // Check the server response
+    if response.status().is_success() {
+        let secret_response: serde_json::Value = response.json().await?;
+        println!("Secret created successfully!");
+        println!("ID: {}", secret_response["metadata"]["id"]);
+        println!("Name: {}", secret_response["metadata"]["name"]);
+        Ok(())
+    } else {
+        let error_text = response.text().await?;
+        Err(format!("Failed to create secret: {}", error_text).into())
+    }
 }

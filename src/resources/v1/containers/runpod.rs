@@ -996,9 +996,40 @@ impl RunpodPlatform {
             Ok(Some(env)) => {
                 // We have a valid, non-empty list of environment variables.
                 for env_var in env {
+                    let value = match env_var.secret_name {
+                        Some(secret_name) => {
+                            let secret_model =
+                                match crate::query::Query::find_secret_by_namespace_and_name(
+                                    db,
+                                    &model.namespace,
+                                    &secret_name,
+                                )
+                                .await?
+                                {
+                                    Some(secret) => secret,
+                                    None => {
+                                        error!(
+                                            "[Runpod Controller] Secret not found: {}",
+                                            secret_name
+                                        );
+                                        continue;
+                                    }
+                                };
+                            secret_model.decrypt_value().ok()
+                        }
+                        None => env_var.value.clone(),
+                    };
+
+                    if value.is_none() {
+                        error!(
+                            "[Runpod Controller] Failed to find value for key: {}",
+                            env_var.key
+                        );
+                        continue;
+                    }
                     env_vec.push(runpod::EnvVar {
                         key: env_var.key.clone(),
-                        value: env_var.value.clone(),
+                        value: value.unwrap(),
                     });
                 }
                 info!("[Runpod Controller] Successfully parsed and added environment variables from model");

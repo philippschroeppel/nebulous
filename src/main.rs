@@ -66,6 +66,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
             }
+            CreateCommands::Secrets { command } => {
+                commands::create_cmd::create_secret(command).await?;
+            }
         },
         Commands::Get { command } => match command {
             GetCommands::Accelerators { platform } => {
@@ -97,6 +100,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             background,
         } => {
             commands::daemon_cmd::execute_daemon(&host, port, background).await?;
+        }
+        Commands::Logs { namespace, name } => {
+            commands::log_cmd::fetch_container_logs(namespace, name).await?;
         }
         Commands::Login => {
             commands::login_cmd::execute().await?;

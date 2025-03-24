@@ -356,7 +356,7 @@ impl ContainerPlatform for KubePlatform {
             for env_var in user_env {
                 env.push(EnvVar {
                     name: env_var.key.clone(),
-                    value: Some(env_var.value.clone()),
+                    value: env_var.value.clone(), // TODO: Fix this
                     ..Default::default()
                 });
             }

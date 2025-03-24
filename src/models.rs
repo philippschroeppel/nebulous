@@ -24,10 +24,11 @@ pub struct V1Meter {
     pub response_json_path: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct V1EnvVar {
     pub key: String,
-    pub value: String,
+    pub value: Option<String>,
+    pub secret_name: Option<String>,
 }
 
 fn default_error_response_type() -> String {

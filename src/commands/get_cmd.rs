@@ -1,5 +1,7 @@
 use chrono::{DateTime, Utc};
 
+use base64::engine::general_purpose::STANDARD;
+use base64::engine::Engine;
 use nebulous::config::GlobalConfig;
 use serde::Serialize;
 use serde_json::Value;
@@ -280,10 +282,18 @@ pub async fn get_secrets(id: Option<String>) -> Result<(), Box<dyn Error>> {
                 .get("namespace")
                 .and_then(Value::as_str)
                 .unwrap_or("N/A");
-            let data = secret_obj
+            // Get raw data as a string, defaulting to "N/A"
+            let raw_data = secret_obj
                 .get("data")
                 .and_then(Value::as_str)
                 .unwrap_or("N/A");
+
+            // Base64-encode the data if it's not "N/A"
+            let data_b64 = if raw_data == "N/A" {
+                "N/A".to_string()
+            } else {
+                STANDARD.encode(raw_data)
+            };
 
             // Format creation time if available
             let created = secret_obj
@@ -310,7 +320,7 @@ pub async fn get_secrets(id: Option<String>) -> Result<(), Box<dyn Error>> {
                 prettytable::Cell::new(id),
                 prettytable::Cell::new(name),
                 prettytable::Cell::new(namespace),
-                prettytable::Cell::new(data),
+                prettytable::Cell::new(&data_b64),
                 prettytable::Cell::new(&created),
                 prettytable::Cell::new(&updated),
             ]));

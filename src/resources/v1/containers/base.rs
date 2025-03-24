@@ -207,6 +207,9 @@ pub trait ContainerPlatform {
         );
         env.insert("NEBU_API_KEY".to_string(), agent_key.unwrap());
         env.insert("NEBU_SERVER".to_string(), config.server.unwrap());
+        env.insert("NEBU_NAMESPACE".to_string(), model.namespace.clone());
+        env.insert("NEBU_CONTAINER_ID".to_string(), model.id.clone());
+        env.insert("NEBU_DATE".to_string(), chrono::Utc::now().to_rfc3339());
         env.insert("HF_HOME".to_string(), "/nebu/cache/huggingface".to_string());
 
         env.insert(
