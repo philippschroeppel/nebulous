@@ -1,6 +1,6 @@
 [package]
 name = "nebulous"
-version = "0.1.50"
+version = "0.1.52"
 edition = "2021"
 description = "A Rust library for nebulous operations"
 license = "MIT"
@@ -81,3 +81,4 @@ hickory-server = "0.25.1"
 warp = "0.3.7"
 bollard = "0.18.1"
 oci-distribution = "0.11.0"
+regex = "1.11.1"

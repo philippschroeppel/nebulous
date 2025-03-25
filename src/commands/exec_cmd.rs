@@ -13,7 +13,7 @@ pub async fn exec_cmd(args: ExecArgs) -> Result<(), Box<dyn StdError>> {
     // Step 2: Run the local SSH command using the ID as the SSH host (e.g. Tailscale address).
     //         This uses the synchronous `run_ssh_command_ts` from your existing code.
     let output = nebulous::ssh::exec::run_ssh_command_ts(
-        &container_id,
+        &format!("container-{}", container_id),
         args.command
             .split_whitespace()
             .map(|s| s.to_string())

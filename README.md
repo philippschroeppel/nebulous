@@ -18,6 +18,7 @@ curl -fsSL -H "Cache-Control: no-cache" https://raw.githubusercontent.com/agents
 ## Usage
 
 Prefer a pythonic interface? Try [nebulous-py](https://github.com/agentsea/nebulous-py)
+---
 
 Run a local API server on docker
 ```sh
@@ -31,7 +32,19 @@ nebu login --url http://localhost:3000
 
 ### Containers
 
-Create a container on runpod with 2 A100 GPUs which trains a model using TRL.
+Create a container on runpod with 2 A100 GPUs which trains a model using TRL.   
+   
+First lets find what accelerators are available.
+```sh
+nebu get accelerators
+```
+   
+Then lets find what platforms are available.
+```sh
+nebu get platforms
+```
+   
+Now lets create a container.
 ```yaml
 kind: Container
 metadata:
@@ -65,44 +78,14 @@ Replace `my-bucket` with your bucket name, and make sure your aws and runpod cre
 nebu create container -f examples/containers/trl_small.yaml
 ```
 
-Alternatively, create a container on EC2 with 1 L40s GPU
-```sh
-nebu create container \
-    --name foo \
-    --image tensorflow/tensorflow:latest \
-    --cmd "echo hello" \
-    --platform ec2 \
-    --accelerators "1:L40s"
-```
-
 List all containers
 ```sh
 nebu get containers
 ```
 
-Get one container
+Get the container we just created.
 ```sh
 nebu get containers trl-job -n training
-```
-
-Delete a container
-```sh
-nebu delete containers trl-job -n training
-```
-
-List available accelerators
-```sh
-nebu get accelerators
-```
-
-List available platforms
-```sh
-nebu get platforms
-```
-
-SSH into a container [in progress]
-```sh
-nebu ssh trl-job -n training
 ```
 
 Exec a command in a container [in progress]
@@ -110,16 +93,10 @@ Exec a command in a container [in progress]
 nebu exec trl-job -n training -- echo "hello"
 ```
 
-Copy files to a container [in progress]
-```sh
-nebu cp /path/to/file trl-job:/path/to/file -n training
-```
-
 Send an http request to a container [in progress]
 ```text
-curl http://{name}-{namespace}-{kind}:8000
+curl http://container-{id}:8000
 ```
-* _Requires tailnet to be enabled_
 
 #### Queues
 
@@ -182,6 +159,46 @@ This configuration will add 10% to the cost of the container.
 ---   
 
 See [container examples](examples/containers) for more.
+
+
+### Secrets
+
+Secrets are used to store sensitive information such as API keys and credentials.
+
+Create a secret
+```sh
+nebu create secret my-secret --value $MY_SECRET_VALUE -n my-app
+```
+
+Get all secrets
+```sh
+nebu get secrets -n my-app
+```
+
+Get a secret
+```sh
+nebu get secrets my-secret -n my-app
+```
+
+Delete a secret
+```sh
+nebu delete secrets my-secret -n my-app
+```
+
+### Namespaces
+
+Namespaces provide a means to segregate groups of resources across clouds.  
+
+```yaml
+kind: Container
+metadata:
+  name: llama-factory-server
+  namespace: my-app
+```
+   
+Resources within a given namespace are network isolated using [Tailnet](https://tailscale.com/kb/1136/tailnet), and can be accessed by simply using `http://{kind}-{id}:8000` e.g. `http://container-12345:8000`.
+    
+Nebulous cloud provides a free hosted [HeadScale](https://github.com/juanfont/headscale) instance to connect your resources, or you can bring your own by simply setting the `NEBU_HEADSCALE_URL` environment variable.   
 
 ### Services [in progress]
 
@@ -293,6 +310,59 @@ cluster:
 
 See [service examples](examples/services) for more.
 
+### Clusters [in progress]
+
+Clusters provide a means of multi-node training and inference.
+
+```yaml
+kind: Cluster
+metadata:
+  name: pytorch-test
+  namespace: foo
+container:
+  image: pytorch/pytorch:latest
+  command: "echo $NODES && torchrun ..."
+  platform: ec2
+  env:
+    - key: HELLO
+      value: world
+  volumes:
+    - source: s3://nebulous-rs/test
+      dest: /test
+      driver: RCLONE_SYNC
+      continuous: true
+  accelerators:
+    - "8:B200"
+num_nodes: 4
+```
+```sh
+nebu create cluster -f examples/cluster.yaml
+```
+
+Each container will get a `$NODES` env var which contains the IP addresses of the nodes in the cluster.   
+   
+Clusters always aim to schedule nodes as close to each other as possible, with as fast of networking as available.   
+   
+Processors also work with Clusters
+
+```yaml
+kind: Processor
+stream: foo:bar:baz
+cluster:
+  container:
+    image: quz/processor:latest
+    command: "redis-cli XREAD COUNT 10 STREAMS foo:bar:baz"
+    accelerators:
+      - "8:H100"
+    platform: ec2
+  num_nodes: 4
+min_workers: 1
+max_workers: 10
+```
+---
+
+See [cluster examples](examples/clusters) for more.
+
 ### Processors [in progress]
 
 Processors are containers that work off real-time data streams and are autoscaled based on back-pressure. Streams are provided by [Redis Streams](https://redis.io/docs/latest/develop/data-types/streams/).
@@ -377,98 +447,6 @@ container:
 
 See [processor examples](examples/processors) for more.
 
-### Clusters [in progress]
-
-Clusters provide a means of multi-node training and inference.
-
-```yaml
-kind: Cluster
-metadata:
-  name: pytorch-test
-  namespace: foo
-container:
-  image: pytorch/pytorch:latest
-  command: "echo $NODES && torchrun ..."
-  platform: ec2
-  env:
-    - key: HELLO
-      value: world
-  volumes:
-    - source: s3://nebulous-rs/test
-      dest: /test
-      driver: RCLONE_SYNC
-      continuous: true
-  accelerators:
-    - "8:B200"
-num_nodes: 4
-```
-```sh
-nebu create cluster -f examples/cluster.yaml
-```
-
-Each container will get a `$NODES` env var which contains the IP addresses of the nodes in the cluster.   
-   
-Clusters always aim to schedule nodes as close to each other as possible, with as fast of networking as available.   
-   
-Processors also work with Clusters
-
-```yaml
-kind: Processor
-stream: foo:bar:baz
-cluster:
-  container:
-    image: quz/processor:latest
-    command: "redis-cli XREAD COUNT 10 STREAMS foo:bar:baz"
-    accelerators:
-      - "8:H100"
-    platform: ec2
-  num_nodes: 4
-min_workers: 1
-max_workers: 10
-```
----
-
-See [cluster examples](examples/clusters) for more.
-
-### Namespaces [in progress]
-
-Namespaces provide a means to segregate groups of resources across clouds.  
-
-```yaml
-kind: Container
-metadata:
-  name: llama-factory-server
-  namespace: my-app
-```
-   
-Resources within a given namespace are network isolated using [Tailnet](https://tailscale.com/kb/1136/tailnet), and can be accessed by simply using `http://{name}-{namespace}-{kind}:8000` e.g. `http://vllm-myapp-container:8000`.
-    
-Nebulous cloud provides a free hosted [HeadScale](https://github.com/juanfont/headscale) instance to connect your resources, or you can bring your own by simply setting the `NEBU_HEADSCALE_URL` environment variable.   
-
-### Secrets [in progress]
-
-Secrets are used to store sensitive information such as API keys and credentials.
-
-Create a secret
-```sh
-nebu create secret my-secret --value $MY_SECRET_VALUE -n my-app
-```
-
-Get all secrets
-```sh
-nebu get secrets -n my-app
-```
-
-Get a secret
-```sh
-nebu get secrets my-secret -n my-app
-```
-
-Delete a secret
-```sh
-nebu delete secrets my-secret -n my-app
-```
-
 ## SDK
 
 Python https://github.com/agentsea/nebulous-py   
@@ -519,7 +497,7 @@ Now you can create resources
 nebu create container -f examples/containers/trl_small.yaml
 ```
    
-When you make changes, simple run `make install` and `nebu serve` again.
+When you make changes, simply run `make install` and `nebu serve` again.
 
 ## Inspiration
 

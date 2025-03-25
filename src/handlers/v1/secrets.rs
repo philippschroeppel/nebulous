@@ -10,8 +10,9 @@ use axum::{
 use sea_orm::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use short_uuid::ShortUuid;
 use std::collections::HashMap;
-use tracing::info;
+use tracing::{debug, info};
 
 /// Handler: List secrets for the current user (and their organizations)
 pub async fn list_secrets(
@@ -71,6 +72,7 @@ pub async fn list_secrets(
         })
         .collect();
 
+    debug!("Found secrets response: {:?}", response);
     Ok(Json(response))
 }
 
@@ -205,7 +207,7 @@ pub async fn create_secret(
     let db_pool = &state.db_pool;
 
     // Generate a unique ID for the secret. You might use `short_uuid`, etc.
-    let secret_id = format!("secret-{}", uuid::Uuid::new_v4());
+    let secret_id = ShortUuid::generate().to_string();
 
     // id: String,
     // name: String,
@@ -222,12 +224,26 @@ pub async fn create_secret(
         .clone()
         .unwrap_or_else(|| petname::petname(2, "-").unwrap());
 
+    crate::validate::validate_name(&name).map_err(|err| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": format!("Invalid name: {}", err) })),
+        )
+    })?;
+
     // Also set the namespace to "default" if not provided
     let namespace = payload
         .metadata
         .namespace
         .clone()
         .unwrap_or_else(|| "default".to_string());
+
+    crate::validate::validate_namespace(&namespace).map_err(|err| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": format!("Invalid namespace: {}", err) })),
+        )
+    })?;
 
     // Create the new Model, which will auto-encrypt the secret value
     let secret_model = secrets::Model::new(

@@ -6,6 +6,7 @@ use crate::models::{V1ContainerStatus, V1Port, V1UpdateContainer};
 use sea_orm::prelude::Json;
 use sea_orm::*;
 use serde_json::json;
+use short_uuid::ShortUuid;
 use tracing::{debug, info};
 
 pub struct Mutation;
@@ -250,14 +251,14 @@ impl Mutation {
         expires_at: Option<i32>,
     ) -> Result<(secrets::Model, secrets::Model), Box<dyn std::error::Error + Send + Sync>> {
         // 1) Create unique IDs for the secrets (you can pick your own naming).
-        let private_secret_id = format!("ssh-private-key-{}", container_id);
-        let public_secret_id = format!("ssh-public-key-{}", container_id);
+        let private_secret_id = ShortUuid::generate().to_string();
+        let public_secret_id = ShortUuid::generate().to_string();
 
         // 2) Build the ActiveModels for each secret.
         //    The `secrets::Model::new()` will automatically encrypt the `value`.
         let private_secret_model = secrets::Model::new(
             private_secret_id.clone(),
-            format!("SSH private key for container {}", container_id),
+            format!("ssh-private-key-{}", container_id),
             namespace.to_string(),
             owner_id.to_string(),
             private_key,
@@ -274,7 +275,7 @@ impl Mutation {
 
         let public_secret_model = secrets::Model::new(
             public_secret_id.clone(),
-            format!("SSH public key for container {}", container_id),
+            format!("ssh-public-key-{}", container_id),
             namespace.to_string(),
             owner_id.to_string(),
             public_key,
@@ -345,6 +346,17 @@ impl Mutation {
         id: String,
     ) -> Result<sea_orm::DeleteResult, DbErr> {
         secrets::Entity::delete_by_id(id).exec(db).await
+    }
+
+    /// Delete a secret by its `full_name`
+    pub async fn delete_secret_by_fullname(
+        db: &DatabaseConnection,
+        full_name: String,
+    ) -> Result<DeleteResult, DbErr> {
+        secrets::Entity::delete_many()
+            .filter(secrets::Column::FullName.eq(full_name))
+            .exec(db)
+            .await
     }
 
     /// Mutation to update just the `status` (and optionally `message`) of a processor.

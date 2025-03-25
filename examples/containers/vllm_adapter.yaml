@@ -15,10 +15,19 @@ command: |
     --host 0.0.0.0 \
     --gpu-memory-utilization 0.8 \
     --max-model-len 2048 \
-    --max-num-seqs 1
+    --max-num-seqs 1 \
+    --enable-lora \
+    --lora-modules capybara=/adapters/capybara/latest
 env:
   - key: MODEL
     value: Qwen/Qwen2.5-0.5B-Instruct
   - key: HF_TOKEN
     secret_name: HF_TOKEN
+  - key: VLLM_ALLOW_RUNTIME_LORA_UPDATING
+    value: True
+volumes:
+  - source: s3://nebulous-rs/adapter-test
+    dest: /adapters
+    driver: RCLONE_COPY
+    continuous: true
 restart: Always

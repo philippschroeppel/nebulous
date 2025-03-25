@@ -1049,7 +1049,7 @@ impl RunpodPlatform {
         }
         info!("[Runpod Controller] Environment variables: {:?}", env_vec);
 
-        let hostname = model.id.clone();
+        let hostname = format!("container-{}", model.id.clone());
         info!("[Runpod Controller] Hostname: {}", hostname);
 
         let docker_command = self.build_command(&model, &hostname);
@@ -1351,7 +1351,7 @@ done
 
         // 5) Execute the command over SSH
         let output = match run_ssh_command_ts(
-            &container_model.id,
+            &format!("container-{}", container_model.id),
             cmd.split_whitespace().map(|s| s.to_string()).collect(),
             false,
             false,
@@ -1578,6 +1578,7 @@ impl ContainerPlatform for RunpodPlatform {
             resource_namespace: Set(None),
             resource_cost_per_hr: Set(None),
             command: Set(config.command.clone()),
+            args: Set(config.args.clone()),
             labels: Set(config
                 .metadata
                 .as_ref()
@@ -1632,6 +1633,7 @@ impl ContainerPlatform for RunpodPlatform {
             platform: "runpod".to_string(),
             env: config.env.clone(),
             command: config.command.clone(),
+            args: config.args.clone(),
             volumes: config.volumes.clone(),
             accelerators: config.accelerators.clone(),
             meters: config.meters.clone(),
@@ -1759,23 +1761,23 @@ impl ContainerPlatform for RunpodPlatform {
                 None => return Err(format!("Container {} not found", container_id).into()),
             };
 
-        // 2) Retrieve the RunPod Pod ID (stored in container.resource_name)
-        let resource_name = container_model
-            .resource_name
-            .ok_or_else(|| format!("No resource_name found for container {}", container_id))?;
+        // // 2) Retrieve the RunPod Pod ID (stored in container.resource_name)
+        // let resource_name = container_model
+        //     .resource_name
+        //     .ok_or_else(|| format!("No resource_name found for container {}", container_id))?;
 
-        let (maybe_private_key, maybe_public_key) =
-            crate::query::Query::get_ssh_keypair(db, &container_model.id).await?;
+        // let (maybe_private_key, maybe_public_key) =
+        //     crate::query::Query::get_ssh_keypair(db, &container_model.id).await?;
 
-        // Now each is an Option<String>. You can handle them individually:
-        let ssh_private_key = maybe_private_key
-            .ok_or_else(|| format!("No SSH private key found for container {}", container_id))?;
-        let _ssh_public_key = maybe_public_key
-            .ok_or_else(|| format!("No SSH public key found for container {}", container_id))?;
+        // // Now each is an Option<String>. You can handle them individually:
+        // let ssh_private_key = maybe_private_key
+        //     .ok_or_else(|| format!("No SSH private key found for container {}", container_id))?;
+        // let _ssh_public_key = maybe_public_key
+        //     .ok_or_else(|| format!("No SSH public key found for container {}", container_id))?;
 
         // Then call exec_ssh_command or whatever you need:
         let output = match crate::ssh::exec::run_ssh_command_ts(
-            &container_id,
+            &format!("container-{}", container_model.id),
             command.split_whitespace().map(|s| s.to_string()).collect(),
             false,
             false,
@@ -1828,7 +1830,7 @@ impl ContainerPlatform for RunpodPlatform {
         //    Modify this as needed (for tailing, for instance).
         let command = format!("cat {}", log_file);
         let output = match crate::ssh::exec::run_ssh_command_ts(
-            &container_id,
+            &format!("container-{}", container_model.id),
             command.split_whitespace().map(|s| s.to_string()).collect(),
             false,
             false,
@@ -1855,6 +1857,12 @@ impl ContainerPlatform for RunpodPlatform {
             "[Runpod Controller] Attempting to delete container with name: {}",
             id
         );
+
+        let container_model =
+            match crate::query::Query::find_container_by_id(db, id.to_string()).await? {
+                Some(model) => model,
+                None => return Err(format!("Container {} not found", id).into()),
+            };
 
         // First, list all pods to find the one with our name
         match self.runpod_client.list_pods().await {
@@ -1890,6 +1898,50 @@ impl ContainerPlatform for RunpodPlatform {
                                     return Err(e.into());
                                 } else {
                                     info!("[Runpod Controller] Updated container {} status to stopped", id);
+                                    // Also remove the SSH key secrets
+                                    let private_key_secret_id = format!("ssh-private-key-{}", id);
+                                    let full_private_key_secret_id = format!(
+                                        "{}/{}",
+                                        container_model.namespace.clone(),
+                                        private_key_secret_id
+                                    );
+
+                                    let public_key_secret_id = format!("ssh-public-key-{}", id);
+                                    let full_public_key_secret_id = format!(
+                                        "{}/{}",
+                                        container_model.namespace.clone(),
+                                        public_key_secret_id
+                                    );
+                                    match crate::mutation::Mutation::delete_secret_by_fullname(
+                                        db,
+                                        full_private_key_secret_id,
+                                    )
+                                    .await
+                                    {
+                                        Ok(delete_result) => {
+                                            // Here, `delete_result` is the actual DeleteResult (e.g., rows_affected).
+                                            info!("Deleted secret: {:?}", delete_result);
+                                        }
+                                        Err(err) => {
+                                            // Handle or log the error
+                                            error!("Failed to delete secret: {err}");
+                                        }
+                                    }
+                                    match crate::mutation::Mutation::delete_secret_by_fullname(
+                                        db,
+                                        full_public_key_secret_id,
+                                    )
+                                    .await
+                                    {
+                                        Ok(delete_result) => {
+                                            // Here, `delete_result` is the actual DeleteResult (e.g., rows_affected).
+                                            info!("Deleted secret: {:?}", delete_result);
+                                        }
+                                        Err(err) => {
+                                            // Handle or log the error
+                                            error!("Failed to delete secret: {err}");
+                                        }
+                                    }
                                 }
                             }
                             Err(e) => {

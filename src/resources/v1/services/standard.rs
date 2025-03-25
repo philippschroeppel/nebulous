@@ -152,6 +152,7 @@ impl StandardProcessor {
             image: parsed_container.image,
             env: Some(env.clone()),
             command: parsed_container.command,
+            args: parsed_container.args,
             volumes: parsed_container.volumes,
             accelerators: parsed_container.accelerators,
             meters: parsed_container.meters,

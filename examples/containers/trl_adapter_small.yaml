@@ -11,7 +11,7 @@ command: |
     --dataset_name agentsea/Capybara-slim \
     --dataset_train_split "train" \
     --dataset_test_split "test" \
-    --output_dir /output/$NEBU_CONTAINER_ID \
+    --output_dir /output/capybara/jobs/$NEBU_CONTAINER_ID \
     --torch_dtype bfloat16 \
     --max_seq_length 2048 \
     --per_device_train_batch_size 2 \
@@ -20,7 +20,12 @@ command: |
     --save_strategy steps \
     --save_steps 1 \
     --save_total_limit 3 \
-    --num_train_epochs 1 
+    --num_train_epochs 1 \
+  && echo "training complete, syncing to s3" \
+  && LATEST="$(ls -1d /output/capybara/jobs/$NEBU_CONTAINER_ID/checkpoint-* | sort -V | tail -n 1)" && \
+     rm -rf /output/capybara/latest && \
+     mkdir -p /output/capybara/latest && \
+     cp -r "$LATEST"/* /output/capybara/latest/
 platform: runpod
 env:
   - key: MODEL
@@ -28,10 +33,15 @@ env:
   - key: DATASET
     value: trl-lib/Capybara
 volumes:
-  - source: /output
-    dest: s3://nebulous-rs/adapter-test-jobs/
-    driver: RCLONE_COPY
+  - source: /output/capybara
+    dest: s3://nebulous-rs/adapter-test/capybara/
+    driver: RCLONE_SYNC
     continuous: true
 accelerators:
   - "1:L4"
+meters:
+  - cost: 0.01
+    unit: second
+    metric: runtime
+    currency: USD
 restart: Never

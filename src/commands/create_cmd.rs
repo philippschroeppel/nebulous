@@ -79,6 +79,7 @@ pub async fn create_container(
             kind: "Container".to_string(),
             image: command.image.unwrap(),
             command: command.cmd,
+            args: None, // TODO
             accelerators: command.accelerators,
             platform: command.platform,
             env: env,

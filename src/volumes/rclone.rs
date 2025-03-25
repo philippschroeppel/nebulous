@@ -397,6 +397,7 @@ async fn start_sync_process(
     ensure_path_exists(&source).await?;
     ensure_path_exists(&dest).await?;
 
+    // Decide which rclone subcommand to use based on the driver
     if path.driver == V1VolumeDriver::RCLONE_BISYNC {
         // Use bisync for bidirectional sync
         cmd.arg("bisync");
@@ -404,6 +405,11 @@ async fn start_sync_process(
         cmd.arg(&dest);
 
         cmd.arg("--resync");
+    } else if path.driver == V1VolumeDriver::RCLONE_COPY {
+        // Use copy for unidirectional copy
+        cmd.arg("copy");
+        cmd.arg(&source);
+        cmd.arg(&dest);
     } else {
         // Use sync for unidirectional sync
         cmd.arg("sync");
@@ -551,7 +557,13 @@ pub async fn execute_sync(
 
             // Add --force flag to help with empty directory issues
             cmd.arg("--force");
+        } else if path.driver == V1VolumeDriver::RCLONE_COPY {
+            // For rclone copy
+            cmd.arg("copy");
+            cmd.arg(&source);
+            cmd.arg(&dest);
         } else {
+            // Default to unidirectional sync
             cmd.arg("sync");
             cmd.arg(&source);
             cmd.arg(&dest);

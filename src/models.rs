@@ -52,6 +52,7 @@ pub struct V1ContainerRequest {
     pub image: String,
     pub env: Option<Vec<V1EnvVar>>,
     pub command: Option<String>,
+    pub args: Option<String>,
     pub volumes: Option<Vec<V1VolumePath>>,
     // pub local_volumes: Option<Vec<V1VolumePath>>,
     pub accelerators: Option<Vec<String>>,
@@ -154,6 +155,7 @@ pub struct V1Container {
     pub image: String,
     pub env: Option<Vec<V1EnvVar>>,
     pub command: Option<String>,
+    pub args: Option<String>,
     pub volumes: Option<Vec<V1VolumePath>>,
     pub accelerators: Option<Vec<String>>,
     pub meters: Option<Vec<V1Meter>>,
@@ -176,6 +178,7 @@ pub struct V1UpdateContainer {
     pub image: Option<String>,
     pub env: Option<Vec<V1EnvVar>>,
     pub command: Option<String>,
+    pub args: Option<String>,
     pub volumes: Option<Vec<V1VolumePath>>,
     pub accelerators: Option<Vec<String>>,
     pub labels: Option<HashMap<String, String>>,
@@ -200,6 +203,7 @@ pub struct V1VolumeConfig {
 pub enum V1VolumeDriver {
     #[default]
     RCLONE_SYNC,
+    RCLONE_COPY,
     RCLONE_BISYNC,
     RCLONE_MOUNT,
 }
@@ -211,6 +215,7 @@ impl std::str::FromStr for V1VolumeDriver {
         match s {
             "RCLONE_BISYNC" => Ok(V1VolumeDriver::RCLONE_BISYNC),
             "RCLONE_SYNC" => Ok(V1VolumeDriver::RCLONE_SYNC),
+            "RCLONE_COPY" => Ok(V1VolumeDriver::RCLONE_COPY),
             "RCLONE_MOUNT" => Ok(V1VolumeDriver::RCLONE_MOUNT),
             _ => Err("Unrecognized VolumeType"),
         }

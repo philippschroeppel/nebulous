@@ -6,7 +6,7 @@ use nebulous::config::GlobalConfig;
 use serde::Serialize;
 use serde_json::Value;
 use std::error::Error;
-
+use tracing::debug;
 pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
     let config = GlobalConfig::read()?;
     let server = config.server.unwrap();
@@ -256,71 +256,67 @@ pub async fn get_secrets(id: Option<String>) -> Result<(), Box<dyn Error>> {
         prettytable::Cell::new("ID"),
         prettytable::Cell::new("NAME"),
         prettytable::Cell::new("NAMESPACE"),
-        prettytable::Cell::new("DATA"),
         prettytable::Cell::new("CREATED"),
         prettytable::Cell::new("UPDATED"),
     ]));
 
     let empty_vec = Vec::new();
-    let secret_list = secrets
-        .get("secrets")
-        .and_then(Value::as_array)
-        .unwrap_or(&empty_vec);
+    let secret_list = secrets.as_array().unwrap_or(&empty_vec);
 
     // Process each secret in the array
     for secret in secret_list {
         if let Value::Object(secret_obj) = secret {
-            let id = secret_obj
-                .get("id")
-                .and_then(Value::as_str)
-                .unwrap_or("N/A");
-            let name = secret_obj
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or("N/A");
-            let namespace = secret_obj
-                .get("namespace")
-                .and_then(Value::as_str)
-                .unwrap_or("N/A");
-            // Get raw data as a string, defaulting to "N/A"
-            let raw_data = secret_obj
-                .get("data")
+            // Access fields inside metadata
+            let metadata = secret_obj.get("metadata").and_then(Value::as_object);
+
+            let id = metadata
+                .and_then(|m| m.get("id"))
                 .and_then(Value::as_str)
                 .unwrap_or("N/A");
 
-            // Base64-encode the data if it's not "N/A"
-            let data_b64 = if raw_data == "N/A" {
-                "N/A".to_string()
-            } else {
-                STANDARD.encode(raw_data)
-            };
+            let name = metadata
+                .and_then(|m| m.get("name"))
+                .and_then(Value::as_str)
+                .unwrap_or("N/A");
 
-            // Format creation time if available
+            let namespace = metadata
+                .and_then(|m| m.get("namespace"))
+                .and_then(Value::as_str)
+                .unwrap_or("N/A");
+
+            // Handle creation time
             let created = secret_obj
-                .get("created_at")
-                .and_then(|v| v.as_i64().or_else(|| v.as_u64().map(|n| n as i64)))
+                .get("metadata")
+                .and_then(Value::as_object)
+                .and_then(|m| m.get("created_at"))
+                .and_then(Value::as_i64)
                 .map(|timestamp| {
-                    let dt = DateTime::<Utc>::from_timestamp(timestamp, 0).unwrap_or_default();
-                    dt.format("%Y-%m-%d %H:%M:%S").to_string()
+                    DateTime::<Utc>::from_timestamp(timestamp, 0)
+                        .unwrap_or_default()
+                        .format("%Y-%m-%d %H:%M:%S")
+                        .to_string()
                 })
-                .unwrap_or_else(|| "N/A".to_string());
+                .unwrap_or("N/A".to_string());
 
-            // Format update time if available
+            // Handle update time
             let updated = secret_obj
-                .get("updated_at")
-                .and_then(|v| v.as_i64().or_else(|| v.as_u64().map(|n| n as i64)))
+                .get("metadata")
+                .and_then(Value::as_object)
+                .and_then(|m| m.get("updated_at"))
+                .and_then(Value::as_i64)
                 .map(|timestamp| {
-                    let dt = DateTime::<Utc>::from_timestamp(timestamp, 0).unwrap_or_default();
-                    dt.format("%Y-%m-%d %H:%M:%S").to_string()
+                    DateTime::<Utc>::from_timestamp(timestamp, 0)
+                        .unwrap_or_default()
+                        .format("%Y-%m-%d %H:%M:%S")
+                        .to_string()
                 })
-                .unwrap_or_else(|| "N/A".to_string());
+                .unwrap_or("N/A".to_string());
 
-            // Add row to table
+            // Finally, add the row
             table.add_row(prettytable::Row::new(vec![
                 prettytable::Cell::new(id),
                 prettytable::Cell::new(name),
                 prettytable::Cell::new(namespace),
-                prettytable::Cell::new(&data_b64),
                 prettytable::Cell::new(&created),
                 prettytable::Cell::new(&updated),
             ]));

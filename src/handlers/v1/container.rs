@@ -102,6 +102,7 @@ pub async fn _get_container_by_id(
             .and_then(|v| serde_json::from_value(v).ok())
             .unwrap_or_default(),
         command: container.command.clone(),
+        args: container.args.clone(),
         volumes: container
             .volumes
             .and_then(|v| serde_json::from_value(v).ok()),
@@ -181,6 +182,7 @@ pub async fn list_containers(
                 .and_then(|v| serde_json::from_value(v).ok())
                 .unwrap_or_default(),
             command: c.command,
+            args: c.args,
             platform: c.platform.unwrap_or_default(),
             volumes: c.volumes.and_then(|v| serde_json::from_value(v).ok()),
             accelerators: c.accelerators,
@@ -205,6 +207,40 @@ pub async fn create_container(
     Json(container_request): Json<V1ContainerRequest>,
 ) -> Result<Json<V1Container>, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
+
+    match crate::validate::validate_name(
+        &container_request
+            .clone()
+            .metadata
+            .unwrap_or_default()
+            .name
+            .unwrap_or_default(),
+    ) {
+        Ok(_) => (),
+        Err(e) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": format!("Invalid name: {}", e) })),
+            ));
+        }
+    }
+
+    match crate::validate::validate_namespace(
+        &container_request
+            .clone()
+            .metadata
+            .unwrap_or_default()
+            .namespace
+            .unwrap_or_default(),
+    ) {
+        Ok(_) => (),
+        Err(e) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": format!("Invalid namespace: {}", e) })),
+            ));
+        }
+    }
 
     let platform = platform_factory(
         container_request
