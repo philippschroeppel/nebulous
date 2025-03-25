@@ -1,3 +1,4 @@
+{{- if and .Values.tailscale.host (not .Values.headscale.create) }}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -7,4 +8,7 @@ metadata:
     {{- include "common.labels" . | nindent 4 }}
 type: Opaque
 data:
-  {{ .Values.tailscale.secret.keys.host }}: {{ include "tailscale.host"  . | b64enc }}
+  {{ .Values.tailscale.secret.keys.host }}: {{ .Values.tailscale.host | b64enc }}
+  {{ .Values.tailscale.secret.keys.apiKey }}: {{ required ".Values.tailscale.apiKey is required" .Values.tailscale.apiKey | b64enc }}
+  {{ .Values.tailscale.secret.keys.authKey }}: {{ required ".Values.tailscale.authKey is required" .Values.tailscale.authKey | b64enc }}
+{{- end }}

@@ -14,6 +14,10 @@ spec:
     metadata:
       labels:
         app: {{ include "nebulous.appSelector" . }}
+      {{- if .Values.headscale.create }}
+      annotations:
+        "helm.sh/restart-timestamp": "{{ now | date "20250101010203" }}"
+      {{- end }}
     spec:
       serviceAccountName: {{ include "nebulous.serviceAccountName" . }}
       containers:
@@ -29,7 +33,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.encryptionKey.secret.name }}
-                  key: {{ .Values.encryptionKey.secret.keys.encryption_key }}
+                  key: {{ .Values.encryptionKey.secret.keys.encryptionKey }}
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -68,8 +72,21 @@ spec:
                   name:  {{ .Values.providers.runpod.secret.name }}
                   key: {{ .Values.providers.runpod.secret.keys.apiKey }}
             {{- end }}
+            - name: TS_AUTHKEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.tailscale.secret.name }}
+                  key: {{ .Values.tailscale.secret.keys.authKey }}
+            - name: TS_LOGINSERVER
+              valueFrom:
+                  secretKeyRef:
+                    name: {{ .Values.tailscale.secret.name }}
+                    key: {{ .Values.tailscale.secret.keys.host }}
             - name: RUST_LOG
               value: {{ .Values.logLevel | lower }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.tailscale.secret.name }}
           volumeMounts:
             - name: huggingface-pvc
               mountPath: /huggingface

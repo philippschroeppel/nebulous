@@ -21,7 +21,7 @@ service:
   # -- The port of the Kubernetes service.
   port: 3000
   # -- Annotations to add to the Kubernetes service.
-  annotations: {}
+  annotations: { }
   # -- Override the name of the Kubernetes service.
   nameOverride: ""
 
@@ -30,7 +30,7 @@ ingress:
   enabled: false
 
   # -- Annotations to add to the Ingress resource.
-  annotations: {}
+  annotations: { }
   # -- The ingress class.
   ingressClassName: ""
   # -- The host field of the Ingress rule.
@@ -47,13 +47,21 @@ messageQueue:
 tailscale:
   # -- The Tailscale host to connect to. If headscale.enabled is true, this is ignored.
   host: ""
+  # -- The Tailscale API key. If headscale.enabled is true, this is ignored.
+  apiKey: ""
+    # -- The Tailscale auth key. If headscale.enabled is true, this is ignored.
+  authKey: ""
 
   secret:
     # -- Name of the secret with the Redis connection string and password.
     name: "tailscale-secret"
     keys:
-     # -- The key in the secret containing the Tailscale host.
-     host: "URL"
+      # -- The key in the secret containing the Tailscale host.
+      host: "URL"
+      # -- The key in the secret containing the Tailscale API key
+      apiKey: "API_KEY"
+      # -- The key in the secret containing the Tailscale auth key
+      authKey: "AUTH_KEY"
 
 encryptionKey:
   secret:
@@ -61,7 +69,7 @@ encryptionKey:
     name: "nebulous-secret"
     keys:
       # -- The key in the secret containing the encryption key.
-      encryption_key: "ENCRYPTION_KEY"
+      encryptionKey: "ENCRYPTION_KEY"
 
   # -- The 32 byte encryption key encoded in base64. Not recommended for production.
   encodedValue: ""
@@ -155,7 +163,7 @@ redis:
 
   service:
     # -- The annotations to add to the Kubernetes service.
-    annotations: {}
+    annotations: { }
     # -- Override the name of the Kubernetes service.
     nameOverride: ""
 
@@ -164,7 +172,7 @@ redis:
     enabled: false
 
     # -- Annotations to add to the Ingress resource.
-    annotations: {}
+    annotations: { }
     # -- The ingress class.
     ingressClassName: ""
     # -- The host field of the Ingress rule.
@@ -172,7 +180,7 @@ redis:
 
 ## Headscale configuration
 headscale:
-  # -- If true, create a Headscale deployment and service. Overrides tailscale configuration.
+  # -- If true, create a Headscale deployment and service. Overrides tailscale configuration. Not recommended for production.
   create: false
   # -- Namespace override for the Headscale deployment.
   namespaceOverride: ""
@@ -181,20 +189,37 @@ headscale:
   # -- The domain under which the Headscale server is exposed.
   domain: ""
 
+  dns:
+    # -- The base domain for MagicDNS hostnames. Cannot be the same as the Headscale server's domain.
+    base_domain: ""
+
   sqlite:
     # -- The name of the PersistentVolumeClaim for the Headscale sqlite database.
-    claimName: "headscale-pvc"
-    # -- The size of the PersistentVolumeClaim for the Headscale sqlite database.
+    claimName: "headscale-sqlite-pvc"
 
+    # -- If true, create a PersistentVolumeClaim for the Headscale sqlite database.
     createPersistentVolumeClaim: true
+    # -- The size of the PersistentVolumeClaim created for the Headscale sqlite database.
     size: "10Gi"
+    # -- The storage class of the PersistentVolumeClaim created for the Headscale sqlite database.
+    storageClassName: ""
+
+  privateKeys:
+    # -- The name of the PersistentVolumeClaim for the Headscale private keys.
+    claimName: "headscale-keys-pvc"
+
+    # -- If true, create a PersistentVolumeClaim for the Headscale private keys.
+    createPersistentVolumeClaim: true
+    # -- The size of the PersistentVolumeClaim created for the Headscale
+    size: "16Mi"
+    # -- The storage class of the PersistentVolumeClaim created for the Headscale private keys.
     storageClassName: ""
 
   service:
     # -- The port of the Kubernetes service.
     port: 80
     # -- The annotations to add to the Kubernetes service.
-    annotations: {}
+    annotations: { }
     # -- Override the name of the Kubernetes service.
     nameOverride: ""
 
@@ -203,7 +228,7 @@ headscale:
     enabled: false
 
     # -- Annotations to add to the Ingress resource.
-    annotations: {}
+    annotations: { }
     # -- The ingress class.
     ingressClassName: ""
 
