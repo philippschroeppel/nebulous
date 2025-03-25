@@ -13,13 +13,14 @@ Nebulous is in __alpha__, things may break.
 ```sh
 curl -fsSL -H "Cache-Control: no-cache" https://raw.githubusercontent.com/agentsea/nebulous/main/remote_install.sh | bash
 ```
-* _Only MacOS and Linux arm64/amd64 are supported at this time._
+> [!NOTE]
+> _Only MacOS and Linux arm64/amd64 are supported at this time._
 
 ## Usage   
-   
-Prefer a pythonic interface? Try [nebulous-py](https://github.com/agentsea/nebulous-py)
-   
----
+
+> [!TIP]
+> Prefer a pythonic interface? Try [nebulous-py](https://github.com/agentsea/nebulous-py)
+
 
 Export the keys of your cloud providers.
 ```sh
@@ -80,9 +81,10 @@ restart: Never
 Replace `<my-bucket>` with a bucket name your aws credentials have access to, and edit any other fields as needed.
 
 ```sh
-nebu create container -f myfile.yaml
+nebu create container -f mycontainer.yaml
 ```
-*See our [container examples](examples/containers) for more.*
+> [!TIP]
+> See our [container examples](examples/containers) for more.
 
 List all containers
 ```sh
@@ -95,7 +97,7 @@ nebu get containers trl-job -n training
 ```
 
 Exec a command in a container
-```sh
+```text
 nebu exec trl-job -n training -- echo "hello"
 ```
 
@@ -132,9 +134,9 @@ volumes:
 ```
 
 Supported drivers are:
-- RCLONE_SYNC
-- RCLONE_COPY
-- RCLONE_BISYNC
+- `RCLONE_SYNC`
+- `RCLONE_COPY`
+- `RCLONE_BISYNC`
 
 #### Organizations
 
@@ -172,15 +174,12 @@ meters:
 ```
 This configuration will add 10% to the cost of the container.
 
----   
-
-See [container examples](examples/containers) for more.
-   
----
+> [!TIP]
+> See [container examples](examples/containers) for more.
 
 ### Secrets
 
-Secrets are used to store sensitive information such as API keys and credentials.
+Secrets are used to store sensitive information such as API keys and credentials. Secrets are AES-256 encrypted and stored in the database.
 
 Create a secret
 ```sh
@@ -202,6 +201,18 @@ Delete a secret
 nebu delete secrets my-secret -n my-app
 ```
 
+Secrets can be used in container environment variables.
+
+```yaml
+kind: Container
+metadata:
+  name: my-container
+  namespace: my-app
+env:
+  - key: MY_SECRET
+    secret_name: my-secret
+```
+
 ### Namespaces
 
 Namespaces provide a means to segment groups of resources across clouds.  
@@ -213,9 +224,9 @@ metadata:
   namespace: my-app
 ```
    
-Resources within a given namespace are network isolated using [Tailnet](https://tailscale.com/kb/1136/tailnet), and can be accessed by simply using `http://{kind}-{id}:8000` e.g. `http://container-12345:8000`.
+Resources within a given namespace are network isolated using [Tailnet](https://tailscale.com/kb/1136/tailnet), and can be accessed by simply using `http://{kind}-{id}` e.g. `http://container-12345:8000`.
     
-Nebulous cloud provides a free hosted [HeadScale](https://github.com/juanfont/headscale) instance to connect your resources, or you can bring your own by simply setting the `NEBU_HEADSCALE_URL` environment variable.   
+Nebulous cloud provides a free hosted [HeadScale](https://github.com/juanfont/headscale) instance to connect your resources, or you can bring your own by simply setting the `TAILSCALE_URL` environment variable.   
 
 ### Services [in progress]
 
@@ -323,12 +334,9 @@ cluster:
   num_nodes: 2
 ```
 
----
-
-See [service examples](examples/services) for more.
+> [!TIP]
+> See [service examples](examples/services) for more.
    
----
-
 ### Clusters [in progress]
 
 Clusters provide a means of multi-node training and inference.
@@ -361,12 +369,9 @@ nebu create cluster -f examples/cluster.yaml
 Each container will get a `$NODES` env var which contains the IP addresses of the nodes in the cluster.   
    
 Clusters always aim to schedule nodes as close to each other as possible, with as fast of networking as available.   
-   
----
 
-See [cluster examples](examples/clusters) for more.
-   
----
+> [!TIP]
+> See [cluster examples](examples/clusters) for more.
 
 ### Processors [in progress]
 
@@ -448,15 +453,13 @@ container:
     - "1:A40"
 ```
 
----   
-
-See [processor examples](examples/processors) for more.
-   
----
+> [!TIP]
+> See [processor examples](examples/processors) for more.
 
 ## SDK
 
-Python https://github.com/agentsea/nebulous-py   
+Python https://github.com/agentsea/nebulous-py    
+Rust https://crates.io/crates/nebulous/versions
    
 ## Contributing
 
