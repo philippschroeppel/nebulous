@@ -223,7 +223,7 @@ pub trait ContainerPlatform {
 
         env.insert(
             "TS_AUTHKEY".to_string(),
-            self.get_tailscale_key(model).await,
+            self.get_tailscale_device_key(model).await,
         );
 
         // env.insert(
@@ -235,26 +235,57 @@ pub trait ContainerPlatform {
         env
     }
 
-    async fn get_tailscale_name(&self, model: &containers::Model) -> String {
-        format!("{}-{}-container", model.namespace, model.name)
+    async fn get_tailscale_device_name(&self, model: &containers::Model) -> String {
+        format!("container-{}", model.id)
     }
 
-    async fn get_tailscale_key(&self, model: &containers::Model) -> String {
+    async fn get_tailscale_device_ip(
+        &self,
+        model: &containers::Model,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let client = self.get_tailscale_client().await;
+        let name = self.get_tailscale_device_name(model).await;
+
+        // If `find_device_by_name` returns an error, propagate it;
+        // if it returns None, create a formatted error.
+        let device = client
+            .find_device_by_name("-", &name, None)
+            .await?
+            .ok_or_else(|| format!("No Tailscale device found with name '{}'", name))?;
+
+        // If addresses is None, return an error.
+        let addresses = device
+            .addresses
+            .ok_or_else(|| "Tailscale device entry has no addresses")?;
+
+        // If addresses is empty, return an error.
+        let ipv4 = addresses
+            .first()
+            .ok_or_else(|| "No IP addresses found for the Tailscale device")?;
+
+        Ok(ipv4.to_string())
+    }
+
+    async fn get_tailscale_client(&self) -> TailscaleClient {
         let tailscale_api_key = CONFIG
             .tailscale_api_key
             .clone()
             .expect("TAILSCALE_API_KEY not found in config");
+        debug!("Tailscale key: {}", tailscale_api_key);
+        TailscaleClient::new(tailscale_api_key)
+    }
+
+    async fn get_tailscale_device_key(&self, model: &containers::Model) -> String {
         let tailnet = CONFIG
             .tailscale_tailnet
             .clone()
             .expect("tailscale_tailnet not found in config");
 
-        debug!("Tailscale key: {}", tailscale_api_key);
         debug!("Tailnet: {}", tailnet);
 
-        let client = TailscaleClient::new(tailscale_api_key);
+        let client = self.get_tailscale_client().await;
 
-        let name = self.get_tailscale_name(model).await;
+        let name = self.get_tailscale_device_name(model).await;
 
         debug!("Ensuring no existing Tailscale device for {}", name);
         match client

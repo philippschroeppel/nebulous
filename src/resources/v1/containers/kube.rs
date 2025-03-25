@@ -538,7 +538,7 @@ impl ContainerPlatform for KubePlatform {
                                 controller_data: Set(None),
                                 container_user: Set(None),
                                 public_addr: Set(None),
-                                private_ip: Set(None),
+                                tailnet_ip: Set(None),
                                 ports: Set(config
                                     .ports
                                     .clone()

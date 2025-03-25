@@ -148,6 +148,7 @@ pub enum ProxyCommands {
 #[derive(Subcommand)]
 pub enum SyncCommands {
     /// Sync a volume.
+    #[command(aliases = ["volume", "vol"])]
     Volumes {
         /// Path to the YAML configuration file.
         #[arg(short, long)]
@@ -194,12 +195,14 @@ pub enum SyncCommands {
 #[derive(Subcommand)]
 pub enum CreateCommands {
     /// Create a container.
+    #[command(aliases = ["container", "co"])]
     Containers {
         #[command(flatten)]
         command: ContainerCommands,
     },
 
     /// Create a secret.
+    #[command(aliases = ["secret", "sec"])]
     Secrets {
         #[command(flatten)]
         command: SecretCommands,
@@ -330,6 +333,7 @@ fn parse_key_val(s: &str) -> Result<(String, String), String> {
 #[derive(Subcommand)]
 pub enum GetCommands {
     /// Get accelerators.
+    #[command(aliases = ["accelerator", "acc"])]
     Accelerators {
         /// Platform to get accelerators for.
         #[arg(long)]
@@ -337,15 +341,18 @@ pub enum GetCommands {
     },
 
     /// Get containers.
+    #[command(aliases = ["container", "co"])]
     Containers {
         /// Platform to get containers for.
         id: Option<String>,
     },
 
     /// Get platforms.
+    #[command(aliases = ["platform", "plat"])]
     Platforms,
 
     /// Get secrets.
+    #[command(aliases = ["secret", "sec"])]
     Secrets {
         /// Optional secret ID.
         id: Option<String>,
@@ -356,6 +363,7 @@ pub enum GetCommands {
 #[derive(Subcommand)]
 pub enum DeleteCommands {
     /// Delete a container.
+    #[command(aliases = ["container", "co"])]
     Containers {
         /// ID.
         id: String,

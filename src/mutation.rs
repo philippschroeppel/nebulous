@@ -58,10 +58,10 @@ impl Mutation {
     }
 
     /// Mutation to update the container "pod IP"
-    pub async fn update_container_pod_ip(
+    pub async fn update_container_tailnet_ip(
         db: &DatabaseConnection,
         id: String,
-        pod_ip: Option<String>,
+        pod_ip: String,
     ) -> Result<containers::Model, DbErr> {
         let container = containers::Entity::find_by_id(id)
             .one(db)
@@ -70,7 +70,7 @@ impl Mutation {
 
         let mut container: containers::ActiveModel = container.into();
 
-        container.public_addr = Set(pod_ip);
+        container.tailnet_ip = Set(Some(pod_ip));
         container.updated_at = Set(chrono::Utc::now().into());
 
         container.update(db).await

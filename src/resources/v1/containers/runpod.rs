@@ -276,11 +276,14 @@ impl RunpodPlatform {
 
         // Get initial status from database
         let (mut last_status, resource_name) =
-            match crate::query::Query::find_container_by_id(db, container_id.to_string()).await {
+            match crate::query::Query::find_container_by_id(db, container_id.clone().to_string())
+                .await
+            {
                 Ok(container) => {
                     info!(
                         "[Runpod Controller] Initial database container for {}: {:?}",
-                        container_id, container
+                        container_id.clone(),
+                        container
                     );
 
                     // Fix: Parse the status JSON properly
@@ -333,14 +336,16 @@ impl RunpodPlatform {
             iteration_count += 1;
             debug!(
                 "[DEBUG:runpod.rs:watch] container={} iteration={}",
-                container_id, iteration_count
+                container_id.clone(),
+                iteration_count
             );
 
             match self.runpod_client.get_pod(&pod_id_to_watch).await {
                 Ok(pod_response) => {
                     debug!(
                         "[DEBUG:runpod.rs:watch] container={} got pod_response: {:?}",
-                        container_id, pod_response
+                        container_id.clone(),
+                        pod_response
                     );
                     consecutive_errors = 0;
 
@@ -377,6 +382,30 @@ impl RunpodPlatform {
                         if current_status == ContainerStatus::Running {
                             // 1) Check for /done.txt in the container
                             info!("[Runpod Controller] container running...");
+
+                            match self.get_tailscale_device_ip(&container).await {
+                                Ok(ip) => {
+                                    info!("[Runpod Controller] Acquired Tailscale IP: {}", ip);
+                                    if let Err(e) = Mutation::update_container_tailnet_ip(
+                                        db,
+                                        container_id.clone(),
+                                        ip.clone(),
+                                    )
+                                    .await
+                                    {
+                                        error!(
+                                            "[Runpod Controller] Failed to update container tailnet IP for {}: {}",
+                                            container_id, e
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    error!(
+                                        "[Runpod Controller] Failed to get Tailscale device IP for container {}: {}",
+                                        container.id, e
+                                    );
+                                }
+                            };
                             info!(
                                 "[Runpod Controller] container.restart={}",
                                 container.restart
@@ -500,17 +529,6 @@ impl RunpodPlatform {
                                     e
                                 )
                                 }
-                            }
-
-                            match crate::mutation::Mutation::update_container_pod_ip(
-                                db,
-                                container_id.to_string(),
-                                pod_info.public_ip.clone(),
-                            )
-                            .await
-                            {
-                                Ok(_) => {},
-                                Err(e) => error!("[Runpod Controller] Failed to update container pod IP in database: {}", e),
                             }
 
                             // If the pod is in a terminal state, exit the loop
@@ -1049,7 +1067,7 @@ impl RunpodPlatform {
         }
         info!("[Runpod Controller] Environment variables: {:?}", env_vec);
 
-        let hostname = format!("container-{}", model.id.clone());
+        let hostname = self.get_tailscale_device_name(&model).await;
         info!("[Runpod Controller] Hostname: {}", hostname);
 
         let docker_command = self.build_command(&model, &hostname);
@@ -1318,6 +1336,7 @@ done
 
         // 2) Retrieve the RunPod Pod ID (stored in container.resource_name)
         let resource_name = container_model
+            .clone()
             .resource_name
             .ok_or_else(|| format!("No resource_name found for container {}", container_id))?;
 
@@ -1333,25 +1352,29 @@ done
         info!("[Runpod Controller] Fetched pod host id: {:?}", pod_host_id);
 
         // 3) Fetch the SSH key pair from the database
-        let (maybe_private_key, maybe_public_key) =
-            crate::query::Query::get_ssh_keypair(db, &container_model.id).await?;
+        // let (maybe_private_key, maybe_public_key) =
+        //     crate::query::Query::get_ssh_keypair(db, &container_model.id).await?;
 
-        let ssh_private_key = maybe_private_key
-            .ok_or_else(|| format!("No SSH private key found for container {}", container_id))?;
-        let _ssh_public_key = maybe_public_key
-            .ok_or_else(|| format!("No SSH public key found for container {}", container_id))?;
+        // let ssh_private_key = maybe_private_key
+        //     .ok_or_else(|| format!("No SSH private key found for container {}", container_id))?;
+        // let _ssh_public_key = maybe_public_key
+        //     .ok_or_else(|| format!("No SSH public key found for container {}", container_id))?;
 
-        debug!("[Runpod Controller] SSH private key: {}", ssh_private_key);
-        debug!("[Runpod Controller] SSH public key: {}", _ssh_public_key);
+        // debug!("[Runpod Controller] SSH private key: {}", ssh_private_key);
+        // debug!("[Runpod Controller] SSH public key: {}", _ssh_public_key);
 
         // 4) Form a command that checks existence of /done.txt
         //    - On success, it prints '1', otherwise '0'
         let cmd = "test -f /done.txt && echo 1 || echo 0";
         info!("[Runpod Controller] Done file check command: {}", cmd);
 
+        let hostname = match container_model.tailnet_ip {
+            Some(ip) => ip,
+            None => self.get_tailscale_device_name(&container_model).await,
+        };
         // 5) Execute the command over SSH
         let output = match run_ssh_command_ts(
-            &format!("container-{}", container_model.id),
+            &hostname,
             cmd.split_whitespace().map(|s| s.to_string()).collect(),
             false,
             false,
@@ -1371,16 +1394,10 @@ done
             info!("byte[{}] = {:#04x}", i, b);
         }
 
-        if output.trim() == "0".to_string() {
-            info!("[Runpod Controller] ITS ZERO!!");
-        } else {
-            info!("[Runpod Controller] ITS not zero!!");
-        }
-
         if output.trim() == "1".to_string() {
-            info!("[Runpod Controller] ITS ONE!!");
+            info!("[Runpod Controller] Done file is present!");
         } else {
-            info!("[Runpod Controller] ITS not one!!");
+            info!("[Runpod Controller] Done file is not present");
         }
 
         // 6) If output contains "1", the file exists, otherwise it doesn't
@@ -1593,7 +1610,7 @@ impl ContainerPlatform for RunpodPlatform {
             desired_status: Set(Some(ContainerStatus::Running.to_string())),
             ssh_keys: Set(config.ssh_keys.clone().map(|keys| serde_json::json!(keys))),
             public_addr: Set(None),
-            private_ip: Set(None),
+            tailnet_ip: Set(None),
             ports: Set(config.ports.clone().map(|ports| serde_json::json!(ports))),
             public_ip: Set(config.public_ip.clone().unwrap_or(false)),
             container_user: Set(None),
@@ -1775,9 +1792,14 @@ impl ContainerPlatform for RunpodPlatform {
         // let _ssh_public_key = maybe_public_key
         //     .ok_or_else(|| format!("No SSH public key found for container {}", container_id))?;
 
+        let hostname = match container_model.tailnet_ip {
+            Some(ip) => ip,
+            None => self.get_tailscale_device_name(&container_model).await,
+        };
+
         // Then call exec_ssh_command or whatever you need:
         let output = match crate::ssh::exec::run_ssh_command_ts(
-            &format!("container-{}", container_model.id),
+            &hostname,
             command.split_whitespace().map(|s| s.to_string()).collect(),
             false,
             false,
@@ -1813,24 +1835,29 @@ impl ContainerPlatform for RunpodPlatform {
             };
 
         // 2) Retrieve the RunPod Pod ID (stored in container.resource_name)
-        let resource_name = container_model
-            .resource_name
-            .ok_or_else(|| format!("No resource_name found for container {}", container_id))?;
+        // let resource_name = container_model
+        //     .resource_name
+        //     .ok_or_else(|| format!("No resource_name found for container {}", container_id))?;
 
-        // 3) Fetch the SSH key pair from the database
-        let (maybe_private_key, maybe_public_key) =
-            crate::query::Query::get_ssh_keypair(db, &container_model.id).await?;
+        // // 3) Fetch the SSH key pair from the database
+        // let (maybe_private_key, maybe_public_key) =
+        //     crate::query::Query::get_ssh_keypair(db, &container_model.id).await?;
 
-        let ssh_private_key = maybe_private_key
-            .ok_or_else(|| format!("No SSH private key found for container {}", container_id))?;
-        let _ssh_public_key = maybe_public_key
-            .ok_or_else(|| format!("No SSH public key found for container {}", container_id))?;
+        // let ssh_private_key = maybe_private_key
+        //     .ok_or_else(|| format!("No SSH private key found for container {}", container_id))?;
+        // let _ssh_public_key = maybe_public_key
+        //     .ok_or_else(|| format!("No SSH public key found for container {}", container_id))?;
 
         // 4) SSH into the container and retrieve the log file
         //    Modify this as needed (for tailing, for instance).
         let command = format!("cat {}", log_file);
+
+        let hostname = match container_model.tailnet_ip {
+            Some(ip) => ip,
+            None => self.get_tailscale_device_name(&container_model).await,
+        };
         let output = match crate::ssh::exec::run_ssh_command_ts(
-            &format!("container-{}", container_model.id),
+            &hostname,
             command.split_whitespace().map(|s| s.to_string()).collect(),
             false,
             false,
