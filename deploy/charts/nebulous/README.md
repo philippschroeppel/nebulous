@@ -35,6 +35,11 @@ helm install nebulous nebulous/nebulous -f values.yaml \
 | encryptionKey.secret.keys.encryptionKey | string | `"ENCRYPTION_KEY"` | The key in the secret containing the encryption key. |
 | encryptionKey.secret.name | string | `"nebulous-secret"` | The name of the secret containing the 32 byte encryption key. |
 | headscale.create | bool | `false` | If true, create a Headscale deployment and service. Overrides tailscale configuration. Not recommended for production. |
+| headscale.derpService.annotations | object | `{}` | The annotations to add to the Kubernetes service. |
+| headscale.derpService.externalTrafficPolicy | string | `"Local"` | The externalTrafficPolicy of the Kubernetes service. |
+| headscale.derpService.nameOverride | string | `""` | Override the name of the Kubernetes service. |
+| headscale.derpService.port | int | `3478` | The port of the Kubernetes service. |
+| headscale.derpService.type | string | `"LoadBalancer"` | The type of the Kubernetes service. |
 | headscale.dns.base_domain | string | `""` | The base domain for MagicDNS hostnames. Cannot be the same as the Headscale server's domain. |
 | headscale.domain | string | `""` | The domain under which the Headscale server is exposed. |
 | headscale.imageTag | string | `"latest"` | The Headscale image tag. |

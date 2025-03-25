@@ -268,6 +268,27 @@ spec:
       targetPort: 9090
   type: ClusterIP
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ default (printf "%s-derp" (include "headscale.name" .)) .Values.headscale.derpService.nameOverride }}
+  namespace: {{ include "headscale.namespace" . }}
+  {{- with .Values.headscale.derpService.annotations }}
+  annotations:
+      {{- toYaml . | nindent 4 }}
+  {{- end }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: {{ include "headscale.name" . }}
+  ports:
+    - protocol: UDP
+      port: {{ .Values.headscale.derpService.port }}
+      targetPort: 3478
+  type: {{ .Values.headscale.derpService.type }}
+  externalTrafficPolicy: {{ .Values.headscale.derpService.externalTrafficPolicy }}
+---
 {{- if .Values.headscale.ingress.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress

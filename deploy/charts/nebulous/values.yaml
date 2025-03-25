@@ -49,7 +49,7 @@ tailscale:
   host: ""
   # -- The Tailscale API key. If headscale.enabled is true, this is ignored.
   apiKey: ""
-    # -- The Tailscale auth key. If headscale.enabled is true, this is ignored.
+  # -- The Tailscale auth key. If headscale.enabled is true, this is ignored.
   authKey: ""
 
   secret:
@@ -218,6 +218,18 @@ headscale:
   service:
     # -- The port of the Kubernetes service.
     port: 80
+    # -- The annotations to add to the Kubernetes service.
+    annotations: { }
+    # -- Override the name of the Kubernetes service.
+    nameOverride: ""
+
+  derpService:
+    # -- The port of the Kubernetes service.
+    port: 3478
+    # -- The type of the Kubernetes service.
+    type: "LoadBalancer"
+    # -- The externalTrafficPolicy of the Kubernetes service.
+    externalTrafficPolicy: "Local"
     # -- The annotations to add to the Kubernetes service.
     annotations: { }
     # -- Override the name of the Kubernetes service.
