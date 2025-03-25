@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::io::{self, Write};
 
-use nebulous::config::GlobalConfig;
+use nebulous::config::{GlobalConfig, ServerConfig};
 use open;
 use rpassword;
 
@@ -24,8 +24,13 @@ pub async fn execute() -> Result<(), Box<dyn Error>> {
 
     // Save the API key to the config file
     let mut config = GlobalConfig::read()?;
-    config.api_key = Some(api_key);
-    config.server = Some("https://nebu.agentlabs.xyz".to_string());
+    config.servers.push(ServerConfig {
+        name: Some("cloud".to_string()),
+        server: Some("https://api.nebulous.sh".to_string()),
+        api_key: Some(api_key),
+        auth_server: Some("https://auth.hub.agentsea.ai".to_string()),
+    });
+    config.current_server = Some("cloud".to_string());
     config.write()?;
 
     println!("\nLogin successful!");

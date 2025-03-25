@@ -7,8 +7,9 @@ pub async fn fetch_container_logs(
 ) -> Result<String, Box<dyn StdError>> {
     // Load config the same way as in get_cmd.rs
     let config = GlobalConfig::read()?;
-    let server = config.server.unwrap();
-    let api_key = config.api_key.unwrap_or_default();
+    let current_server = config.get_current_server_config().unwrap();
+    let server = current_server.server.as_ref().unwrap();
+    let api_key = current_server.api_key.as_ref().unwrap();
 
     let bearer_token = format!("Bearer {}", api_key);
 

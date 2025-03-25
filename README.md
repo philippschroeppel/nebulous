@@ -15,35 +15,40 @@ curl -fsSL -H "Cache-Control: no-cache" https://raw.githubusercontent.com/agents
 ```
 * _Only MacOS and Linux arm64/amd64 are supported at this time._
 
-## Usage
-
+## Usage   
+   
 Prefer a pythonic interface? Try [nebulous-py](https://github.com/agentsea/nebulous-py)
+   
 ---
+
+Export the keys of your cloud providers.
+```sh
+export RUNPOD_API_KEY=...
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...
+```
 
 Run a local API server on docker
 ```sh
 nebu serve --docker
 ```
 
-Login to an API server
+Or optionally run on Kubernetes with our [helm chart](./deploy/charts/nebulous/)   
+    
+See what cloud platforms are currently supported.
 ```sh
-nebu login --url http://localhost:3000
+nebu get platforms
 ```
 
 ### Containers
 
-Create a container on runpod with 2 A100 GPUs which trains a model using TRL.   
+Let's run our first container. We'll create a container on runpod with 2 A100 GPUs which trains a model using TRL.   
    
-First lets find what accelerators are available.
+First, let's find what accelerators are available.
 ```sh
 nebu get accelerators
 ```
-   
-Then lets find what platforms are available.
-```sh
-nebu get platforms
-```
-   
+
 Now lets create a container.
 ```yaml
 kind: Container
@@ -65,18 +70,19 @@ env:
     value: trl-lib/Capybara 
 volumes:  
   - source: /output
-    dest: s3://my-bucket/training-output
-    driver: RCLONE_SYNC
+    dest: s3://<my-bucket>/training-output
+    driver: RCLONE_COPY
     continuous: true
 accelerators:
   - "2:A100_SXM"
 restart: Never
 ```
-Replace `my-bucket` with your bucket name, and make sure your aws and runpod credentials are in your environment.
+Replace `<my-bucket>` with a bucket name your aws credentials have access to, and edit any other fields as needed.
 
 ```sh
-nebu create container -f examples/containers/trl_small.yaml
+nebu create container -f myfile.yaml
 ```
+*See our [container examples](examples/containers) for more.*
 
 List all containers
 ```sh
@@ -88,13 +94,18 @@ Get the container we just created.
 nebu get containers trl-job -n training
 ```
 
-Exec a command in a container [in progress]
+Exec a command in a container
 ```sh
 nebu exec trl-job -n training -- echo "hello"
 ```
 
-Send an http request to a container [in progress]
-```text
+Get logs from a container
+```sh
+nebu logs trl-job -n training
+```
+
+Send an http request to a container
+```sh
 curl http://container-{id}:8000
 ```
 
@@ -119,6 +130,11 @@ volumes:
     driver: RCLONE_SYNC
     continuous: true
 ```
+
+Supported drivers are:
+- RCLONE_SYNC
+- RCLONE_COPY
+- RCLONE_BISYNC
 
 #### Organizations
 
@@ -159,7 +175,8 @@ This configuration will add 10% to the cost of the container.
 ---   
 
 See [container examples](examples/containers) for more.
-
+   
+---
 
 ### Secrets
 
@@ -187,7 +204,7 @@ nebu delete secrets my-secret -n my-app
 
 ### Namespaces
 
-Namespaces provide a means to segregate groups of resources across clouds.  
+Namespaces provide a means to segment groups of resources across clouds.  
 
 ```yaml
 kind: Container
@@ -309,6 +326,8 @@ cluster:
 ---
 
 See [service examples](examples/services) for more.
+   
+---
 
 ### Clusters [in progress]
 
@@ -343,25 +362,11 @@ Each container will get a `$NODES` env var which contains the IP addresses of th
    
 Clusters always aim to schedule nodes as close to each other as possible, with as fast of networking as available.   
    
-Processors also work with Clusters
-
-```yaml
-kind: Processor
-stream: foo:bar:baz
-cluster:
-  container:
-    image: quz/processor:latest
-    command: "redis-cli XREAD COUNT 10 STREAMS foo:bar:baz"
-    accelerators:
-      - "8:H100"
-    platform: ec2
-  num_nodes: 4
-min_workers: 1
-max_workers: 10
-```
 ---
 
 See [cluster examples](examples/clusters) for more.
+   
+---
 
 ### Processors [in progress]
 
@@ -446,6 +451,8 @@ container:
 ---   
 
 See [processor examples](examples/processors) for more.
+   
+---
 
 ## SDK
 

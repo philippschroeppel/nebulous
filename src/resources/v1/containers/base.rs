@@ -206,7 +206,16 @@ pub trait ContainerPlatform {
             "us-east-1".to_string(),
         );
         env.insert("NEBU_API_KEY".to_string(), agent_key.unwrap());
-        env.insert("NEBU_SERVER".to_string(), config.server.unwrap());
+        env.insert(
+            "NEBU_SERVER".to_string(),
+            config
+                .get_current_server_config()
+                .unwrap()
+                .server
+                .as_ref()
+                .unwrap()
+                .clone(),
+        );
         env.insert("NEBU_NAMESPACE".to_string(), model.namespace.clone());
         env.insert("NEBU_CONTAINER_ID".to_string(), model.id.clone());
         env.insert("NEBU_DATE".to_string(), chrono::Utc::now().to_rfc3339());
@@ -308,7 +317,12 @@ pub trait ContainerPlatform {
         };
 
         let agent_key = create_agent_key(
-            &config.auth_server.unwrap(),
+            &config
+                .get_current_server_config()
+                .unwrap()
+                .auth_server
+                .as_ref()
+                .unwrap(),
             &user_profile.token.clone().unwrap(),
             create_agent_key_request,
         )

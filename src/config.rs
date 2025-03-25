@@ -6,14 +6,92 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Debug)]
 pub struct GlobalConfig {
+    pub servers: Vec<ServerConfig>,
+    pub current_server: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
+pub struct ServerConfig {
+    /// Optional identifier for your server config.
+    pub name: Option<String>,
     pub api_key: Option<String>,
     pub server: Option<String>,
     pub auth_server: Option<String>,
 }
 
 impl GlobalConfig {
+    /// Read the config from disk, or create a default one.
+    /// Then ensure that we either find or create a matching server in `self.servers`
+    /// based on environment variables, and set that as the `default_server`.
+    pub fn read() -> Result<Self, Box<dyn std::error::Error>> {
+        let config_path = get_config_file_path()?;
+        let path_exists = config_path.exists();
+
+        // Load or create default
+        let mut config = if path_exists {
+            let yaml = fs::read_to_string(&config_path)?;
+            serde_yaml::from_str::<GlobalConfig>(&yaml)?
+        } else {
+            GlobalConfig::default()
+        };
+
+        // Collect environment variables (NO fallback defaults here)
+        let env_api_key = env::var("NEBU_API_KEY")
+            .or_else(|_| env::var("AGENTSEA_API_KEY"))
+            .ok();
+        let env_server = env::var("NEBU_SERVER")
+            .or_else(|_| env::var("AGENTSEA_SERVER"))
+            .ok();
+        let env_auth_server = env::var("NEBU_AUTH_SERVER")
+            .or_else(|_| env::var("AGENTSEA_AUTH_SERVER"))
+            .ok();
+
+        // Only proceed if all three environment variables are present.
+        if let (Some(env_api_key), Some(env_server), Some(env_auth_server)) =
+            (env_api_key, env_server, env_auth_server)
+        {
+            // Find a matching server (all three fields match).
+            let found_server = config.servers.iter_mut().find(|srv| {
+                srv.api_key.as_deref() == Some(&env_api_key)
+                    && srv.server.as_deref() == Some(&env_server)
+                    && srv.auth_server.as_deref() == Some(&env_auth_server)
+            });
+
+            // If found, use that. If not, create a new entry.
+            let server_name = "env-based-server".to_string();
+            let chosen_name = if let Some(srv) = found_server {
+                // Make sure it has a name, so we can set default_server to it
+                if srv.name.is_none() {
+                    srv.name = Some(server_name.clone());
+                }
+                srv.name.clone().unwrap()
+            } else {
+                // Need to create a new server entry
+                let new_server = ServerConfig {
+                    name: Some(server_name.clone()),
+                    api_key: Some(env_api_key),
+                    server: Some(env_server),
+                    auth_server: Some(env_auth_server),
+                };
+                config.servers.push(new_server);
+                server_name
+            };
+
+            // Set that server as the “current” or default
+            config.current_server = Some(chosen_name);
+        }
+
+        // Only write if the file didn't already exist
+        if !path_exists {
+            config.write()?;
+        }
+
+        Ok(config)
+    }
+
+    /// Write the current GlobalConfig to disk (YAML).
     pub fn write(&self) -> Result<(), Box<dyn std::error::Error>> {
         let config_path = get_config_file_path()?;
 
@@ -22,50 +100,23 @@ impl GlobalConfig {
             fs::create_dir_all(parent)?;
         }
 
-        // Serialize the configuration to YAML and write to the file
         let yaml = serde_yaml::to_string(self)?;
         fs::write(config_path, yaml)?;
 
         Ok(())
     }
 
-    pub fn read() -> Result<Self, Box<dyn std::error::Error>> {
-        let config_path = get_config_file_path()?;
-        let path_exists = config_path.exists();
-        let mut config = if path_exists {
-            let yaml = fs::read_to_string(config_path)?;
-            serde_yaml::from_str(&yaml)?
+    /// Get the server config for the current `default_server`.
+    /// Returns `None` if `default_server` is unset or if no server
+    /// with that name is found.
+    pub fn get_current_server_config(&self) -> Option<&ServerConfig> {
+        if let Some(ref name) = self.current_server {
+            self.servers
+                .iter()
+                .find(|srv| srv.name.as_deref() == Some(name))
         } else {
-            GlobalConfig::default()
-        };
-
-        // Try to get API key from environment if not in config
-        if config.api_key.is_none() {
-            config.api_key = env::var("NEBU_API_KEY")
-                .or_else(|_| env::var("AGENTSEA_API_KEY"))
-                .ok();
+            None
         }
-        // Try to get server from environment if not in config
-        if config.server.is_none() {
-            config.server = env::var("NEBU_SERVER")
-                .or_else(|_| env::var("AGENTSEA_SERVER"))
-                .ok()
-                .or(Some("https://nebu.agentlabs.xyz".to_string()));
-        }
-        // Try to get auth server from environment if not in config
-        if config.auth_server.is_none() {
-            config.auth_server = env::var("NEBU_AUTH_SERVER")
-                .or_else(|_| env::var("AGENTSEA_AUTH_SERVER"))
-                .ok()
-                .or(Some("https://auth.hub.agentlabs.xyz".to_string()));
-        }
-
-        // Only write the config file if it doesn't exist yet
-        if !path_exists {
-            config.write()?;
-        }
-
-        Ok(config)
     }
 }
 
