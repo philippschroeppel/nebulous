@@ -1,12 +1,12 @@
 # Nebulous
 
-A globally distributed container orchestrator
+__A globally distributed container orchestrator__
 
 Think of it as a Kubernetes that can span clouds and regions with a focus on __accelerated compute__. Ships as a single binary, performant and lightweight via Rust.   
    
 Why not Kubernetes? See [why_not_kube.md](docs/why_not_kube.md)   
    
-Nebulous is in __alpha__, things may break.
+:warning: Nebulous is in __alpha__, things may break.
 
 ## Installation
 
@@ -14,13 +14,9 @@ Nebulous is in __alpha__, things may break.
 curl -fsSL -H "Cache-Control: no-cache" https://raw.githubusercontent.com/agentsea/nebulous/main/remote_install.sh | bash
 ```
 > [!NOTE]
-> _Only MacOS and Linux arm64/amd64 are supported at this time._
+> Only MacOS and Linux arm64/amd64 are supported at this time.
 
 ## Usage   
-
-> [!TIP]
-> Prefer a pythonic interface? Try [nebulous-py](https://github.com/agentsea/nebulous-py)
-
 
 Export the keys of your cloud providers.
 ```sh
@@ -40,6 +36,9 @@ See what cloud platforms are currently supported.
 ```sh
 nebu get platforms
 ```
+
+> [!TIP]
+> Prefer a pythonic interface? Try [nebulous-py](https://github.com/agentsea/nebulous-py)
 
 ### Containers
 
@@ -179,7 +178,7 @@ This configuration will add 10% to the cost of the container.
 
 ### Secrets
 
-Secrets are used to store sensitive information such as API keys and credentials. Secrets are AES-256 encrypted and stored in the database.
+Secrets are used to store sensitive information such as API keys and credentials. Secrets are `AES-256` encrypted and stored in the database.
 
 Create a secret
 ```sh
@@ -458,8 +457,9 @@ container:
 
 ## SDK
 
-Python https://github.com/agentsea/nebulous-py    
-Rust https://crates.io/crates/nebulous/versions
+:snake: Python https://github.com/agentsea/nebulous-py    
+   
+:crab: Rust https://crates.io/crates/nebulous/versions
    
 ## Contributing
 
