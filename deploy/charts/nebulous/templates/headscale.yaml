@@ -24,9 +24,14 @@ data:
       type: sqlite
     derp:
       server:
-        enabled: true
-        stun_listen_addr: 0.0.0.0:3478
-        private_key_path: /mnt/keys/derp_server_private.key
+        enabled: false
+    {{- with .Values.headscale.derp.externalMaps }}
+      urls: {{ toYaml . | nindent 8 }}
+    {{- end }}
+    {{- if .Values.headscale.derp.configMap.name }}
+      paths:
+        - /mnt/derp/{{ .Values.headscale.derp.configMap.key }}
+    {{- end }}
     dns:
       base_domain: {{ .Values.headscale.dns.base_domain }}
 ---
@@ -89,8 +94,8 @@ spec:
         - name: headscale
           image: "headscale/headscale:{{ .Values.headscale.imageTag }}"
           command:
-              - headscale
-              - serve
+            - headscale
+            - serve
           ports:
             - containerPort: 8080
             - containerPort: 9090
@@ -101,6 +106,10 @@ spec:
               name: sqlite
             - mountPath: /mnt/keys
               name: private-keys
+            {{- if .Values.headscale.derp.configMap.name }}
+            - mountPath: /mnt/derp
+              name: derp-config
+            {{- end }}
       volumes:
         - name: config
           configMap:
@@ -111,6 +120,11 @@ spec:
         - name: private-keys
           persistentVolumeClaim:
             claimName: {{ .Values.headscale.privateKeys.claimName }}
+        {{- if .Values.headscale.derp.configMap.name }}
+        - name: derp-config
+          configMap:
+            name: {{ .Values.headscale.derp.configMap.name }}
+        {{- end }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -128,9 +142,9 @@ metadata:
   labels:
     {{- include "common.labels" . | nindent 4 }}
 rules:
-  - apiGroups: [""]
-    resources: ["pods", "pods/exec"]
-    verbs: ["get", "list", "watch", "create"]
+  - apiGroups: [ "" ]
+    resources: [ "pods", "pods/exec" ]
+    verbs: [ "get", "list", "watch", "create" ]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -156,9 +170,9 @@ metadata:
   labels:
     {{- include "common.labels" . | nindent 4 }}
 rules:
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["create", "delete", "get", "list"]
+  - apiGroups: [ "" ]
+    resources: [ "secrets" ]
+    verbs: [ "create", "delete", "get", "list" ]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -214,7 +228,7 @@ spec:
       containers:
         - name: api-key-generator
           image: bitnami/kubectl
-          command: ["/bin/sh", "-c", "
+          command: [ "/bin/sh", "-c", "
           echo 'Waiting for Headscale Pod to be ready...';
           until kubectl get pod -l app={{ include "headscale.name" . }} -n {{ include "headscale.namespace" . }} -o jsonpath='{.items[0].status.phase}' | grep -q Running; do
             sleep 1;
@@ -224,13 +238,13 @@ spec:
           kubectl exec $POD_NAME -- headscale users create nebu || echo 'User nebu already exists. That is OK.';
 
           API_KEY=$(kubectl exec $POD_NAME -- headscale apikeys create --expiration 99y);
-          AUTH_KEY=$(kubectl exec $POD_NAME -- headscale preauthkeys create --user nebu);
+          AUTH_KEY=$(kubectl exec $POD_NAME -- headscale preauthkeys create --user nebu --reusable);
 
           kubectl create secret generic {{ .Values.tailscale.secret.name }} -n {{ include "nebulous.namespace" . }} \
             --from-literal={{ .Values.tailscale.secret.keys.apiKey }}=$API_KEY \
             --from-literal={{ .Values.tailscale.secret.keys.authKey }}=$AUTH_KEY \
             --from-literal={{ .Values.tailscale.secret.keys.host }}={{ include "headscale.host" . }};
-        "]
+        " ]
 ---
 apiVersion: v1
 kind: Service
@@ -267,27 +281,6 @@ spec:
       port: 9090
       targetPort: 9090
   type: ClusterIP
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ default (printf "%s-derp" (include "headscale.name" .)) .Values.headscale.derpService.nameOverride }}
-  namespace: {{ include "headscale.namespace" . }}
-  {{- with .Values.headscale.derpService.annotations }}
-  annotations:
-      {{- toYaml . | nindent 4 }}
-  {{- end }}
-  labels:
-    {{- include "common.labels" . | nindent 4 }}
-spec:
-  selector:
-    app: {{ include "headscale.name" . }}
-  ports:
-    - protocol: UDP
-      port: {{ .Values.headscale.derpService.port }}
-      targetPort: 3478
-  type: {{ .Values.headscale.derpService.type }}
-  externalTrafficPolicy: {{ .Values.headscale.derpService.externalTrafficPolicy }}
 ---
 {{- if .Values.headscale.ingress.enabled }}
 apiVersion: networking.k8s.io/v1

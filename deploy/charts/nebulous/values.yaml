@@ -189,9 +189,26 @@ headscale:
   # -- The domain under which the Headscale server is exposed.
   domain: ""
 
+  # -- Prefixes to allocate tailaddresses from. Must be within the IP ranges supported by the Tailscale client.
+  # Refer to https://github.com/juanfont/headscale/blob/main/config-example.yaml for details.
+  prefixes:
+    v4: 100.64.0.0/10
+    v6: fd7a:115c:a1e0::/48
+
   dns:
     # -- The base domain for MagicDNS hostnames. Cannot be the same as the Headscale server's domain.
+    # Refer to https://github.com/juanfont/headscale/blob/main/config-example.yaml for details.
     base_domain: ""
+
+  # -- The Headscale DERP configuration. Either 'externalMapUrls' or 'configMap' must be set.
+  derp:
+    # -- URLs of externally available DERP maps encoded in JSON.
+    externalMaps: [ ]
+    configMap:
+      # -- The name of the ConfigMap containing the DERP server configuration.
+      name: ""
+      # -- The key in the ConfigMap containing the DERP server configuration YAML file.
+      key: "servers.yaml"
 
   sqlite:
     # -- The name of the PersistentVolumeClaim for the Headscale sqlite database.
@@ -218,18 +235,6 @@ headscale:
   service:
     # -- The port of the Kubernetes service.
     port: 80
-    # -- The annotations to add to the Kubernetes service.
-    annotations: { }
-    # -- Override the name of the Kubernetes service.
-    nameOverride: ""
-
-  derpService:
-    # -- The port of the Kubernetes service.
-    port: 3478
-    # -- The type of the Kubernetes service.
-    type: "LoadBalancer"
-    # -- The externalTrafficPolicy of the Kubernetes service.
-    externalTrafficPolicy: "Local"
     # -- The annotations to add to the Kubernetes service.
     annotations: { }
     # -- Override the name of the Kubernetes service.

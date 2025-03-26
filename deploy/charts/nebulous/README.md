@@ -35,18 +35,18 @@ helm install nebulous nebulous/nebulous -f values.yaml \
 | encryptionKey.secret.keys.encryptionKey | string | `"ENCRYPTION_KEY"` | The key in the secret containing the encryption key. |
 | encryptionKey.secret.name | string | `"nebulous-secret"` | The name of the secret containing the 32 byte encryption key. |
 | headscale.create | bool | `false` | If true, create a Headscale deployment and service. Overrides tailscale configuration. Not recommended for production. |
-| headscale.derpService.annotations | object | `{}` | The annotations to add to the Kubernetes service. |
-| headscale.derpService.externalTrafficPolicy | string | `"Local"` | The externalTrafficPolicy of the Kubernetes service. |
-| headscale.derpService.nameOverride | string | `""` | Override the name of the Kubernetes service. |
-| headscale.derpService.port | int | `3478` | The port of the Kubernetes service. |
-| headscale.derpService.type | string | `"LoadBalancer"` | The type of the Kubernetes service. |
-| headscale.dns.base_domain | string | `""` | The base domain for MagicDNS hostnames. Cannot be the same as the Headscale server's domain. |
+| headscale.derp | object | `{"configMap":{"key":"servers.yaml","name":""},"externalMaps":[]}` | The Headscale DERP configuration. Either 'externalMapUrls' or 'configMap' must be set. |
+| headscale.derp.configMap.key | string | `"servers.yaml"` | The key in the ConfigMap containing the DERP server configuration YAML file. |
+| headscale.derp.configMap.name | string | `""` | The name of the ConfigMap containing the DERP server configuration. |
+| headscale.derp.externalMaps | list | `[]` | URLs of externally available DERP maps encoded in JSON. |
+| headscale.dns.base_domain | string | `""` | The base domain for MagicDNS hostnames. Cannot be the same as the Headscale server's domain. Refer to https://github.com/juanfont/headscale/blob/main/config-example.yaml for details. |
 | headscale.domain | string | `""` | The domain under which the Headscale server is exposed. |
 | headscale.imageTag | string | `"latest"` | The Headscale image tag. |
 | headscale.ingress.annotations | object | `{}` | Annotations to add to the Ingress resource. |
 | headscale.ingress.enabled | bool | `false` | If enabled, create an Ingress resource. Ignored unless 'enabled' is true. |
 | headscale.ingress.ingressClassName | string | `""` | The ingress class. |
 | headscale.namespaceOverride | string | `""` | Namespace override for the Headscale deployment. |
+| headscale.prefixes | object | `{"v4":"100.64.0.0/10","v6":"fd7a:115c:a1e0::/48"}` | Prefixes to allocate tailaddresses from. Must be within the IP ranges supported by the Tailscale client. Refer to https://github.com/juanfont/headscale/blob/main/config-example.yaml for details. |
 | headscale.privateKeys.claimName | string | `"headscale-keys-pvc"` | The name of the PersistentVolumeClaim for the Headscale private keys. |
 | headscale.privateKeys.createPersistentVolumeClaim | bool | `true` | If true, create a PersistentVolumeClaim for the Headscale private keys. |
 | headscale.privateKeys.size | string | `"16Mi"` | The size of the PersistentVolumeClaim created for the Headscale |
