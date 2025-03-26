@@ -12,6 +12,7 @@ use crate::ssh::exec::run_ssh_command_ts;
 use crate::ssh::keys;
 use crate::volumes::rclone::{SymlinkConfig, VolumeConfig, VolumePath};
 use petname;
+use regex::{Captures, Regex};
 use reqwest::{Error, StatusCode};
 use runpod::*;
 use sea_orm::{ActiveModelTrait, DatabaseConnection, Set};
@@ -719,36 +720,65 @@ impl RunpodPlatform {
         Ok(())
     }
 
-    fn determine_volumes_config(model: Vec<V1VolumePath>) -> VolumeConfig {
+    // A helper for substituting both $VAR and ${VAR} with values from env_map
+    fn expand_variables(&self, input: &str, env_map: &HashMap<String, String>) -> String {
+        let re = Regex::new(r"\$([A-Za-z0-9_]+)|\$\{([A-Za-z0-9_]+)\}").unwrap();
+        re.replace_all(input, |caps: &regex::Captures| {
+            // The capture groups are 1 and 2 respectively for $VAR or ${VAR}
+            if let Some(key) = caps.get(1) {
+                // If the user wrote something like $VAR
+                env_map.get(key.as_str()).cloned().unwrap_or_default()
+            } else if let Some(key) = caps.get(2) {
+                // If the user wrote something like ${VAR}
+                env_map.get(key.as_str()).cloned().unwrap_or_default()
+            } else {
+                String::new()
+            }
+        })
+        .to_string()
+    }
+
+    fn determine_volumes_config(
+        &self,
+        model: Vec<V1VolumePath>,
+        env_map: &HashMap<String, String>,
+    ) -> VolumeConfig {
         let mut volume_paths = Vec::new();
         let mut symlinks = Vec::new();
         let cache_dir = "/nebu/cache".to_string();
 
         for path in model {
-            // Check if destination path is local (not starting with s3:// or other remote protocol)
-            let is_local_destination = !path.dest.starts_with("s3://")
-                && !path.dest.starts_with("gs://")
-                && !path.dest.starts_with("azure://");
+            // Expand environment variables in source/dest prior to rewriting
+            let expanded_source = self.expand_variables(&path.source, env_map);
+            let expanded_dest = self.expand_variables(&path.dest, env_map);
 
-            let dest = if is_local_destination {
+            debug!("[Runpod Controller] Expanded source: {}", expanded_source);
+            debug!("[Runpod Controller] Expanded dest: {}", expanded_dest);
+
+            // Check if destination path is local (not starting with s3:// or other remote protocol)
+            let is_local_destination = !expanded_dest.starts_with("s3://")
+                && !expanded_dest.starts_with("gs://")
+                && !expanded_dest.starts_with("azure://");
+
+            let final_dest = if is_local_destination {
                 // For local paths, we'll sync to cache directory instead
-                let path_without_leading_slash = path.dest.trim_start_matches('/');
+                let path_without_leading_slash = expanded_dest.trim_start_matches('/');
                 let cache_path = format!("{}/{}", cache_dir, path_without_leading_slash);
 
                 // Add a symlink from the cache path to the original destination path
                 symlinks.push(SymlinkConfig {
                     source: cache_path.clone(),
-                    symlink_path: path.dest.clone(),
+                    symlink_path: expanded_dest.clone(),
                 });
 
                 cache_path
             } else {
-                path.dest
+                expanded_dest
             };
 
             let volume_path = VolumePath {
-                source: path.source,
-                dest: dest,
+                source: expanded_source,
+                dest: final_dest,
                 resync: path.resync,
                 continuous: path.continuous,
                 driver: path.driver,
@@ -758,9 +788,10 @@ impl RunpodPlatform {
 
         let volume_config = VolumeConfig {
             paths: volume_paths,
-            cache_dir: cache_dir,
-            symlinks: symlinks,
+            cache_dir,
+            symlinks,
         };
+        debug!("[Runpod Controller] Volume config: {:?}", volume_config);
         volume_config
     }
 
@@ -939,7 +970,8 @@ impl RunpodPlatform {
             }
         }
 
-        for (key, value) in self.get_common_env(&model, db).await {
+        let common_env = self.get_common_env(&model, db).await;
+        for (key, value) in common_env.clone() {
             env_vec.push(runpod::EnvVar { key, value });
         }
 
@@ -978,7 +1010,7 @@ impl RunpodPlatform {
         match model.parse_volumes() {
             Ok(Some(volumes)) => {
                 // We got a valid Vec of V1VolumePath. Proceed as before.
-                let volume_config = RunpodPlatform::determine_volumes_config(volumes);
+                let volume_config = self.determine_volumes_config(volumes, &common_env);
                 info!("[Runpod Controller] Volume config: {:?}", volume_config);
 
                 match serde_yaml::to_string(&volume_config) {
@@ -1372,6 +1404,8 @@ done
             Some(ip) => ip,
             None => self.get_tailscale_device_name(&container_model).await,
         };
+
+        info!("[Runpod Controller] Current hostname for ssh: {}", hostname);
         // 5) Execute the command over SSH
         let output = match run_ssh_command_ts(
             &hostname,

@@ -35,7 +35,7 @@ pub enum Commands {
         command: SyncCommands,
     },
 
-    /// Serve the API server.
+    /// Serve the API.
     Serve {
         /// The address to bind to.
         #[arg(long, default_value = "127.0.0.1")]
@@ -46,13 +46,13 @@ pub enum Commands {
         port: u16,
     },
 
-    /// Proxy a command.
+    /// Proxy services.
     Proxy {
         #[command(subcommand)]
         command: ProxyCommands,
     },
 
-    /// Serve the daemon.
+    /// Run the daemon.
     Daemon {
         /// The address to bind to.
         #[arg(long, default_value = "127.0.0.1")]
@@ -79,7 +79,7 @@ pub enum Commands {
     /// Login to a Nebulous API server.
     Login,
 
-    /// Execute a command inside a container via Tailscale SSH.
+    /// Execute a command inside a container.
     Exec(ExecArgs),
 }
 

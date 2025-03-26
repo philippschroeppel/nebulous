@@ -1433,31 +1433,29 @@ async fn create_s3_directory(path: &str) -> Result<(), Box<dyn Error>> {
     let bucket = parts[0];
     let prefix = parts[1];
 
-    // Use rclone to check if the directory exists
-    let check_cmd = TokioCommand::new("rclone")
-        .arg("lsf")
-        .arg(format!("s3:{}/{}", bucket, prefix))
-        .output()
-        .await?;
+    // Ensure the prefix ends with a slash to properly represent a directory
+    let directory_prefix = if prefix.ends_with('/') {
+        prefix.to_string()
+    } else {
+        format!("{}/", prefix)
+    };
 
-    // If the command was successful and returned output, the directory exists
-    if check_cmd.status.success() && !check_cmd.stdout.is_empty() {
-        return Ok(());
-    }
-
-    println!("Creating S3 directory: s3:{}/{}", bucket, prefix);
+    println!(
+        "Ensuring S3 directory exists: s3:{}/{}",
+        bucket, directory_prefix
+    );
 
     // Create an empty directory marker object
-    // We'll create a temporary empty file locally
     let temp_dir = tempfile::tempdir()?;
     let temp_file_path = temp_dir.path().join(".rclone_directory_marker");
     std::fs::write(&temp_file_path, "")?;
 
     // Use rclone to copy the empty file to S3 as a directory marker
+    // We don't need to check if it exists first - if it does, this is a no-op
     let create_cmd = TokioCommand::new("rclone")
         .arg("copy")
         .arg(&temp_file_path)
-        .arg(format!("s3:{}/{}/", bucket, prefix))
+        .arg(format!("s3:{}/{}", bucket, directory_prefix))
         .output()
         .await?;
 

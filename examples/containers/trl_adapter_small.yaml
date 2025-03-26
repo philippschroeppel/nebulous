@@ -33,8 +33,8 @@ env:
   - key: DATASET
     value: trl-lib/Capybara
 volumes:
-  - source: /output/capybara
-    dest: s3://nebulous-rs/adapter-test/capybara/
+  - source: /output/capybara/jobs/${NEBU_CONTAINER_ID}
+    dest: s3://nebulous-rs/adapter-test/capybara/jobs/${NEBU_CONTAINER_ID}
     driver: RCLONE_SYNC
     continuous: true
 accelerators:
