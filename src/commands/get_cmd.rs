@@ -7,6 +7,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::error::Error;
 use tracing::debug;
+
 pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
     let config = GlobalConfig::read()?;
     debug!("Config: {:?}", config);

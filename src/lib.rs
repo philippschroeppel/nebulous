@@ -19,6 +19,7 @@ pub mod proxy;
 pub mod query;
 pub mod resources;
 pub mod routes;
+pub mod select;
 pub mod ssh;
 pub mod state;
 pub mod streams;

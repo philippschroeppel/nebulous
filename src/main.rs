@@ -1,10 +1,14 @@
 mod cli;
 mod commands;
 mod models;
+use std::path::Path;
 
-use crate::cli::{Cli, Commands, CreateCommands, DeleteCommands, GetCommands, ProxyCommands};
+use crate::cli::{
+    Cli, Commands, CreateCommands, DeleteCommands, GetCommands, ProxyCommands, SelectCommands,
+};
 use clap::Parser;
 use cli::SyncCommands;
+use nebulous::select::checkpoint::select_checkpoint;
 use std::error::Error;
 use tracing_subscriber;
 
@@ -92,6 +96,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Commands::Proxy { command } => match command {
             ProxyCommands::Shell { host, port } => {
                 commands::proxy_cmd::run_sync_cmd_server(&host, port).await?;
+            }
+        },
+        Commands::Select { command } => match command {
+            SelectCommands::Checkpoint { base_dir, criteria } => {
+                match select_checkpoint(Path::new(&base_dir), &criteria) {
+                    Ok(Some(checkpoint)) => println!("{}", checkpoint.to_str().unwrap_or("")),
+                    Ok(None) => println!("No checkpoint found"),
+                    Err(e) => {
+                        eprintln!("Error selecting checkpoint: {:?}", e);
+                    }
+                }
             }
         },
         Commands::Daemon {

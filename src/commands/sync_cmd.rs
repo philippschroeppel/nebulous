@@ -96,7 +96,7 @@ pub async fn execute_sync(
             // Create log files for stdout and stderr
             let log_dir = std::env::var("NEBU_LOG_DIR").unwrap_or_else(|_| {
                 let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-                format!("{}/logs", home)
+                format!("{}/.logs", home)
             });
             std::fs::create_dir_all(&log_dir)?;
 
@@ -152,7 +152,7 @@ pub async fn execute_sync(
             // Create log files for stdout and stderr
             let log_dir = std::env::var("NEBU_LOG_DIR").unwrap_or_else(|_| {
                 let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-                format!("{}/logs", home)
+                format!("{}/.logs", home)
             });
             std::fs::create_dir_all(&log_dir)?;
 

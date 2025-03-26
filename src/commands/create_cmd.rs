@@ -140,7 +140,7 @@ pub async fn create_secret(
     println!("Creating secret...");
 
     // Build the metadata (reused whether file is provided or not)
-    let metadata = nebulous::models::V1ResourceMetaRequest {
+    let metadata = crate::models::V1ResourceMetaRequest {
         name: Some(command.name.clone()),
         namespace: Some(command.namespace.clone().unwrap_or("default".to_string())),
         ..Default::default()
@@ -153,7 +153,7 @@ pub async fn create_secret(
         let file_content = std::fs::read_to_string(&file)?;
         println!("File content read");
 
-        nebulous::models::V1SecretRequest {
+        crate::models::V1SecretRequest {
             metadata,
             value: file_content,
             expires_at: command.expires_at,
@@ -165,7 +165,7 @@ pub async fn create_secret(
         }
 
         // Construct the request object directly from CLI arguments
-        nebulous::models::V1SecretRequest {
+        crate::models::V1SecretRequest {
             metadata,
             value: command.value.clone().unwrap(),
             expires_at: command.expires_at,

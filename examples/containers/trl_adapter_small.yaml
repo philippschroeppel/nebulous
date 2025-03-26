@@ -20,12 +20,9 @@ command: |
     --save_strategy steps \
     --save_steps 1 \
     --save_total_limit 3 \
-    --num_train_epochs 1 \
-  && echo "training complete, syncing to s3" \
-  && LATEST="$(ls -1d /output/capybara/jobs/$NEBU_CONTAINER_ID/checkpoint-* | sort -V | tail -n 1)" && \
-     rm -rf /output/capybara/latest && \
-     mkdir -p /output/capybara/latest && \
-     cp -r "$LATEST"/* /output/capybara/latest/
+    --num_train_epochs 1
+  LATEST="$(ls -1d /output/capybara/jobs/$NEBU_CONTAINER_ID/checkpoint-* | sort -V | tail -n 1)"
+  rclone sync "$LATEST" "s3://nebulous-rs/adapter-test/capybara/latest"
 platform: runpod
 env:
   - key: MODEL

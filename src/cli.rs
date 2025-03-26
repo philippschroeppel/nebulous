@@ -35,6 +35,12 @@ pub enum Commands {
         command: SyncCommands,
     },
 
+    /// Select a checkpoint.
+    Select {
+        #[command(subcommand)]
+        command: SelectCommands,
+    },
+
     /// Serve the API.
     Serve {
         /// The address to bind to.
@@ -81,6 +87,21 @@ pub enum Commands {
 
     /// Execute a command inside a container.
     Exec(ExecArgs),
+}
+
+/// Select a checkpoint.
+#[derive(Subcommand)]
+pub enum SelectCommands {
+    /// Select a checkpoint from a base directory using a given criterion.
+    Checkpoint {
+        /// Path to the base directory holding checkpoints (e.g., "checkpoint-1", "checkpoint-2").
+        #[arg(long, default_value = ".")]
+        base_dir: String,
+
+        /// The selection criterion: "latest" or "best".
+        #[arg(long, default_value = "best")]
+        criteria: String,
+    },
 }
 
 // The struct that captures all CLI fields for the Exec command.

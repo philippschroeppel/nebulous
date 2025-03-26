@@ -7,6 +7,7 @@ pub mod get_cmd;
 pub mod log_cmd;
 pub mod login_cmd;
 pub mod proxy_cmd;
+pub mod select_cmd;
 pub mod serve_cmd;
 pub mod sync_cmd;
 pub mod work_cmd;
