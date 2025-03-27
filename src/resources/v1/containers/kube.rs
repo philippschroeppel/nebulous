@@ -191,6 +191,7 @@ impl KubePlatform {
                             None,
                             None,
                             None,
+                            None,
                         )
                         .await
                         {
@@ -231,6 +232,7 @@ impl KubePlatform {
                             container_id.to_string(),
                             Some("failed".to_string()),
                             Some("Too many consecutive errors".to_string()),
+                            None,
                             None,
                             None,
                             None,
@@ -539,11 +541,15 @@ impl ContainerPlatform for KubePlatform {
                                 container_user: Set(None),
                                 public_addr: Set(None),
                                 tailnet_ip: Set(None),
+                                authz: Set(config
+                                    .authz
+                                    .clone()
+                                    .map(|authz| serde_json::json!(authz))),
                                 ports: Set(config
                                     .ports
                                     .clone()
                                     .map(|ports| serde_json::json!(ports))),
-                                public_ip: Set(config.public_ip.clone().unwrap_or(false)),
+                                proxy_port: Set(config.proxy_port.clone()),
                                 resources: Set(config
                                     .resources
                                     .clone()
@@ -640,7 +646,8 @@ impl ContainerPlatform for KubePlatform {
             restart: config.restart.clone(),
             resources: config.resources.clone(),
             ports: config.ports.clone(),
-            public_ip: config.public_ip.clone().unwrap_or(false),
+            proxy_port: config.proxy_port.clone(),
+            authz: config.authz.clone(),
         })
     }
 

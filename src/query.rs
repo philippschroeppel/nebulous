@@ -4,7 +4,7 @@ use crate::entities::processors;
 use crate::entities::secrets;
 use crate::models::V1ContainerStatus;
 use crate::resources::v1::containers::base::ContainerStatus;
-use sea_orm::sea_query::{Expr, Func};
+use sea_orm::sea_query::Expr;
 use sea_orm::Value;
 use sea_orm::*;
 use sea_orm::{ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter};
@@ -38,6 +38,24 @@ impl Query {
             .filter(containers::Column::Name.eq(name))
             .one(db)
             .await
+    }
+
+    pub async fn find_container_by_namespace_name_and_owners(
+        db: &DatabaseConnection,
+        namespace: &str,
+        name: &str,
+        owners: &[&str],
+    ) -> Result<containers::Model, DbErr> {
+        let result = containers::Entity::find()
+            .filter(containers::Column::Namespace.eq(namespace))
+            .filter(containers::Column::Name.eq(name))
+            .filter(containers::Column::Owner.is_in(owners.iter().copied()))
+            .one(db)
+            .await?;
+
+        result.ok_or(DbErr::RecordNotFound(format!(
+            "Container with namespace '{namespace}' and name '{name}' not found for the specified owners"
+        )))
     }
 
     pub async fn find_container_by_id_and_owners(
@@ -112,7 +130,6 @@ impl Query {
         db: &DatabaseConnection,
     ) -> Result<Vec<containers::Model>, DbErr> {
         use crate::resources::v1::containers::base::ContainerStatus;
-        use sea_orm::sea_query::{Expr, Func};
         use sea_orm::{Condition, Value};
 
         // Convert your set of active statuses to strings
@@ -292,7 +309,6 @@ impl Query {
         db: &DatabaseConnection,
     ) -> Result<Vec<processors::Model>, DbErr> {
         use crate::resources::v1::processors::base::ProcessorStatus;
-        use sea_orm::sea_query::{Expr, Func};
         use sea_orm::{Condition, Value};
 
         // Convert your set of active statuses to strings

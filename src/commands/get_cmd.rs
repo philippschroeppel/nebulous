@@ -84,9 +84,9 @@ pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
         prettytable::Cell::new("RESTART"),
         prettytable::Cell::new("STATUS"),
         prettytable::Cell::new("ACCELERATOR"),
-        prettytable::Cell::new("PUBLIC IP"),
+        prettytable::Cell::new("PRICE"),
         prettytable::Cell::new("TAILNET URL"),
-        prettytable::Cell::new("CREATED"),
+        prettytable::Cell::new("UPTIME"),
     ]));
 
     let empty_vec = Vec::new();
@@ -141,28 +141,49 @@ pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
                 .and_then(|status_obj| status_obj.get("accelerator"))
                 .and_then(Value::as_str)
                 .unwrap_or("N/A");
-            let public_ip = container_obj
-                .get("status")
-                .and_then(Value::as_object)
-                .and_then(|status_obj| status_obj.get("public_ip"))
-                .and_then(Value::as_str)
-                .unwrap_or("N/A");
             let tailnet_url = container_obj
                 .get("status")
                 .and_then(Value::as_object)
                 .and_then(|status_obj| status_obj.get("tailnet_url"))
                 .and_then(Value::as_str)
                 .unwrap_or("N/A");
+            let price = container_obj
+                .get("status")
+                .and_then(Value::as_object)
+                .and_then(|status_obj| status_obj.get("cost_per_hr"))
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
 
-            // Format creation time if available
-            let created = container_obj
+            let price_str = format!("{:.2}", price);
+
+            // Instead of created time, calculate uptime from created_at
+            // Instead of created time, calculate uptime from created_at and only show the largest time unit
+            let uptime = container_obj
                 .get("metadata")
                 .and_then(Value::as_object)
                 .and_then(|metadata| metadata.get("created_at"))
                 .and_then(|v| v.as_i64().or_else(|| v.as_u64().map(|n| n as i64)))
                 .map(|timestamp| {
+                    // Convert timestamp to DateTime in UTC
                     let dt = DateTime::<Utc>::from_timestamp(timestamp, 0).unwrap_or_default();
-                    dt.format("%Y-%m-%d %H:%M:%S").to_string()
+                    let duration = Utc::now().signed_duration_since(dt);
+
+                    // Collect total durations in various units
+                    let secs = duration.num_seconds();
+                    let mins = duration.num_minutes();
+                    let hours = duration.num_hours();
+                    let days = duration.num_days();
+
+                    // Only display the largest unit
+                    if days.abs() > 0 {
+                        format!("{}d", days)
+                    } else if hours.abs() > 0 {
+                        format!("{}hr", hours)
+                    } else if mins.abs() > 0 {
+                        format!("{}m", mins)
+                    } else {
+                        format!("{}s", secs)
+                    }
                 })
                 .unwrap_or_else(|| "N/A".to_string());
 
@@ -176,9 +197,9 @@ pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
                 prettytable::Cell::new(restart),
                 prettytable::Cell::new(status),
                 prettytable::Cell::new(accelerator),
-                prettytable::Cell::new(public_ip),
+                prettytable::Cell::new(&price_str),
                 prettytable::Cell::new(tailnet_url),
-                prettytable::Cell::new(&created),
+                prettytable::Cell::new(&uptime),
             ]));
         }
     }

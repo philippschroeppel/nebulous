@@ -6,8 +6,8 @@ use serde_json::Value as Json;
 use std::collections::HashMap;
 
 use crate::models::{
-    V1Container, V1ContainerResources, V1ContainerStatus, V1EnvVar, V1Meter, V1PortRequest,
-    V1ResourceMeta, V1SSHKey, V1VolumePath,
+    V1AuthzConfig, V1Container, V1ContainerResources, V1ContainerStatus, V1EnvVar, V1Meter,
+    V1PortRequest, V1ResourceMeta, V1SSHKey, V1VolumePath,
 };
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
@@ -40,10 +40,11 @@ pub struct Model {
     pub meters: Option<Json>,
     pub queue: Option<String>,
     pub ports: Option<Json>,
-    pub public_ip: bool,
+    pub proxy_port: Option<i16>,
     pub timeout: Option<String>,
     pub resources: Option<Json>,
     pub restart: String,
+    pub authz: Option<Json>,
     pub public_addr: Option<String>,
     pub tailnet_ip: Option<String>,
     pub created_by: Option<String>,
@@ -147,6 +148,15 @@ impl Model {
         }
     }
 
+    /// Attempt to parse `authz` into a `V1AuthzConfig`.
+    pub fn parse_authz(&self) -> Result<Option<V1AuthzConfig>, serde_json::Error> {
+        if let Some(json_value) = &self.authz {
+            serde_json::from_value(json_value.clone()).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Construct a full V1Container from the current model row.
     /// Returns a serde_json Error if any JSON parsing in subfields fails.
     pub fn to_v1_container(&self) -> Result<V1Container, serde_json::Error> {
@@ -158,6 +168,8 @@ impl Model {
         let resources = self.parse_resources()?;
         let ssh_keys = self.parse_ssh_keys()?;
         let ports = self.parse_ports()?;
+        let authz = self.parse_authz()?;
+
         // Build metadata; fill with defaults or unwrap as needed
         let metadata = crate::models::V1ResourceMeta {
             name: self.name.clone(),
@@ -190,7 +202,8 @@ impl Model {
             resources,
             ssh_keys,
             ports: ports.clone(),
-            public_ip: self.public_ip.clone(),
+            proxy_port: self.proxy_port.clone(),
+            authz,
         };
 
         Ok(container)

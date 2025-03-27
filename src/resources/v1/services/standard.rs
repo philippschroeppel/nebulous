@@ -31,9 +31,7 @@ impl StandardProcessor {
         db: &DatabaseConnection,
         processor: processors::Model,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        use crate::models::{
-            RestartPolicy, V1ContainerRequest, V1ResourceMeta, V1UserProfile, /* etc. */
-        };
+        use crate::models::{RestartPolicy, V1ContainerRequest, V1UserProfile};
         use crate::mutation::Mutation;
         use crate::resources::v1::containers::base::ContainerPlatform;
         use crate::resources::v1::containers::runpod::RunpodPlatform;
@@ -173,7 +171,8 @@ impl StandardProcessor {
             kind: "Container".to_string(),
             platform: Some(parsed_container.platform.clone()),
             ports: parsed_container.ports,
-            public_ip: Some(parsed_container.public_ip),
+            proxy_port: parsed_container.proxy_port,
+            authz: parsed_container.authz,
         };
 
         // 5) Create a ContainerPlatform — in this case, Runpod.
@@ -505,12 +504,9 @@ impl ProcessorPlatform for StandardProcessor {
         db: &DatabaseConnection,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use crate::entities::processors;
-        use crate::models::V1UserProfile;
-        use crate::query::Query; // so we can find containers by owner_ref or processor_id
-        use crate::resources::v1::containers::base::ContainerPlatform;
+        use crate::query::Query;
         use crate::resources::v1::containers::factory::platform_factory;
-        use crate::resources::v1::containers::runpod::RunpodPlatform;
-        use sea_orm::{EntityTrait, ModelTrait};
+        use sea_orm::EntityTrait;
 
         // 1) Find the processor in the database by `id`.
         let Some(processor) = processors::Entity::find_by_id(id.to_string())
@@ -568,6 +564,7 @@ impl ProcessorPlatform for StandardProcessor {
 
 #[cfg(test)]
 mod tests {
+    #[allow(unused_imports)]
     use super::*;
 
     // Unit tests for StandardProcessor

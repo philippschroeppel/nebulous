@@ -384,7 +384,7 @@ pub async fn execute_continuous_sync(
 /// Start a new rclone sync process for a path
 async fn start_sync_process(
     path: &VolumePath,
-    cache_dir: &str,
+    _cache_dir: &str,
 ) -> Result<tokio::process::Child, Box<dyn Error>> {
     // Build the rclone command
     let mut cmd = TokioCommand::new("rclone");

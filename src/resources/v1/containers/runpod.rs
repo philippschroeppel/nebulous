@@ -12,8 +12,7 @@ use crate::ssh::exec::run_ssh_command_ts;
 use crate::ssh::keys;
 use crate::volumes::rclone::{SymlinkConfig, VolumeConfig, VolumePath};
 use petname;
-use regex::{Captures, Regex};
-use reqwest::{Error, StatusCode};
+use regex::Regex;
 use runpod::*;
 use sea_orm::{ActiveModelTrait, DatabaseConnection, Set};
 use short_uuid::ShortUuid;
@@ -21,8 +20,6 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
-
-use super::base;
 
 /// A `TrainingPlatform` implementation that schedules training jobs on RunPod.
 #[derive(Clone)]
@@ -351,6 +348,31 @@ impl RunpodPlatform {
                     consecutive_errors = 0;
 
                     if let Some(pod_info) = pod_response.data {
+                        debug!("[Runpod Controller] response data present");
+
+                        match Mutation::update_container_status(
+                            db,
+                            container_id.to_string(),
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            Some(pod_info.cost_per_hr),
+                        )
+                        .await
+                        {
+                            Ok(_) => {
+                                info!("[Runpod Controller] Updated container status with cost_per_hr: {}", pod_info.cost_per_hr);
+                            }
+                            Err(e) => {
+                                error!(
+                                    "[Runpod Controller] Failed to update container status: {}",
+                                    e
+                                );
+                            }
+                        }
+
                         let ports = match self.get_public_ports_for_pod(&pod_id_to_watch).await {
                             Ok(ports) => ports,
                             Err(e) => {
@@ -378,6 +400,7 @@ impl RunpodPlatform {
                                 ContainerStatus::Pending
                             }
                         };
+                        debug!("[Runpod Controller] current_status: {:?}", current_status);
 
                         // Handle metering if container has meters defined and status is Running
                         if current_status == ContainerStatus::Running {
@@ -513,6 +536,7 @@ impl RunpodPlatform {
                                 None,
                                 Some(ports),
                                 None,
+                                None,
                             )
                             .await
                             {
@@ -574,6 +598,7 @@ impl RunpodPlatform {
                                                     None,
                                                     None,
                                                     None,
+                                                    None,
                                                 )
                                                 .await
                                                 {
@@ -597,6 +622,7 @@ impl RunpodPlatform {
                                                     container_id.to_string(),
                                                     Some(ContainerStatus::Completed.to_string()),
                                                     Some("Pod no longer exists".to_string()),
+                                                    None,
                                                     None,
                                                     None,
                                                     None,
@@ -646,6 +672,7 @@ impl RunpodPlatform {
                                     None,
                                     None,
                                     None,
+                                    None,
                                 )
                                 .await
                             {
@@ -688,6 +715,7 @@ impl RunpodPlatform {
                             container_id.to_string(),
                             Some(ContainerStatus::Failed.to_string()),
                             Some("Too many consecutive errors".to_string()),
+                            None,
                             None,
                             None,
                             None,
@@ -808,6 +836,7 @@ impl RunpodPlatform {
             None,
             None,
             None,
+            None,
         )
         .await?;
 
@@ -832,7 +861,7 @@ impl RunpodPlatform {
         let mut runpod_gpu_type_id: String = "NVIDIA_TESLA_T4".to_string(); // Default value
         let mut nebu_gpu_type_id: String = "NVIDIA_TESLA_T4".to_string(); // Default value
         let mut requested_gpu_count = 1; // Default value
-        let mut datacenter_id = String::from("US"); // Default value
+        let mut _datacenter_id = String::from("US"); // Default value
         let mut available_gpu_types = Vec::new();
 
         // Extract available GPU types from the response
@@ -980,7 +1009,7 @@ impl RunpodPlatform {
             model.image
         );
         // A "match" to catch errors, log them, and possibly do something else
-        let (parsed_manifest, container_user) = match pull_and_parse_config(&model.image).await {
+        let (_parsed_manifest, container_user) = match pull_and_parse_config(&model.image).await {
             Ok((parsed_manifest, container_user)) => (parsed_manifest, container_user),
             Err(err) => {
                 error!(
@@ -1187,6 +1216,7 @@ impl RunpodPlatform {
                         Some(nebu_gpu_type_id),
                         None,
                         Some(format!("http://{}", hostname)),
+                        None,
                     )
                     .await?;
 
@@ -1225,7 +1255,7 @@ impl RunpodPlatform {
     fn build_command(&self, model: &containers::Model, hostname: &str) -> Option<Vec<String>> {
         let cmd = model.command.clone()?;
 
-        let proxy_value = "socks5h://127.0.0.1:1055".to_string();
+        let _proxy_value = "socks5h://127.0.0.1:1055".to_string();
 
         // Statements to install curl if missing:
         let curl_install = r#"
@@ -1441,13 +1471,6 @@ done
     }
 }
 
-#[derive(Debug, Clone)]
-struct GpuTypeWithDatacenter {
-    id: String,
-    memory_in_gb: Option<u32>,
-    data_center_id: String,
-}
-
 impl ContainerPlatform for RunpodPlatform {
     /// Asynchronously run a container by provisioning a RunPod spot or on-demand pod.
     async fn declare(
@@ -1596,6 +1619,11 @@ impl ContainerPlatform for RunpodPlatform {
 
         let name = name.unwrap_or(petname::petname(3, "-").unwrap());
 
+        debug!(
+            "[Runpod Controller] Creating container record in database with GPU type ID: {}",
+            runpod_gpu_type_id
+        );
+
         // Create the container record in the database
         let container = crate::entities::containers::ActiveModel {
             id: Set(id.clone()),
@@ -1614,7 +1642,7 @@ impl ContainerPlatform for RunpodPlatform {
             status: Set(Some(serde_json::json!(V1ContainerStatus {
                 status: Some(ContainerStatus::Defined.to_string()),
                 message: None,
-                accelerator: None,
+                accelerator: Some(runpod_gpu_type_id.clone()),
                 public_ports: None,
                 cost_per_hr: None,
                 tailnet_url: None,
@@ -1645,8 +1673,9 @@ impl ContainerPlatform for RunpodPlatform {
             ssh_keys: Set(config.ssh_keys.clone().map(|keys| serde_json::json!(keys))),
             public_addr: Set(None),
             tailnet_ip: Set(None),
+            authz: Set(config.authz.clone().map(|authz| serde_json::json!(authz))),
             ports: Set(config.ports.clone().map(|ports| serde_json::json!(ports))),
-            public_ip: Set(config.public_ip.clone().unwrap_or(false)),
+            proxy_port: Set(config.proxy_port.clone()),
             container_user: Set(None),
             created_by: Set(Some(owner_id.to_string())),
             updated_at: Set(chrono::Utc::now().into()),
@@ -1694,7 +1723,7 @@ impl ContainerPlatform for RunpodPlatform {
             status: Some(V1ContainerStatus {
                 status: Some(ContainerStatus::Defined.to_string()),
                 message: None,
-                accelerator: None,
+                accelerator: Some(runpod_gpu_type_id.clone()),
                 public_ports: None,
                 cost_per_hr: None,
                 tailnet_url: None,
@@ -1702,7 +1731,8 @@ impl ContainerPlatform for RunpodPlatform {
             restart: config.restart.clone(),
             resources: config.resources.clone(),
             ports: config.ports.clone(),
-            public_ip: config.public_ip.clone().unwrap_or(false),
+            proxy_port: config.proxy_port.clone(),
+            authz: config.authz.clone(),
         })
     }
 
@@ -1745,6 +1775,7 @@ impl ContainerPlatform for RunpodPlatform {
                             container.id.clone(),
                             Some(ContainerStatus::Queued.to_string()),
                             Some("Blocked by another running container in queue".to_string()),
+                            None,
                             None,
                             None,
                             None,
@@ -1946,8 +1977,9 @@ impl ContainerPlatform for RunpodPlatform {
                                 // Update container status in database
                                 if let Err(e) = crate::mutation::Mutation::update_container_status(
                                     &db,
-                                    id.clone().to_string(),
+                                    id.to_string(),
                                     Some(ContainerStatus::Stopped.to_string()),
+                                    None,
                                     None,
                                     None,
                                     None,

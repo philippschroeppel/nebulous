@@ -16,6 +16,7 @@ use axum::{
 };
 use sea_orm::*;
 use serde_json::json;
+use tracing::debug;
 
 pub async fn get_container(
     State(state): State<AppState>,
@@ -24,25 +25,44 @@ pub async fn get_container(
 ) -> Result<Json<V1Container>, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
 
-    let container =
-        match Query::find_container_by_namespace_and_name(db_pool, &namespace, &name).await {
-            Ok(container) => container,
-            Err(e) => {
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": format!("Database error: {}", e)})),
-                ));
-            }
-        };
+    let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
+        orgs.keys().cloned().collect()
+    } else {
+        Vec::new()
+    };
 
-    if container.is_none() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "Container not found"})),
-        ));
-    }
+    // Include user's email (assuming owner_id is user's email)
+    owner_ids.push(user_profile.email.clone());
+    let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
 
-    _get_container_by_id(db_pool, &container.unwrap().id.to_string(), &user_profile).await
+    debug!(
+        "Getting container by namespace and name: {} {}",
+        namespace, name
+    );
+    let container = match Query::find_container_by_namespace_name_and_owners(
+        db_pool,
+        &namespace,
+        &name,
+        &owner_id_refs,
+    )
+    .await
+    {
+        Ok(container) => container,
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Database error: {}", e)})),
+            ));
+        }
+    };
+
+    debug!("Container: {:?}", container.clone());
+
+    debug!(
+        "Getting container by id: {}",
+        container.clone().id.to_string()
+    );
+    _get_container_by_id(db_pool, &container.clone().id.to_string(), &user_profile).await
 }
 
 pub async fn get_container_by_id(
@@ -78,6 +98,8 @@ pub async fn _get_container_by_id(
                 Json(json!({"error": format!("Database error: {}", e)})),
             )
         })?;
+
+    debug!("Found container by id and owners: {:?}", container);
 
     let out_container = V1Container {
         kind: "Container".to_string(),
@@ -123,7 +145,8 @@ pub async fn _get_container_by_id(
             .ssh_keys
             .and_then(|v| serde_json::from_value(v).ok()),
         ports: container.ports.and_then(|v| serde_json::from_value(v).ok()),
-        public_ip: container.public_ip,
+        proxy_port: container.proxy_port,
+        authz: container.authz.and_then(|v| serde_json::from_value(v).ok()),
     };
 
     Ok(Json(out_container))
@@ -194,7 +217,8 @@ pub async fn list_containers(
             resources: c.resources.and_then(|v| serde_json::from_value(v).ok()),
             ssh_keys: c.ssh_keys.and_then(|v| serde_json::from_value(v).ok()),
             ports: c.ports.and_then(|v| serde_json::from_value(v).ok()),
-            public_ip: c.public_ip,
+            proxy_port: c.proxy_port,
+            authz: c.authz.and_then(|v| serde_json::from_value(v).ok()),
         })
         .collect();
 
@@ -273,25 +297,34 @@ pub async fn delete_container(
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
 
-    let container =
-        match Query::find_container_by_namespace_and_name(db_pool, &namespace, &name).await {
-            Ok(container) => container,
-            Err(e) => {
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": format!("Database error: {}", e)})),
-                ));
-            }
-        };
+    let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
+        orgs.keys().cloned().collect()
+    } else {
+        Vec::new()
+    };
 
-    if container.is_none() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "Container not found"})),
-        ));
-    }
+    // Include user's email (assuming owner_id is user's email)
+    owner_ids.push(user_profile.email.clone());
+    let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
 
-    _delete_container_by_id(db_pool, &container.unwrap().id.to_string(), &user_profile).await
+    let container = match Query::find_container_by_namespace_name_and_owners(
+        db_pool,
+        &namespace,
+        &name,
+        &owner_id_refs,
+    )
+    .await
+    {
+        Ok(container) => container,
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Database error: {}", e)})),
+            ));
+        }
+    };
+
+    _delete_container_by_id(db_pool, &container.clone().id.to_string(), &user_profile).await
 }
 
 pub async fn delete_container_by_id(
@@ -374,23 +407,31 @@ pub async fn fetch_container_logs(
 ) -> Result<Json<String>, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
 
-    let container = Query::find_container_by_namespace_and_name(db_pool, &namespace, &name)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": format!("Database error: {}", e)})),
-            )
-        })?;
+    let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
+        orgs.keys().cloned().collect()
+    } else {
+        Vec::new()
+    };
 
-    if container.is_none() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "Container not found"})),
-        ));
-    }
+    // Include user's email (assuming owner_id is user's email)
+    owner_ids.push(user_profile.email.clone());
+    let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
 
-    _fetch_container_logs_by_id(db_pool, &container.unwrap().id.to_string(), &user_profile).await
+    let container = Query::find_container_by_namespace_name_and_owners(
+        db_pool,
+        &namespace,
+        &name,
+        &owner_id_refs,
+    )
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Database error: {}", e)})),
+        )
+    })?;
+
+    _fetch_container_logs_by_id(db_pool, &container.clone().id.to_string(), &user_profile).await
 }
 
 pub async fn _fetch_container_logs_by_id(

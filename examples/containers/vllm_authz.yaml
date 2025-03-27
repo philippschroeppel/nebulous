@@ -1,7 +1,6 @@
 kind: Container
 metadata:
   name: vllm-qwen
-  namespace: test
   labels:
     type: inference
 platform: runpod
@@ -15,9 +14,8 @@ command: |
     --host 0.0.0.0 \
     --gpu-memory-utilization 0.8 \
     --max-model-len 2048 \
-    --max-num-seqs 1 \
     --enable-lora \
-    --lora-modules capybara=/adapters/capybara/latest
+    --max-num-seqs 1
 env:
   - key: MODEL
     value: Qwen/Qwen2.5-0.5B-Instruct
@@ -25,10 +23,21 @@ env:
     secret_name: HF_TOKEN
   - key: VLLM_ALLOW_RUNTIME_LORA_UPDATING
     value: True
-volumes:
-  - source: s3://nebulous-rs/adapter-test
-    dest: /adapters
-    driver: RCLONE_SYNC
-    continuous: true
 restart: Always
 proxy_port: 8000
+authz:
+  rules:
+    # Only allow adapters to be loaded based on the user's organization name or handle
+    - name: model-access
+      field_match:
+        - json_path: "$.model"
+          pattern: "${org_name}/**"
+        - json_path: "$.model"
+          pattern: "${handle}/**"
+      allow: true
+meters:
+  - metric: response_value
+    json_path: "$.usage.completion_tokens"
+    unit: token
+    cost: 0.000001
+    currency: USD

@@ -1,6 +1,6 @@
 [package]
 name = "nebulous"
-version = "0.1.59"
+version = "0.1.60"
 edition = "2021"
 description = "A globally distributed container orchestrator"
 license = "MIT"
@@ -82,7 +82,7 @@ warp = "0.3.7"
 bollard = "0.18.1"
 oci-distribution = "0.11.0"
 regex = "1.11.1"
-
+jsonpath_lib = "0.3.0"
 
 [lib]
 name = "nebulous"

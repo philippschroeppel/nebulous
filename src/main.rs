@@ -116,8 +116,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         } => {
             commands::daemon_cmd::execute_daemon(&host, port, background).await?;
         }
-        Commands::Logs { namespace, name } => {
-            commands::log_cmd::fetch_container_logs(namespace, name).await?;
+        Commands::Logs { name, namespace } => {
+            commands::log_cmd::fetch_container_logs(name, namespace).await?;
         }
         Commands::Login => {
             commands::login_cmd::execute().await?;

@@ -4,13 +4,14 @@ use std::io::{Error as IoError, ErrorKind};
 use std::net::TcpStream;
 
 use anyhow::Result;
-use russh::keys::{decode_secret_key, PrivateKeyWithHashAlg};
-use russh::{client, ChannelMsg, Disconnect};
+use russh::keys::PrivateKeyWithHashAlg;
+use russh::{client, ChannelMsg};
 use std::{str, sync::Arc};
 use tracing::debug;
 
 use russh::client::Config;
 use russh::keys::*;
+#[allow(unused_imports)]
 use russh::*;
 use ssh2::Session;
 use std::process::Command;
@@ -58,17 +59,15 @@ pub fn run_ssh_command_ts(
     if let Some(u) = username {
         // Option A: "ssh user@host"
         ssh_cmd.arg(format!("{u}@{hostname}"));
-        // or Option B: "ssh -l user host"
-        //   ssh_cmd.arg("-l").arg(u).arg(hostname);
+        // Option B (commented out): "ssh -l user host"
+        // ssh_cmd.arg("-l").arg(u).arg(hostname);
     } else {
         ssh_cmd.arg(hostname);
     }
 
-    if interactive {
-        ssh_cmd.arg("-i");
-    }
-
-    if tty {
+    // For an interactive session (i.e. keep STDIN open) you typically need at least one `-t`.
+    // You can do further logic if you want to differentiate single-tty vs. forced double-tty:
+    if interactive || tty {
         ssh_cmd.arg("-t");
     }
 
@@ -126,7 +125,7 @@ pub async fn exec_ssh_command<A: ToSocketAddrs>(
 where
     A: ToSocketAddrs + std::fmt::Debug,
 {
-    let mut config = Config::default();
+    let config = Config::default();
     let config = Arc::new(config);
 
     // 1) Connect
@@ -151,7 +150,7 @@ where
             debug!("Authenticated with SSH server");
         }
         russh::client::AuthResult::Failure {
-            remaining_methods,
+            remaining_methods: _remaining_methods,
             partial_success,
         } => {
             // e.g. return an error
@@ -271,7 +270,7 @@ pub async fn exec_ssh_command_async_ssh2tokio(
     //    For demonstration, we do a "no-check" for the server host key.
     //    In production, you'd generally want to do some key/host-fingerprint checks
     //    to ensure you're really talking to the correct server.
-    let mut client = Client::connect(
+    let client = Client::connect(
         (host, 22), // host, port
         username,
         auth_method,

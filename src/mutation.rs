@@ -3,11 +3,10 @@ use crate::entities::processors;
 use crate::entities::secrets;
 use crate::models::V1ProcessorStatus;
 use crate::models::{V1ContainerStatus, V1Port, V1UpdateContainer};
-use sea_orm::prelude::Json;
 use sea_orm::*;
 use serde_json::json;
 use short_uuid::ShortUuid;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 pub struct Mutation;
 
@@ -63,17 +62,34 @@ impl Mutation {
         id: String,
         pod_ip: String,
     ) -> Result<containers::Model, DbErr> {
-        let container = containers::Entity::find_by_id(id)
+        let container = containers::Entity::find_by_id(id.clone())
             .one(db)
             .await?
             .ok_or(DbErr::Custom("Container not found".to_string()))?;
 
         let mut container: containers::ActiveModel = container.into();
 
-        container.tailnet_ip = Set(Some(pod_ip));
+        container.tailnet_ip = Set(Some(pod_ip.clone()));
         container.updated_at = Set(chrono::Utc::now().into());
 
-        container.update(db).await
+        match container.update(db).await {
+            Ok(container) => {
+                Mutation::update_container_status(
+                    db,
+                    id,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(format!("http://{}", pod_ip)),
+                    None,
+                )
+                .await?;
+
+                Ok(container)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     // Mutation to update only the container status
@@ -85,26 +101,48 @@ impl Mutation {
         accelerator: Option<String>,
         ports: Option<Vec<V1Port>>,
         tailnet_url: Option<String>,
+        cost_per_hr: Option<f64>,
     ) -> Result<containers::Model, DbErr> {
         let container = containers::Entity::find_by_id(id)
             .one(db)
             .await?
             .ok_or(DbErr::Custom("Container not found".to_string()))?;
 
+        debug!(
+            "[Mutation] Updating container status for container: {:?}",
+            container
+        );
+
+        let mut existing_status = match container.parse_status() {
+            Ok(Some(status)) => status,
+            Ok(None) => {
+                info!("[Mutation] No existing container status found");
+                return Ok(container);
+            }
+            Err(e) => {
+                error!("[Mutation] Failed to parse container status: {:?}", e);
+                return Err(DbErr::Custom(e.to_string()));
+            }
+        };
+        info!(
+            "[Mutation] Existing container status: {:?}",
+            existing_status
+        );
+
         let mut container: containers::ActiveModel = container.into();
 
         // 1. Parse any existing status from the database
-        let mut existing_status = match &container.status {
-            ActiveValue::Set(Some(val)) => {
-                serde_json::from_value::<V1ContainerStatus>(val.clone()).unwrap_or_default()
-            }
-            _ => V1ContainerStatus::default(),
-        };
-
-        info!(
-            "[Mutation] Updating container status to {:?}",
-            existing_status
-        );
+        // let mut existing_status = match &container.status {
+        //     ActiveValue::Set(Some(val)) => {
+        //         info!("[Mutation] Existing container status raw: {:?}", val);
+        //         serde_json::from_value::<V1ContainerStatus>(val.clone()).unwrap_or_default()
+        //     }
+        //     _ => V1ContainerStatus::default(),
+        // };
+        // info!(
+        //     "[Mutation] Existing container status: {:?}",
+        //     existing_status
+        // );
 
         // 2. Merge in only the new fields
         if let Some(s) = status {
@@ -127,6 +165,10 @@ impl Mutation {
             debug!("[Mutation] Updating container tailnet_url to {:?}", url);
             existing_status.tailnet_url = Some(url);
         }
+        if let Some(cost) = cost_per_hr {
+            debug!("[Mutation] Updating container cost_per_hr to {:?}", cost);
+            existing_status.cost_per_hr = Some(cost);
+        }
 
         // 3. Store the merged status back as JSON
         container.status = Set(Some(serde_json::json!(existing_status)));
@@ -136,7 +178,7 @@ impl Mutation {
         );
         container.updated_at = Set(chrono::Utc::now().into());
 
-        info!(
+        debug!(
             "[Mutation] Updating container status to {:?}",
             container.status
         );

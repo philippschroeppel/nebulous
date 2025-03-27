@@ -24,7 +24,7 @@ pub async fn exec_cmd(args: ExecArgs) -> Result<(), Box<dyn StdError>> {
     )?;
 
     // Output the SSH command’s stdout
-    println!("Remote command output:\n{}", output);
+    println!("{}", output);
     Ok(())
 }
 
@@ -34,14 +34,22 @@ async fn fetch_container_id_from_api(
     namespace: &str,
     name: &str,
 ) -> Result<String, Box<dyn StdError>> {
+    let config = nebulous::config::GlobalConfig::read()?;
+    let current_server = config.get_current_server_config().unwrap();
+    let server = current_server.server.as_ref().unwrap();
+    let api_key = current_server.api_key.as_ref().unwrap();
     // Adjust base URL/host as needed:
-    let url = format!("http://localhost:3000/v1/containers/{}/{}", namespace, name);
+    let url = format!("{}/v1/containers/{}/{}", server, namespace, name);
 
     // Use reqwest to fetch container JSON
-    let container = Client::new()
+    let client = Client::new();
+    let response = client
         .get(&url)
+        .header("Authorization", format!("Bearer {}", api_key))
         .send()
-        .await?
+        .await?;
+
+    let container = response
         .error_for_status()? // Return Err if e.g. 404 or 500
         .json::<V1Container>()
         .await?;

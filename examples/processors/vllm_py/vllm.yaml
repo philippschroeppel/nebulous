@@ -1,0 +1,26 @@
+kind: Processor
+metadata:
+  name: vllm-bash
+  namespace: test
+stream: inference:vllm:qwen
+container:
+  image: vllm/vllm-openai:latest
+  command: ""
+  platform: runpod
+  accelerators:
+    - "1:A100"
+  env:
+    - key: MODEL
+      value: Qwen/Qwen2.5-7B-Instruct
+min_workers: 1
+max_workers: 10
+common_schema: OPENAI_CHAT
+scale:
+  up:
+    above_pressure: 100
+    duration: 30s
+  down:
+    below_pressure: 10
+    duration: 5m
+  zero:
+    duration: 10m

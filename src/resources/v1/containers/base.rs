@@ -236,7 +236,7 @@ pub trait ContainerPlatform {
     }
 
     async fn get_tailscale_device_name(&self, model: &containers::Model) -> String {
-        format!("container-{}", model.id)
+        get_tailscale_device_name(model).await
     }
 
     async fn get_tailscale_device_ip(
@@ -432,4 +432,8 @@ pub trait ContainerPlatform {
 
 pub trait ContainerController {
     async fn reconcile(&self);
+}
+
+pub async fn get_tailscale_device_name(model: &containers::Model) -> String {
+    format!("container-{}", model.id)
 }

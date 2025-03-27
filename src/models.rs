@@ -20,8 +20,7 @@ pub struct V1Meter {
     pub currency: String,
     pub unit: String,
     pub metric: String,
-    pub request_json_path: Option<String>,
-    pub response_json_path: Option<String>,
+    pub json_path: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -64,7 +63,8 @@ pub struct V1ContainerRequest {
     pub timeout: Option<String>,
     pub ssh_keys: Option<Vec<V1SSHKey>>,
     pub ports: Option<Vec<V1PortRequest>>,
-    pub public_ip: Option<bool>,
+    pub proxy_port: Option<i16>,
+    pub authz: Option<V1AuthzConfig>,
 }
 
 pub enum RestartPolicy {
@@ -166,7 +166,8 @@ pub struct V1Container {
     pub status: Option<V1ContainerStatus>,
     pub ssh_keys: Option<Vec<V1SSHKey>>,
     pub ports: Option<Vec<V1PortRequest>>,
-    pub public_ip: bool,
+    pub proxy_port: Option<i16>,
+    pub authz: Option<V1AuthzConfig>,
 }
 // Add this function to provide a default kind value
 fn default_container_kind() -> String {
@@ -190,6 +191,7 @@ pub struct V1UpdateContainer {
     pub queue: Option<String>,
     pub timeout: Option<String>,
     pub resources: Option<V1ContainerResources>,
+    pub proxy_port: Option<i16>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -328,6 +330,7 @@ pub struct V1UserProfile {
     pub role: Option<String>,
     pub external_id: Option<String>,
     pub actor: Option<String>,
+    // structure is {"org_id": {"org_name": <name>, "org_role": <role>}}
     pub organizations: Option<HashMap<String, HashMap<String, String>>>,
     pub created: Option<i64>,
     pub updated: Option<i64>,
@@ -370,6 +373,60 @@ pub struct V1SecretRequest {
     pub metadata: V1ResourceMetaRequest,
     pub value: String,
     pub expires_at: Option<i32>,
+}
+
+//
+// Authz
+//
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct V1AuthzConfig {
+    pub enabled: bool,
+    pub default_action: String,
+    #[serde(rename = "auth_type")]
+    pub auth_type: String,
+    pub jwt: Option<V1AuthzJwt>,
+    pub rules: Option<Vec<V1AuthzRule>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct V1AuthzJwt {
+    pub secret_ref: Option<V1AuthzSecretRef>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct V1AuthzSecretRef {
+    pub name: String,
+    pub key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct V1AuthzPathMatch {
+    pub path: Option<String>,
+    pub pattern: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct V1AuthzRule {
+    pub name: String,
+    /// Use serde's rename to handle the reserved keyword 'match'.
+    #[serde(rename = "match")]
+    pub rule_match: Option<V1AuthzRuleMatch>,
+    pub allow: bool,
+    /// Some rules may not require field matching, so make it optional.
+    pub field_match: Option<Vec<V1AuthzFieldMatch>>,
+    pub path_match: Option<Vec<V1AuthzPathMatch>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct V1AuthzRuleMatch {
+    pub roles: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct V1AuthzFieldMatch {
+    pub json_path: Option<String>,
+    pub pattern: Option<String>,
 }
 
 //

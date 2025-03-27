@@ -64,8 +64,7 @@ pub async fn create_container(
                 unit: command.meter_unit.clone().unwrap_or_default(),
                 metric: command.meter_metric.clone().unwrap_or_default(),
                 currency: command.meter_currency.clone().unwrap_or_default(),
-                request_json_path: None,
-                response_json_path: None,
+                json_path: None,
             }])
         } else {
             None
@@ -103,7 +102,8 @@ pub async fn create_container(
             }),
             ssh_keys: None,
             ports: None,
-            public_ip: None,
+            proxy_port: command.proxy_port,
+            authz: None,
         }
     };
 

@@ -1,66 +1,116 @@
+use crate::models::V1AuthzConfig;
+use crate::models::V1UserProfile;
+use crate::proxy::authz::evaluate_authorization_rules;
+use crate::proxy::meters::{send_request_metrics, send_response_metrics};
 use crate::query::Query;
+use crate::resources::v1::containers::base::get_tailscale_device_name;
+use crate::AppState;
 use axum::body::Body;
-
+use axum::http::Uri;
 use axum::{
     body::Bytes,
-    extract::{Path, State},
+    extract::State,
     http::{HeaderMap, Method, StatusCode},
-    middleware,
-    middleware::from_fn,
     response::{IntoResponse, Response},
-    routing::any,
-    Router,
 };
 use serde_json::Value;
-use tower_http::trace::TraceLayer;
-
-use crate::middleware::auth_middleware; // <-- from your snippet in middleware.rs
-use crate::AppState; // <-- your application state type
+use tracing::{debug, error};
 
 #[allow(dead_code)]
-async fn forward_proxy(
+pub async fn forward_container(
     State(_app_state): State<AppState>, // replace with actual state usage if needed
-    Path((namespace, name)): Path<(String, String)>,
+    user_profile: V1UserProfile,
+    namespace: String,
+    name: String,
     method: Method,
     headers: HeaderMap,
     body: Bytes,
+    original_uri: Uri,
 ) -> impl IntoResponse {
-    //
-    // 1) Lookup the container in the DB
-    //
+    // 2) Fetch container from DB just like before
     let container_model =
         match Query::find_container_by_namespace_and_name(&_app_state.db_pool, &namespace, &name)
             .await
         {
-            // Found a container row
             Ok(Some(c)) => c,
-            // No container found
             Ok(None) => {
                 return (StatusCode::NOT_FOUND, "No container found").into_response();
             }
-            // DB error
             Err(e) => {
                 eprintln!("[PROXY] Database error: {e}");
                 return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
             }
         };
 
-    //
-    // 2) Parse and print the meters (or parse the entire container).
-    //
-    let meters = match container_model.parse_meters() {
-        Ok(meters) => {
-            println!(
-                "[PROXY] Meters for container '{}.{}': {:?}",
-                namespace, name, meters
-            );
-            meters
+    debug!("[PROXY] Container model: {container_model:?}");
+
+    // 2) Deserialize authz config
+    let authz_config = match container_model.clone().authz {
+        Some(json_val) => {
+            serde_json::from_value::<V1AuthzConfig>(json_val).unwrap_or_default()
+            // or handle parse errors
         }
-        Err(e) => {
-            eprintln!("[PROXY] Failed to parse meters: {e}");
-            return (StatusCode::BAD_REQUEST, "Invalid meter data in container").into_response();
-        }
+        None => V1AuthzConfig::default(),
     };
+
+    debug!("[PROXY] Authz config: {authz_config:?}");
+
+    // Example for JSON body parsing if "application/json"
+    let mut json_body_opt: Option<Value> = None;
+    if let Some(content_type) = headers.get("content-type") {
+        if content_type
+            .to_str()
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .contains("application/json")
+        {
+            if let Ok(json_body) = serde_json::from_slice::<Value>(&body) {
+                json_body_opt = Some(json_body);
+            }
+        }
+    }
+
+    debug!("[PROXY] JSON body: {json_body_opt:?}");
+
+    // Example: Evaluate each rule
+    let mut is_allowed = authz_config.default_action != "deny";
+
+    // Build your request path for matching:
+    let request_path = format!("/containers/{}/{}", namespace, name);
+
+    evaluate_authorization_rules(
+        &mut is_allowed,
+        &user_profile,
+        &authz_config,
+        &request_path,
+        json_body_opt.as_ref(),
+    );
+
+    if !is_allowed {
+        return (StatusCode::FORBIDDEN, "Access denied").into_response();
+    }
+
+    // ---------------------------------------------------
+    //  Send request_value metrics to openmeter
+    // ---------------------------------------------------
+    let maybe_meters = container_model.parse_meters().unwrap_or(None);
+
+    // Only iterate if we actually have some meters
+    if let Some(ref meters) = maybe_meters.clone() {
+        match send_request_metrics(&container_model.id, meters, &json_body_opt).await {
+            Ok(_) => {
+                debug!("[Proxy] Successfully sent metrics to OpenMeter");
+            }
+            Err(e) => {
+                error!("[Proxy] Failed to send metrics to OpenMeter: {}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("OpenMeter error: {}", e),
+                )
+                    .into_response();
+            }
+        }
+    }
 
     // If this is a JSON request, parse and print the JSON body
     if let Some(content_type) = headers.get("content-type") {
@@ -76,7 +126,31 @@ async fn forward_proxy(
         }
     }
 
-    let target_url = format!("http://{}.{}.container.nebu", namespace, name);
+    let hostname = match container_model.tailnet_ip {
+        Some(ip) => ip,
+        None => get_tailscale_device_name(&container_model).await,
+    };
+
+    debug!("[PROXY] Hostname: {hostname}");
+
+    // Here is the change: include port if we have it
+    let port_str = if let Some(port) = container_model.proxy_port {
+        format!(":{}", port)
+    } else {
+        "".to_string()
+    };
+
+    // Integrate it into the target URL
+    debug!("[PROXY] Original URI: {}", original_uri);
+
+    let full_uri = original_uri
+        .path_and_query()
+        .map(|p| p.as_str())
+        .unwrap_or("");
+
+    let target_url = format!("http://{}{}{}", hostname, port_str, full_uri);
+    debug!("[PROXY] Target URL with path: {target_url}");
+
     let client = reqwest::Client::new();
 
     // Build outbound request with the same method, body, and forwarded headers
@@ -107,6 +181,15 @@ async fn forward_proxy(
                 {
                     if let Ok(json_resp) = serde_json::from_slice::<Value>(&bytes) {
                         println!("[PROXY] ⬅️ Response JSON Body: {json_resp}");
+
+                        // Replace response metrics logic with a call to the new function
+                        if let Some(ref meters) = maybe_meters.clone() {
+                            if let Err(e) =
+                                send_response_metrics(&container_model.id, meters, &json_resp).await
+                            {
+                                error!("[Proxy] Failed to send response metrics: {}", e);
+                            }
+                        }
                     }
                 }
             }
@@ -123,26 +206,4 @@ async fn forward_proxy(
             (StatusCode::BAD_GATEWAY, "Failed to forward request").into_response()
         }
     }
-}
-
-pub async fn start_proxy(app_state: AppState, port: u16) -> std::io::Result<()> {
-    // Any route covers GET, POST, PUT, DELETE, etc.
-    let app = Router::new()
-        .route("/v1/containers/:namespace/:name/proxy", any(forward_proxy))
-        .layer(middleware::from_fn_with_state(
-            app_state.clone(),
-            auth_middleware,
-        ))
-        // (Optional) Add any additional layers, like request tracing
-        .layer(TraceLayer::new_for_http())
-        // Provide the shared app state
-        .with_state(app_state);
-
-    // Run it
-    let addr = format!("{}:{}", "0.0.0.0", port);
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
-    println!("Proxy server running at http://{}", addr);
-    axum::serve(listener, app).await?;
-
-    Ok(())
 }

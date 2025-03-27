@@ -97,7 +97,7 @@ nebu get containers trl-job -n training
 
 Exec a command in a container
 ```text
-nebu exec trl-job -n training -- echo "hello"
+nebu exec trl-job -n training -c "echo hello"
 ```
 
 Get logs from a container
@@ -172,6 +172,40 @@ meters:
     metric: runtime 
 ```
 This configuration will add 10% to the cost of the container.
+
+#### Authz
+
+Authz is supported through the container proxy. 
+
+To enable the proxy for a container, set the `proxy_port` field to the container port you want to proxy.
+```yaml
+proxy_port: 8080
+```
+
+Then your service can be accesssed at `http://proxy.<nebu-host>` with the header `x-resource: <name>.<namespace>.<kind>`.   
+
+With the proxy enabled, you can also configure authz rules.
+
+```yaml
+authz:
+  rules:
+    # Match on email
+    - name: email-match
+      field_match:
+        - field: "owner"
+          pattern: "${email}"
+      allow: true
+    
+    # Path-based matching for organization resources
+    - name: org-path-access
+      path_match:
+        - pattern: "/api/v1/orgs/${org_id}/**"
+        - pattern: "/api/v1/organizations/${org_id}/**"
+        - pattern: "/api/v1/models/${org_id}/**"
+      allow: true
+```
+
+Variables are interpolated from the users auth profile.
 
 > [!TIP]
 > See [container examples](examples/containers) for more.

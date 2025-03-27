@@ -75,11 +75,12 @@ pub enum Commands {
 
     /// Fetch logs for a container.
     Logs {
-        /// Container namespace.
-        namespace: String,
-
         /// Container name.
         name: String,
+
+        /// Container namespace.
+        #[arg(long, short)]
+        namespace: Option<String>,
     },
 
     /// Login to a Nebulous API server.
@@ -107,6 +108,17 @@ pub enum SelectCommands {
 // The struct that captures all CLI fields for the Exec command.
 #[derive(Args)]
 pub struct ExecArgs {
+    /// Container's name
+    pub name: String,
+
+    /// Container's namespace
+    #[arg(long, short)]
+    pub namespace: String,
+
+    /// The command (and args) to run in the container
+    #[arg(long, short)]
+    pub command: String,
+
     /// Whether to pass `-i` (interactive)
     #[arg(short = 'i', long, default_value_t = false)]
     pub interactive: bool,
@@ -114,18 +126,6 @@ pub struct ExecArgs {
     /// Whether to pass `-t` (tty)
     #[arg(short = 't', long, default_value_t = false)]
     pub tty: bool,
-
-    /// Container's namespace
-    #[arg(long)]
-    pub namespace: String,
-
-    /// Container's name
-    #[arg(long)]
-    pub name: String,
-
-    /// The command (and args) to run in the container
-    #[arg(long, short)]
-    pub command: String,
 }
 
 /// Secret creation parameters
@@ -340,6 +340,10 @@ pub struct ContainerCommands {
     /// Maximum memory
     #[arg(long)]
     pub max_memory: Option<f64>,
+
+    /// Proxy port
+    #[arg(long)]
+    pub proxy_port: Option<i16>,
 }
 
 /// Parse a key-value pair in the format of KEY=VALUE
