@@ -140,7 +140,7 @@ impl ContainerController {
                                 crate::resources::v1::containers::factory::platform_factory(
                                     platform_name,
                                 );
-                            platform.reconcile(&container_clone, &db_pool).await;
+                            let _ = platform.reconcile(&container_clone, &db_pool).await;
                             debug!(
                                 "[DEBUG:controller.rs:spawn] Returned from platform.reconcile for container {}",
                                 container_clone.id

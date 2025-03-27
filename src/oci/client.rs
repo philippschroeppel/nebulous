@@ -32,7 +32,7 @@ pub async fn pull_and_parse_config(
 
     // 4. If it’s an image index -> pick a sub-manifest yourself
     let pinned_reference = match manifest_enum {
-        OciManifest::Image(image_manifest) => {
+        OciManifest::Image(_image_manifest) => {
             debug!("Got a single-arch image manifest, digest={}", top_digest);
             // Already pinned if you want, or just keep by-tag reference
             // If you want the pinned form: <repo>@sha256:<digest>:

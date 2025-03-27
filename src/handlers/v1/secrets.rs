@@ -8,10 +8,8 @@ use axum::{
     response::IntoResponse,
 };
 use sea_orm::*;
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use short_uuid::ShortUuid;
-use std::collections::HashMap;
 use tracing::{debug, info};
 
 /// Handler: List secrets for the current user (and their organizations)
@@ -79,7 +77,7 @@ pub async fn list_secrets(
 /// Handler: Get a single secret by namespace and name
 pub async fn get_secret(
     State(state): State<AppState>,
-    Extension(user_profile): Extension<V1UserProfile>,
+    Extension(_user_profile): Extension<V1UserProfile>,
     Path((namespace, name)): Path<(String, String)>,
 ) -> Result<Json<V1Secret>, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;

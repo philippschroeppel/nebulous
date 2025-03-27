@@ -362,7 +362,7 @@ pub async fn _delete_container_by_id(
         })?;
 
     // Check if user has permission to delete this container
-    let owner_id = container.owner.clone();
+    let _owner_id = container.owner.clone();
 
     let platform = platform_factory(container.platform.unwrap().clone());
 

@@ -5,10 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
 use std::collections::HashMap;
 
-use crate::models::{
-    V1Container, V1ContainerResources, V1ContainerStatus, V1EnvVar, V1Meter, V1Processor,
-    V1ProcessorStatus, V1ResourceMeta, V1SSHKey, V1Scale, V1ScaleDown, V1ScaleUp, V1VolumePath,
-};
+use crate::models::{V1Container, V1Processor, V1ProcessorStatus, V1Scale};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "processors")]

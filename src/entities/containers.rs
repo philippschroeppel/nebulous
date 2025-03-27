@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use crate::models::{
     V1AuthzConfig, V1Container, V1ContainerResources, V1ContainerStatus, V1EnvVar, V1Meter,
-    V1PortRequest, V1ResourceMeta, V1SSHKey, V1VolumePath,
+    V1PortRequest, V1SSHKey, V1VolumePath,
 };
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]

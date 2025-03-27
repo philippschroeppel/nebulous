@@ -494,7 +494,17 @@ container:
 :snake: Python https://github.com/agentsea/nebulous-py    
    
 :crab: Rust https://crates.io/crates/nebulous/versions
-   
+
+## Roadmap
+
+- [ ] Services
+- [ ] Clusters
+- [ ] Processors
+- [ ] Support for AWS EC2
+- [ ] Support for GCE
+- [ ] Support for Azure
+- [ ] Support for Kubernetes
+
 ## Contributing
 
 Please open an issue or submit a PR.

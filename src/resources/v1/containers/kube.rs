@@ -157,7 +157,7 @@ impl KubePlatform {
 
                     // Extract status information
                     let current_status = if let Some(status) = &job.status {
-                        if let Some(completion_time) = &status.completion_time {
+                        if let Some(_completion_time) = &status.completion_time {
                             if status.succeeded.unwrap_or(0) > 0 {
                                 "completed".to_string()
                             } else {
@@ -278,7 +278,7 @@ impl ContainerPlatform for KubePlatform {
         &self,
         config: &V1ContainerRequest,
         db: &DatabaseConnection,
-        user_profile: &V1UserProfile,
+        _user_profile: &V1UserProfile,
         owner_id: &str,
     ) -> Result<V1Container, Box<dyn std::error::Error + Send + Sync>> {
         let name = config
@@ -579,7 +579,6 @@ impl ContainerPlatform for KubePlatform {
 
                             // Start watching the job status
                             let name_clone = name.clone();
-                            let db_clone = db.clone();
                             let self_clone = self.clone();
 
                             tokio::spawn(async move {

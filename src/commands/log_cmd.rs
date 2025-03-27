@@ -15,10 +15,10 @@ pub async fn fetch_container_logs(
     // Load config the same way as in get_cmd.rs
     let config = GlobalConfig::read()?;
     let current_server = config.get_current_server_config().unwrap();
-    let server = current_server.server.as_ref().unwrap();
+    let _server = current_server.server.as_ref().unwrap();
     let api_key = current_server.api_key.as_ref().unwrap();
 
-    let bearer_token = format!("Bearer {}", api_key);
+    let _bearer_token = format!("Bearer {}", api_key);
 
     // Step 2: Run the local SSH command using the ID as the SSH host (e.g. Tailscale address).
     //         This uses the synchronous `run_ssh_command_ts` from your existing code.

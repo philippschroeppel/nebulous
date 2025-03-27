@@ -1,7 +1,5 @@
 use chrono::{DateTime, Utc};
 
-use base64::engine::general_purpose::STANDARD;
-use base64::engine::Engine;
 use nebulous::config::GlobalConfig;
 use serde::Serialize;
 use serde_json::Value;
