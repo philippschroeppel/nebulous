@@ -31,6 +31,7 @@ steps:
             --cache-from type=registry,ref=us-docker.pkg.dev/$PROJECT_ID/nebulous/server:buildcache \
             --push \
             .
+        fi
         
   # Conditionally push a tag if triggered by a tag event
   - name: "gcr.io/cloud-builders/docker"
@@ -50,6 +51,7 @@ steps:
             .
         else
           echo "No TAG_NAME detected. Skipping tag push step."
+        fi
 
 timeout: "3600s"
 
