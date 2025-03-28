@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt;
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1ErrorResponse {
     #[serde(rename = "type", default = "default_error_response_type")]
     pub response_type: String,
@@ -13,7 +13,7 @@ pub struct V1ErrorResponse {
     pub traceback: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1Meter {
     pub cost: Option<f64>,
     pub costp: Option<f64>,
@@ -23,7 +23,7 @@ pub struct V1Meter {
     pub json_path: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1EnvVar {
     pub key: String,
     pub value: Option<String>,
@@ -34,7 +34,7 @@ fn default_error_response_type() -> String {
     "ErrorResponse".to_string()
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1ContainerMetaRequest {
     pub name: Option<String>,
     pub namespace: Option<String>,
@@ -42,7 +42,7 @@ pub struct V1ContainerMetaRequest {
     pub owner_id: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1ContainerRequest {
     #[serde(default = "default_container_kind")]
     pub kind: String,
@@ -85,7 +85,7 @@ impl fmt::Display for RestartPolicy {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1ContainerResources {
     pub min_cpu: Option<f64>,
     pub min_memory: Option<f64>,
@@ -93,7 +93,7 @@ pub struct V1ContainerResources {
     pub max_memory: Option<f64>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1ResourceMeta {
     pub name: String,
     pub namespace: String,
@@ -106,7 +106,7 @@ pub struct V1ResourceMeta {
     pub labels: Option<HashMap<String, String>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1ResourceMetaRequest {
     pub name: Option<String>,
     pub namespace: Option<String>,
@@ -115,21 +115,21 @@ pub struct V1ResourceMetaRequest {
     pub owner_ref: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1Port {
     pub port: u16,
     pub protocol: Option<String>,
     pub public_ip: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1PortRequest {
     pub port: u16,
     pub protocol: Option<String>,
     pub public: Option<bool>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1ContainerStatus {
     pub status: Option<String>,
     pub message: Option<String>,
@@ -139,14 +139,14 @@ pub struct V1ContainerStatus {
     pub tailnet_url: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1SSHKey {
     pub public_key: Option<String>,
     pub public_key_secret: Option<String>,
     pub copy_local: Option<bool>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1Container {
     #[serde(default = "default_container_kind")]
     pub kind: String,
@@ -174,7 +174,7 @@ fn default_container_kind() -> String {
     "Container".to_string()
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1UpdateContainer {
     pub image: Option<String>,
     pub env: Option<Vec<V1EnvVar>>,
@@ -194,7 +194,7 @@ pub struct V1UpdateContainer {
     pub proxy_port: Option<i16>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1VolumeConfig {
     pub paths: Vec<V1VolumePath>,
     #[serde(default = "default_cache_dir")]
@@ -230,7 +230,7 @@ impl fmt::Display for V1VolumeDriver {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1VolumePath {
     pub source: String,
     pub dest: String,
@@ -256,38 +256,38 @@ fn default_cache_dir() -> String {
     format!("/nebu/cache")
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1ProcessorStatus {
     pub status: Option<String>,
     pub message: Option<String>,
     pub pressure: Option<i32>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1ScaleUp {
     pub above_pressure: Option<i32>,
     pub duration: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1ScaleDown {
     pub below_pressure: Option<i32>,
     pub duration: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1ScaleZero {
     pub duration: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1Scale {
     pub up: Option<V1ScaleUp>,
     pub down: Option<V1ScaleDown>,
     pub zero: Option<V1ScaleZero>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1Processor {
     #[serde(default = "default_processor_kind")]
     pub kind: String,
@@ -302,7 +302,7 @@ pub struct V1Processor {
     pub status: Option<V1ProcessorStatus>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1ProcessorRequest {
     #[serde(default = "default_processor_kind")]
     pub kind: String,
@@ -320,7 +320,7 @@ fn default_processor_kind() -> String {
     "Processor".to_string()
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1UserProfile {
     pub email: String,
     pub display_name: Option<String>,
@@ -337,19 +337,19 @@ pub struct V1UserProfile {
     pub token: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1ContainerList {
     pub containers: Vec<V1Container>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1CreateAgentKeyRequest {
     pub agent_id: String,
     pub name: String,
     pub duration: i32,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1AgentKey {
     pub name: String,
     pub key: Option<String>,
@@ -368,7 +368,7 @@ pub struct V1Secret {
 }
 
 /// Request body used for creating or updating a secret
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
 pub struct V1SecretRequest {
     pub metadata: V1ResourceMetaRequest,
     pub value: String,
@@ -379,7 +379,7 @@ pub struct V1SecretRequest {
 // Authz
 //
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1AuthzConfig {
     pub enabled: bool,
     pub default_action: String,
@@ -389,24 +389,24 @@ pub struct V1AuthzConfig {
     pub rules: Option<Vec<V1AuthzRule>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1AuthzJwt {
     pub secret_ref: Option<V1AuthzSecretRef>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1AuthzSecretRef {
     pub name: String,
     pub key: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1AuthzPathMatch {
     pub path: Option<String>,
     pub pattern: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1AuthzRule {
     pub name: String,
     /// Use serde's rename to handle the reserved keyword 'match'.
@@ -418,12 +418,12 @@ pub struct V1AuthzRule {
     pub path_match: Option<Vec<V1AuthzPathMatch>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1AuthzRuleMatch {
     pub roles: Option<Vec<String>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1AuthzFieldMatch {
     pub json_path: Option<String>,
     pub pattern: Option<String>,
