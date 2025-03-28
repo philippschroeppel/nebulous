@@ -46,7 +46,7 @@ messageQueue:
 
 tailscale:
   # -- The Tailscale host to connect to. If headscale.enabled is true, this is ignored.
-  host: ""
+  loginServer: "https://login.tailscale.com"
   # -- The Tailscale API key. If headscale.enabled is true, this is ignored.
   apiKey: ""
   # -- The Tailscale auth key. If headscale.enabled is true, this is ignored.
@@ -57,7 +57,7 @@ tailscale:
     name: "tailscale-secret"
     keys:
       # -- The key in the secret containing the Tailscale host.
-      host: "URL"
+      loginServer: "LOGIN_SERVER"
       # -- The key in the secret containing the Tailscale API key
       apiKey: "API_KEY"
       # -- The key in the secret containing the Tailscale auth key

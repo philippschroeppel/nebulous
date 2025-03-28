@@ -81,7 +81,7 @@ spec:
               valueFrom:
                   secretKeyRef:
                     name: {{ .Values.tailscale.secret.name }}
-                    key: {{ .Values.tailscale.secret.keys.host }}
+                    key: {{ .Values.tailscale.secret.keys.loginServer }}
             - name: RUST_LOG
               value: {{ .Values.logLevel | lower }}
           envFrom:
