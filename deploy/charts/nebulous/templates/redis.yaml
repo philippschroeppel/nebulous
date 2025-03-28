@@ -51,10 +51,14 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "redis.name" . }}
+  name: {{ include "redis.serviceName" . }}
   namespace: {{ include "nebulous.namespace" . }}
   labels:
     {{- include "common.labels" . | nindent 4 }}
+  {{- with .Values.redis.service.annotations }}
+    annotations:
+        {{- toYaml . | nindent 4 }}
+    {{- end }}
 spec:
   selector:
     app: {{ include "redis.name" . }}
@@ -68,7 +72,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "redis.name" . }}
+  name: {{ include "redis.serviceName" . }}
   namespace: {{ include "nebulous.namespace" . }}
   labels:
     {{- include "common.labels" . | nindent 4 }}
@@ -90,7 +94,7 @@ spec:
                   number: {{ .Values.redis.auth.port }}
             path: /
             pathType: Prefix
-      {{- with .Values.ingress.host }}
+      {{- with .Values.redis.ingress.host }}
       host: {{.}}
       {{- end }}
 {{- end }}

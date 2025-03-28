@@ -1,0 +1,315 @@
+{{- if .Values.headscale.create }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "headscale.name" . }}
+  namespace: {{ include "headscale.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    server_url: {{ printf "https://%s:443" .Values.headscale.domain }}
+    listen_addr: 0.0.0.0:8080
+    metrics_listen_addr: 0.0.0.0:9090
+    # TLS termination happens at the Ingress level
+    # (see https://headscale.net/stable/ref/integration/reverse-proxy/#tls)
+    tls_cert_path: ""
+    tls_key_path: ""
+    noise:
+      private_key_path: /mnt/keys/noise_private.key
+    prefixes:
+      v4: 100.64.0.0/10
+      v6: fd7a:115c:a1e0::/48
+    database:
+      type: sqlite
+    derp:
+      server:
+        enabled: false
+    {{- with .Values.headscale.derp.externalMaps }}
+      urls: {{ toYaml . | nindent 8 }}
+    {{- end }}
+    {{- if .Values.headscale.derp.configMap.name }}
+      paths:
+        - /mnt/derp/{{ .Values.headscale.derp.configMap.key }}
+    {{- end }}
+    dns:
+      base_domain: {{ .Values.headscale.dns.base_domain }}
+---
+{{- if .Values.headscale.sqlite.createPersistentVolumeClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.headscale.sqlite.claimName }}
+  namespace: {{ include "headscale.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+spec:
+  {{- with .Values.headscale.sqlite.storageClassName }}
+  storageClassName: {{.}}
+  {{- end }}
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.headscale.sqlite.size }}
+---
+{{- end }}
+{{- if .Values.headscale.privateKeys.createPersistentVolumeClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.headscale.privateKeys.claimName }}
+  namespace: {{ include "headscale.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+spec:
+  {{- with .Values.headscale.privateKeys.storageClassName }}
+  storageClassName: {{.}}
+  {{- end }}
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.headscale.privateKeys.size }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "headscale.name" . }}
+  namespace: {{ include "headscale.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ include "headscale.name" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "headscale.name" . }}
+    spec:
+      containers:
+        - name: headscale
+          image: "headscale/headscale:{{ .Values.headscale.imageTag }}"
+          command:
+            - headscale
+            - serve
+          ports:
+            - containerPort: 8080
+            - containerPort: 9090
+          volumeMounts:
+            - mountPath: /etc/headscale
+              name: config
+            - mountPath: /mnt/sqlite
+              name: sqlite
+            - mountPath: /mnt/keys
+              name: private-keys
+            {{- if .Values.headscale.derp.configMap.name }}
+            - mountPath: /mnt/derp
+              name: derp-config
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "headscale.name" . }}
+        - name: sqlite
+          persistentVolumeClaim:
+            claimName: {{ .Values.headscale.sqlite.claimName }}
+        - name: private-keys
+          persistentVolumeClaim:
+            claimName: {{ .Values.headscale.privateKeys.claimName }}
+        {{- if .Values.headscale.derp.configMap.name }}
+        - name: derp-config
+          configMap:
+            name: {{ .Values.headscale.derp.configMap.name }}
+        {{- end }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: headscale-api-key-generator
+  namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-exec
+  namespace: {{ include "headscale.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [ "" ]
+    resources: [ "pods", "pods/exec" ]
+    verbs: [ "get", "list", "watch", "create" ]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: allow-exec
+  namespace: {{ include "headscale.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: headscale-api-key-generator
+    namespace: {{ include "nebulous.namespace" . }}
+roleRef:
+  kind: Role
+  name: pod-exec
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: secret-writer
+  namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [ "" ]
+    resources: [ "secrets" ]
+    verbs: [ "create", "delete", "get", "list" ]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: allow-secret-creation
+  namespace: {{ include "nebulous.namespace" . }}
+  labels:
+      {{- include "common.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: headscale-api-key-generator
+    namespace: {{ include "nebulous.namespace" . }}
+roleRef:
+  kind: Role
+  name: secret-writer
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: delete-old-tailscale-secret
+  annotations:
+    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook-weight": "-10"
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      serviceAccountName: headscale-api-key-generator
+      containers:
+        - name: delete-secret
+          image: bitnami/kubectl
+          command:
+            - "/bin/sh"
+            - "-c"
+            - "kubectl delete secret {{ .Values.tailscale.secret.name }} -n {{ include "nebulous.namespace" . }} --ignore-not-found"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: generate-tailscale-secret-for-headscale
+  namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": "post-install,post-upgrade"
+    "helm.sh/hook-weight": "5"
+spec:
+  template:
+    spec:
+      serviceAccountName: headscale-api-key-generator
+      restartPolicy: OnFailure
+      containers:
+        - name: api-key-generator
+          image: bitnami/kubectl
+          command: [ "/bin/sh", "-c", "
+          echo 'Waiting for Headscale Pod to be ready...';
+          until kubectl get pod -l app={{ include "headscale.name" . }} -n {{ include "headscale.namespace" . }} -o jsonpath='{.items[0].status.phase}' | grep -q Running; do
+            sleep 1;
+          done;
+          POD_NAME=$(kubectl get pod -l app={{ include "headscale.name" . }} -n {{ include "headscale.namespace" . }} -o jsonpath='{.items[0].metadata.name}')
+
+          kubectl exec $POD_NAME -- headscale users create nebu || echo 'User nebu already exists. That is OK.';
+
+          API_KEY=$(kubectl exec $POD_NAME -- headscale apikeys create --expiration 99y);
+          AUTH_KEY=$(kubectl exec $POD_NAME -- headscale preauthkeys create --user nebu --reusable);
+
+          kubectl create secret generic {{ .Values.tailscale.secret.name }} -n {{ include "nebulous.namespace" . }} \
+            --from-literal={{ .Values.tailscale.secret.keys.apiKey }}=$API_KEY \
+            --from-literal={{ .Values.tailscale.secret.keys.authKey }}=$AUTH_KEY \
+            --from-literal={{ .Values.tailscale.secret.keys.loginServer }}={{ include "headscale.host" . }};
+        " ]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "headscale.serviceName" . }}
+  namespace: {{ include "headscale.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+  {{- with .Values.headscale.service.annotations }}
+    annotations:
+        {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    app: {{ include "headscale.name" . }}
+  ports:
+    - protocol: TCP
+      port: {{ .Values.headscale.service.port }}
+      targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "headscale.name" . }}-metrics
+  namespace: {{ include "headscale.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: {{ include "headscale.name" . }}
+  ports:
+    - protocol: TCP
+      port: 9090
+      targetPort: 9090
+  type: ClusterIP
+---
+{{- if .Values.headscale.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "headscale.serviceName" . }}
+  namespace: {{ include "headscale.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+  {{- with .Values.headscale.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.headscale.ingress.ingressClassName }}
+  ingressClassName: {{.}}
+  {{- end }}
+  rules:
+    - http:
+        paths:
+          - backend:
+              service:
+                name: {{ include "headscale.name" . }}
+                port:
+                  number: {{ .Values.headscale.service.port }}
+            path: /
+            pathType: Prefix
+      {{- with .Values.headscale.domain }}
+      host: {{.}}
+      {{- end }}
+{{- end }}
+{{- end }}

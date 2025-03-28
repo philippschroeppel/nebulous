@@ -1,6 +1,6 @@
 # nebulous
 
-![Version: 0.1.1](https://img.shields.io/badge/Version-0.1.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.1.36](https://img.shields.io/badge/AppVersion-0.1.36-informational?style=flat-square)
+![Version: 0.2.0](https://img.shields.io/badge/Version-0.2.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.1.61](https://img.shields.io/badge/AppVersion-0.1.61-informational?style=flat-square)
 
 A cross-cloud container orchestrator for AI workloads
 
@@ -32,8 +32,32 @@ helm install nebulous nebulous/nebulous -f values.yaml \
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | encryptionKey.encodedValue | string | `""` | The 32 byte encryption key encoded in base64. Not recommended for production. |
-| encryptionKey.secret.keys.encryption_key | string | `"ENCRYPTION_KEY"` | The key in the secret containing the encryption key. |
+| encryptionKey.secret.keys.encryptionKey | string | `"ENCRYPTION_KEY"` | The key in the secret containing the encryption key. |
 | encryptionKey.secret.name | string | `"nebulous-secret"` | The name of the secret containing the 32 byte encryption key. |
+| headscale.create | bool | `false` | If true, create a Headscale deployment and service. Overrides tailscale configuration. Not recommended for production. |
+| headscale.derp | object | `{"configMap":{"key":"servers.yaml","name":""},"externalMaps":[]}` | The Headscale DERP configuration. Either 'externalMapUrls' or 'configMap' must be set. |
+| headscale.derp.configMap.key | string | `"servers.yaml"` | The key in the ConfigMap containing the DERP server configuration YAML file. |
+| headscale.derp.configMap.name | string | `""` | The name of the ConfigMap containing the DERP server configuration. |
+| headscale.derp.externalMaps | list | `[]` | URLs of externally available DERP maps encoded in JSON. |
+| headscale.dns.base_domain | string | `""` | The base domain for MagicDNS hostnames. Cannot be the same as the Headscale server's domain. Refer to https://github.com/juanfont/headscale/blob/main/config-example.yaml for details. |
+| headscale.domain | string | `""` | The domain under which the Headscale server is exposed. |
+| headscale.imageTag | string | `"latest"` | The Headscale image tag. |
+| headscale.ingress.annotations | object | `{}` | Annotations to add to the Ingress resource. |
+| headscale.ingress.enabled | bool | `false` | If enabled, create an Ingress resource. Ignored unless 'enabled' is true. |
+| headscale.ingress.ingressClassName | string | `""` | The ingress class. |
+| headscale.namespaceOverride | string | `""` | Namespace override for the Headscale deployment. |
+| headscale.prefixes | object | `{"v4":"100.64.0.0/10","v6":"fd7a:115c:a1e0::/48"}` | Prefixes to allocate tailaddresses from. Must be within the IP ranges supported by the Tailscale client. Refer to https://github.com/juanfont/headscale/blob/main/config-example.yaml for details. |
+| headscale.privateKeys.claimName | string | `"headscale-keys-pvc"` | The name of the PersistentVolumeClaim for the Headscale private keys. |
+| headscale.privateKeys.createPersistentVolumeClaim | bool | `true` | If true, create a PersistentVolumeClaim for the Headscale private keys. |
+| headscale.privateKeys.size | string | `"16Mi"` | The size of the PersistentVolumeClaim created for the Headscale |
+| headscale.privateKeys.storageClassName | string | `""` | The storage class of the PersistentVolumeClaim created for the Headscale private keys. |
+| headscale.service.annotations | object | `{}` | The annotations to add to the Kubernetes service. |
+| headscale.service.nameOverride | string | `""` | Override the name of the Kubernetes service. |
+| headscale.service.port | int | `80` | The port of the Kubernetes service. |
+| headscale.sqlite.claimName | string | `"headscale-sqlite-pvc"` | The name of the PersistentVolumeClaim for the Headscale sqlite database. |
+| headscale.sqlite.createPersistentVolumeClaim | bool | `true` | If true, create a PersistentVolumeClaim for the Headscale sqlite database. |
+| headscale.sqlite.size | string | `"10Gi"` | The size of the PersistentVolumeClaim created for the Headscale sqlite database. |
+| headscale.sqlite.storageClassName | string | `""` | The storage class of the PersistentVolumeClaim created for the Headscale sqlite database. |
 | image.pullPolicy | string | `"IfNotPresent"` |  |
 | image.repository | string | `"us-docker.pkg.dev/agentsea-dev/nebulous/server"` | The repository to pull the server image from. |
 | image.tag | string | `""` | The nebulous image tag. Defaults to the Helm chart's appVersion. |
@@ -74,6 +98,8 @@ helm install nebulous nebulous/nebulous -f values.yaml \
 | redis.secret.keys.connection_string | string | `"CONNECTION_STRING"` | The key in the secret containing the Redis connection string. |
 | redis.secret.keys.password | string | `"PASSWORD"` | The key in the secret containing the Redis password. |
 | redis.secret.name | string | `"redis-secret"` | Name of the secret with the Redis connection string and password. |
+| redis.service.annotations | object | `{}` | The annotations to add to the Kubernetes service. |
+| redis.service.nameOverride | string | `""` | Override the name of the Kubernetes service. |
 | service.annotations | object | `{}` | Annotations to add to the Kubernetes service. |
 | service.nameOverride | string | `""` | Override the name of the Kubernetes service. |
 | service.port | int | `3000` | The port of the Kubernetes service. |
@@ -94,4 +120,11 @@ helm install nebulous nebulous/nebulous -f values.yaml \
 | storage.model.createPersistentVolumeClaim | bool | `true` |  |
 | storage.model.size | string | `"1000Gi"` |  |
 | storage.model.storageClassName | string | `""` |  |
+| tailscale.apiKey | string | `""` | The Tailscale API key. If headscale.enabled is true, this is ignored. |
+| tailscale.authKey | string | `""` | The Tailscale auth key. If headscale.enabled is true, this is ignored. |
+| tailscale.loginServer | string | `"https://login.tailscale.com"` | The Tailscale host to connect to. If headscale.enabled is true, this is ignored. |
+| tailscale.secret.keys.apiKey | string | `"API_KEY"` | The key in the secret containing the Tailscale API key |
+| tailscale.secret.keys.authKey | string | `"AUTH_KEY"` | The key in the secret containing the Tailscale auth key |
+| tailscale.secret.keys.loginServer | string | `"LOGIN_SERVER"` | The key in the secret containing the Tailscale host. |
+| tailscale.secret.name | string | `"tailscale-secret"` | Name of the secret with the Redis connection string and password. |
 

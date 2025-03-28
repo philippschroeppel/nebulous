@@ -8,5 +8,5 @@ metadata:
     {{- include "common.labels" . | nindent 4 }}
 type: Opaque
 data:
-  {{ .Values.encryptionKey.secret.keys.encryption_key }}: {{ .Values.encryptionKey.encodedValue }}
+  {{ .Values.encryptionKey.secret.keys.encryptionKey }}: {{ .Values.encryptionKey.encodedValue }}
 {{- end }}

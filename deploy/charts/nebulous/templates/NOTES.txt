@@ -1,7 +1,7 @@
 Nebulous has been deployed into the {{ template "nebulous.namespace" . }} namespace.
 In a few moments, you should be able to access the Nebulous API.
 
-Internal endpoint: {{ printf "http://%s.%s.svc.cluster.local:%s" (include "nebulous.serviceName" . ) (include "nebulous.namespace" .) .Values.service.port }}
+Internal endpoint: {{ printf "http://%s.%s.svc.cluster.local:%d" (include "nebulous.serviceName" . ) (include "nebulous.namespace" .) (int .Values.service.port) }}
 {{- if .Values.ingress.enabled }}
 {{- if .Values.ingress.host }}
 External endpoint: {{ printf "https://%s" .Values.ingress.host }}
@@ -15,8 +15,7 @@ External endpoint: Set .Values.ingress.enabled to true to expose Nebulous extern
 WARNING: Using the integrated Postgres database. This is not recommended for production.
 {{- end }}
 {{ if .Values.redis.create }}
-WARNING: Using the integrated Redis database. This is not recommended for production.
-Internal Redis endpoint: {{ printf "%s:%s" (include "redis.host" . ) .Values.redis.auth.port }}
+Internal Redis endpoint: {{ printf "redis://%s:%d" (include "redis.host" . ) (int .Values.redis.auth.port) }}
 {{- if .Values.redis.ingress.enabled }}
 {{- if .Values.redis.ingress.host }}
 External Redis endpoint: {{ printf "redis://%s" .Values.redis.ingress.host }}
