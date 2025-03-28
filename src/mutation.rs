@@ -419,11 +419,12 @@ impl Mutation {
 
         // 3) Parse any existing status in the processor record
         let mut existing_status = match &processor_am.status {
-            Set(Some(val)) => serde_json::from_value::<V1ProcessorStatus>(val.clone())
-                .unwrap_or_else(|_| {
+            sea_orm::ActiveValue::Set(Some(val)) => {
+                serde_json::from_value::<V1ProcessorStatus>(val.clone()).unwrap_or_else(|_| {
                     info!("[Mutation] Existing processor status JSON was invalid, defaulting.");
                     V1ProcessorStatus::default()
-                }),
+                })
+            }
             _ => V1ProcessorStatus::default(),
         };
 
@@ -441,9 +442,9 @@ impl Mutation {
         }
 
         // 5) Update the ActiveModel to hold the new status as JSON
-        processor_am.status = Set(Some(json!(existing_status)));
+        processor_am.status = sea_orm::ActiveValue::Set(Some(json!(existing_status)));
         // Always refresh the updated_at timestamp
-        processor_am.updated_at = Set(chrono::Utc::now().into());
+        processor_am.updated_at = sea_orm::ActiveValue::Set(chrono::Utc::now().into());
 
         info!(
             "[Mutation] Updating processor '{}' status to: {:?}",
