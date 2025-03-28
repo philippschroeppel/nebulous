@@ -1,6 +1,6 @@
 [package]
 name = "nebulous"
-version = "0.1.63"
+version = "0.1.62"
 edition = "2021"
 description = "A globally distributed container orchestrator"
 license = "MIT"
@@ -57,9 +57,9 @@ schemars = { version = "0.8.21", features = ["derive"] }
 runpod = "0.1.27"
 axum-extra = { version = "0.10.0" }
 thiserror = "2.0.12"
-aws-config = "1.6.1"
-aws-sdk-sts = "1.65.0"
-aws-sdk-iam = "1.66.0"
+aws-config = "1.5.18"
+aws-sdk-sts = "1.62.0"
+aws-sdk-iam = "1.64.0"
 tempfile = "3.19.0"
 aes-gcm = "0.10.1"
 dashmap = "6.1.0"
