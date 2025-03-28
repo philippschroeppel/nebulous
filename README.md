@@ -31,6 +31,11 @@ nebu serve --docker
 ```
 
 Or optionally run on Kubernetes with our [helm chart](./deploy/charts/nebulous/)   
+   
+Connect to the tailnet
+```sh
+nebu connect
+```
     
 See what cloud platforms are currently supported.
 ```sh
