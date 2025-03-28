@@ -1,6 +1,6 @@
 # nebulous
 
-![Version: 0.1.1](https://img.shields.io/badge/Version-0.1.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.1.36](https://img.shields.io/badge/AppVersion-0.1.36-informational?style=flat-square)
+![Version: 0.2.0](https://img.shields.io/badge/Version-0.2.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.1.61](https://img.shields.io/badge/AppVersion-0.1.61-informational?style=flat-square)
 
 A cross-cloud container orchestrator for AI workloads
 
@@ -122,9 +122,9 @@ helm install nebulous nebulous/nebulous -f values.yaml \
 | storage.model.storageClassName | string | `""` |  |
 | tailscale.apiKey | string | `""` | The Tailscale API key. If headscale.enabled is true, this is ignored. |
 | tailscale.authKey | string | `""` | The Tailscale auth key. If headscale.enabled is true, this is ignored. |
-| tailscale.host | string | `""` | The Tailscale host to connect to. If headscale.enabled is true, this is ignored. |
+| tailscale.loginServer | string | `"https://login.tailscale.com"` | The Tailscale host to connect to. If headscale.enabled is true, this is ignored. |
 | tailscale.secret.keys.apiKey | string | `"API_KEY"` | The key in the secret containing the Tailscale API key |
 | tailscale.secret.keys.authKey | string | `"AUTH_KEY"` | The key in the secret containing the Tailscale auth key |
-| tailscale.secret.keys.host | string | `"URL"` | The key in the secret containing the Tailscale host. |
+| tailscale.secret.keys.loginServer | string | `"LOGIN_SERVER"` | The key in the secret containing the Tailscale host. |
 | tailscale.secret.name | string | `"tailscale-secret"` | Name of the secret with the Redis connection string and password. |
 
