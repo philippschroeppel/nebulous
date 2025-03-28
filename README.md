@@ -139,11 +139,12 @@ Supported drivers are:
 
 #### Organizations
 
-Nebulous is multi-tenant from the ground up. Here is an example of creating a container under the `Agentsea` organization.
+Nebulous is multi-tenant from the ground up. Here is an example of creating a container under the `agentsea` organization.
 
 ```sh
 nebu create container \
-    --name "Agentsea/foo" \
+    --name "foo" \
+    --owner "agentsea" \
     --image tensorflow/tensorflow:latest \
     --cmd "echo hello" \
     --platform ec2 \
@@ -501,6 +502,7 @@ container:
 - [ ] Clusters
 - [ ] Processors
 - [ ] Support for AWS EC2
+- [ ] Support non-gpu containers
 - [ ] Support for GCE
 - [ ] Support for Azure
 - [ ] Support for Kubernetes
