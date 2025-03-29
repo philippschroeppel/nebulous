@@ -9,9 +9,9 @@ use std::error::Error;
 
 #[derive(Debug)]
 pub struct NebulousClient {
-    http_client: HttpClient,
-    base_url: String,
-    api_key: String,
+    pub http_client: HttpClient,
+    pub base_url: String,
+    pub api_key: String,
 }
 
 /// A simple DTO for container responses.
