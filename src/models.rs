@@ -175,6 +175,11 @@ fn default_container_kind() -> String {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
+pub struct V1Containers {
+    pub containers: Vec<V1Container>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1UpdateContainer {
     pub image: Option<String>,
     pub env: Option<Vec<V1EnvVar>>,
@@ -359,12 +364,17 @@ pub struct V1AgentKey {
     pub role: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq)]
 pub struct V1Secret {
     pub kind: String,
     pub metadata: V1ResourceMeta,
     pub value: Option<String>,
     pub expires_at: Option<i32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
+pub struct V1Secrets {
+    pub secrets: Vec<V1Secret>,
 }
 
 /// Request body used for creating or updating a secret
@@ -427,6 +437,36 @@ pub struct V1AuthzRuleMatch {
 pub struct V1AuthzFieldMatch {
     pub json_path: Option<String>,
     pub pattern: Option<String>,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct V1ResourceReference {
+    pub kind: String,
+    pub name: String,
+    pub namespace: String,
+}
+
+impl V1ResourceReference {
+    /// Convert a `V1ResourceReference` to a string, encoded as `name.namespace.kind`.
+    pub fn to_string_encoded(&self) -> String {
+        format!("{}.{}.{}", self.name, self.namespace, self.kind)
+    }
+
+    /// Parse a `V1ResourceReference` from a string in the format `name.namespace.kind`.
+    pub fn from_str_encoded(encoded: &str) -> Result<Self, String> {
+        let parts: Vec<&str> = encoded.split('.').collect();
+        if parts.len() != 3 {
+            return Err(format!(
+                "Invalid reference string: expected 3 parts, got {}",
+                parts.len()
+            ));
+        }
+        Ok(Self {
+            name: parts[0].to_string(),
+            namespace: parts[1].to_string(),
+            kind: parts[2].to_string(),
+        })
+    }
 }
 
 //

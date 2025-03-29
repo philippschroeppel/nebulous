@@ -1,5 +1,7 @@
 use crate::config::GlobalConfig;
-use crate::models::{V1Container, V1ContainerRequest, V1Secret, V1SecretRequest};
+use crate::models::{
+    V1Container, V1ContainerRequest, V1Containers, V1Secret, V1SecretRequest, V1Secrets,
+};
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -128,14 +130,14 @@ impl NebulousClient {
     // GET METHODS (with optional namespace/name)
     // ─────────────────────────────────────────────────────────────────────────────
 
-    /// Gets JSON data for a specific container by `/:namespace/:name`.
-    /// `namespace` cannot be empty. (e.g. "default", "staging", etc.)
+    /// Gets a specific container by namespace and name, returning a typed `V1Container`.
+    /// `namespace` cannot be empty (e.g. "default", "staging", etc.).
     /// `name` cannot be empty.
     pub async fn get_container(
         &self,
         name: &str,
         namespace: &str,
-    ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    ) -> Result<V1Container, Box<dyn std::error::Error>> {
         let url = format!("{}/v1/containers/{}/{}", self.base_url, namespace, name);
         let response = self
             .http_client
@@ -145,8 +147,8 @@ impl NebulousClient {
             .await?;
 
         if response.status().is_success() {
-            let container_json = response.json::<serde_json::Value>().await?;
-            Ok(container_json)
+            let container = response.json::<V1Container>().await?;
+            Ok(container)
         } else {
             let error_text = response.text().await?;
             Err(format!(
@@ -157,8 +159,8 @@ impl NebulousClient {
         }
     }
 
-    /// Lists JSON data for all containers.
-    pub async fn get_containers(&self) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    /// Lists all containers, returning a typed `V1Containers`.
+    pub async fn get_containers(&self) -> Result<V1Containers, Box<dyn std::error::Error>> {
         let url = format!("{}/v1/containers", self.base_url);
         let response = self
             .http_client
@@ -168,22 +170,22 @@ impl NebulousClient {
             .await?;
 
         if response.status().is_success() {
-            let containers_json = response.json::<serde_json::Value>().await?;
-            Ok(containers_json)
+            let containers = response.json::<V1Containers>().await?;
+            Ok(containers)
         } else {
             let error_text = response.text().await?;
             Err(format!("Failed to list containers: {}", error_text).into())
         }
     }
 
-    /// Gets JSON data for a specific secret by `/:namespace/:name`.
-    /// `namespace` cannot be empty. (e.g. "default", "staging", etc.)
+    /// Gets a specific secret by namespace and name, returning a typed `V1Secret`.
+    /// `namespace` cannot be empty (e.g. "default", "staging", etc.).
     /// `name` cannot be empty.
     pub async fn get_secret(
         &self,
         name: &str,
         namespace: &str,
-    ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    ) -> Result<V1Secret, Box<dyn std::error::Error>> {
         let url = format!("{}/v1/secrets/{}/{}", self.base_url, namespace, name);
         let response = self
             .http_client
@@ -193,8 +195,8 @@ impl NebulousClient {
             .await?;
 
         if response.status().is_success() {
-            let secret_json = response.json::<serde_json::Value>().await?;
-            Ok(secret_json)
+            let secret = response.json::<V1Secret>().await?;
+            Ok(secret)
         } else {
             let error_text = response.text().await?;
             Err(format!(
@@ -205,8 +207,8 @@ impl NebulousClient {
         }
     }
 
-    /// Lists JSON data for all secrets.
-    pub async fn get_secrets(&self) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    /// Lists all secrets, returning a typed `V1Secrets`.
+    pub async fn get_secrets(&self) -> Result<V1Secrets, Box<dyn std::error::Error>> {
         let url = format!("{}/v1/secrets", self.base_url);
         let response = self
             .http_client
@@ -216,8 +218,8 @@ impl NebulousClient {
             .await?;
 
         if response.status().is_success() {
-            let secrets_json = response.json::<serde_json::Value>().await?;
-            Ok(secrets_json)
+            let secrets = response.json::<V1Secrets>().await?;
+            Ok(secrets)
         } else {
             let error_text = response.text().await?;
             Err(format!("Failed to list secrets: {}", error_text).into())
