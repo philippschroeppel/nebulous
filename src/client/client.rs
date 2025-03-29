@@ -1,5 +1,5 @@
 use crate::config::GlobalConfig;
-use crate::models::{V1ContainerRequest, V1SecretRequest};
+use crate::models::{V1Container, V1ContainerRequest, V1Secret, V1SecretRequest};
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -75,7 +75,7 @@ impl NebulousClient {
     pub async fn create_container(
         &self,
         container_request: &V1ContainerRequest,
-    ) -> Result<ContainerResponse, Box<dyn Error>> {
+    ) -> Result<V1Container, Box<dyn Error>> {
         let url = format!("{}/v1/containers", self.base_url);
 
         let response = self
@@ -91,7 +91,7 @@ impl NebulousClient {
             // If you just need the raw JSON, return it directly.
             // Here, we map it into a typed struct.
             // Adjust as needed for your actual response shape.
-            let typed: ContainerResponse = serde_json::from_value(container)?;
+            let typed: V1Container = serde_json::from_value(container)?;
             Ok(typed)
         } else {
             let error_text = response.text().await?;
@@ -103,7 +103,7 @@ impl NebulousClient {
     pub async fn create_secret(
         &self,
         secret_request: &V1SecretRequest,
-    ) -> Result<SecretResponse, Box<dyn Error>> {
+    ) -> Result<V1Secret, Box<dyn Error>> {
         let url = format!("{}/v1/secrets", self.base_url);
 
         let response = self
@@ -116,7 +116,7 @@ impl NebulousClient {
 
         if response.status().is_success() {
             let raw = response.json::<Value>().await?;
-            let typed: SecretResponse = serde_json::from_value(raw)?;
+            let typed: V1Secret = serde_json::from_value(raw)?;
             Ok(typed)
         } else {
             let error_text = response.text().await?;
@@ -128,105 +128,99 @@ impl NebulousClient {
     // GET METHODS (with optional namespace/name)
     // ─────────────────────────────────────────────────────────────────────────────
 
-    /// Gets JSON data about containers.  
-    /// - If `name` is provided, fetches container at `/:namespace/:name`.  
-    /// - Otherwise, lists all containers.  
-    /// `namespace` defaults to `"default"` if not provided.
-    pub async fn get_containers(
+    /// Gets JSON data for a specific container by `/:namespace/:name`.
+    /// `namespace` cannot be empty. (e.g. "default", "staging", etc.)
+    /// `name` cannot be empty.
+    pub async fn get_container(
         &self,
-        name: Option<&str>,
-        namespace: Option<&str>,
-    ) -> Result<Value, Box<dyn Error>> {
-        if let Some(real_name) = name {
-            // Single container
-            let real_ns = namespace.unwrap_or("default");
-            let url = format!("{}/v1/containers/{}/{}", self.base_url, real_ns, real_name);
-            let response = self
-                .http_client
-                .get(&url)
-                .header("Authorization", format!("Bearer {}", self.api_key))
-                .send()
-                .await?;
+        name: &str,
+        namespace: &str,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let url = format!("{}/v1/containers/{}/{}", self.base_url, namespace, name);
+        let response = self
+            .http_client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .send()
+            .await?;
 
-            if response.status().is_success() {
-                let container_json = response.json::<Value>().await?;
-                Ok(container_json)
-            } else {
-                let error_text = response.text().await?;
-                Err(format!(
-                    "Failed to get container {}/{}: {}",
-                    real_ns, real_name, error_text
-                )
-                .into())
-            }
+        if response.status().is_success() {
+            let container_json = response.json::<serde_json::Value>().await?;
+            Ok(container_json)
         } else {
-            // List containers
-            let url = format!("{}/v1/containers", self.base_url);
-            let response = self
-                .http_client
-                .get(&url)
-                .header("Authorization", format!("Bearer {}", self.api_key))
-                .send()
-                .await?;
-
-            if response.status().is_success() {
-                let containers_json = response.json::<Value>().await?;
-                Ok(containers_json)
-            } else {
-                let error_text = response.text().await?;
-                Err(format!("Failed to list containers: {}", error_text).into())
-            }
+            let error_text = response.text().await?;
+            Err(format!(
+                "Failed to get container {}/{}: {}",
+                namespace, name, error_text
+            )
+            .into())
         }
     }
 
-    /// Gets JSON data about secrets.  
-    /// - If `name` is provided, fetches secret at `/:namespace/:name`.  
-    /// - Otherwise, lists all secrets.  
-    /// `namespace` defaults to `"default"` if not provided.
-    pub async fn get_secrets(
-        &self,
-        name: Option<&str>,
-        namespace: Option<&str>,
-    ) -> Result<Value, Box<dyn Error>> {
-        if let Some(real_name) = name {
-            // Single secret
-            let real_ns = namespace.unwrap_or("default");
-            let url = format!("{}/v1/secrets/{}/{}", self.base_url, real_ns, real_name);
-            let response = self
-                .http_client
-                .get(&url)
-                .header("Authorization", format!("Bearer {}", self.api_key))
-                .send()
-                .await?;
+    /// Lists JSON data for all containers.
+    pub async fn get_containers(&self) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let url = format!("{}/v1/containers", self.base_url);
+        let response = self
+            .http_client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .send()
+            .await?;
 
-            if response.status().is_success() {
-                let secret_json = response.json::<Value>().await?;
-                Ok(secret_json)
-            } else {
-                let error_text = response.text().await?;
-                Err(format!(
-                    "Failed to get secret {}/{}: {}",
-                    real_ns, real_name, error_text
-                )
-                .into())
-            }
+        if response.status().is_success() {
+            let containers_json = response.json::<serde_json::Value>().await?;
+            Ok(containers_json)
         } else {
-            // List secrets
-            let url = format!("{}/v1/secrets", self.base_url);
-            let response = self
-                .http_client
-                .get(&url)
-                .header("Authorization", format!("Bearer {}", self.api_key))
-                .send()
-                .await?;
+            let error_text = response.text().await?;
+            Err(format!("Failed to list containers: {}", error_text).into())
+        }
+    }
 
-            if response.status().is_success() {
-                let secrets_json = response.json::<Value>().await?;
-                Ok(secrets_json)
-            } else {
-                let error_text = response.text().await?;
-                Err(format!("Failed to list secrets: {}", error_text).into())
-            }
+    /// Gets JSON data for a specific secret by `/:namespace/:name`.
+    /// `namespace` cannot be empty. (e.g. "default", "staging", etc.)
+    /// `name` cannot be empty.
+    pub async fn get_secret(
+        &self,
+        name: &str,
+        namespace: &str,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let url = format!("{}/v1/secrets/{}/{}", self.base_url, namespace, name);
+        let response = self
+            .http_client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            let secret_json = response.json::<serde_json::Value>().await?;
+            Ok(secret_json)
+        } else {
+            let error_text = response.text().await?;
+            Err(format!(
+                "Failed to get secret {}/{}: {}",
+                namespace, name, error_text
+            )
+            .into())
+        }
+    }
+
+    /// Lists JSON data for all secrets.
+    pub async fn get_secrets(&self) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let url = format!("{}/v1/secrets", self.base_url);
+        let response = self
+            .http_client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            let secrets_json = response.json::<serde_json::Value>().await?;
+            Ok(secrets_json)
+        } else {
+            let error_text = response.text().await?;
+            Err(format!("Failed to list secrets: {}", error_text).into())
         }
     }
 
