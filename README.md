@@ -1,4 +1,7 @@
-# Nebulous
+<p align="center">
+  <img src="./static/nebu_logo1_alpha.png" alt="Nebulous Logo" width="400">
+</p>
+
 
 __A globally distributed container orchestrator__
 
@@ -154,6 +157,11 @@ nebu create container \
     --cmd "echo hello" \
     --platform ec2 \
     --accelerators "1:L40s"
+```
+
+The authorization heirarchy is
+```
+orgs -> namespaces -> resources
 ```
 
 #### Meters

@@ -169,6 +169,18 @@ pub struct V1Container {
     pub proxy_port: Option<i16>,
     pub authz: Option<V1AuthzConfig>,
 }
+
+impl V1Container {
+    /// Convert this container into a V1ResourceReference.
+    pub fn to_resource_reference(&self) -> V1ResourceReference {
+        V1ResourceReference {
+            kind: self.kind.clone(),
+            name: self.metadata.name.clone(),
+            namespace: self.metadata.namespace.clone(),
+        }
+    }
+}
+
 // Add this function to provide a default kind value
 fn default_container_kind() -> String {
     "Container".to_string()
@@ -307,6 +319,17 @@ pub struct V1Processor {
     pub status: Option<V1ProcessorStatus>,
 }
 
+impl V1Processor {
+    /// Convert this processor into a V1ResourceReference.
+    pub fn to_resource_reference(&self) -> V1ResourceReference {
+        V1ResourceReference {
+            kind: self.kind.clone(),
+            name: self.metadata.name.clone(),
+            namespace: self.metadata.namespace.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1ProcessorRequest {
     #[serde(default = "default_processor_kind")]
@@ -366,10 +389,26 @@ pub struct V1AgentKey {
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq)]
 pub struct V1Secret {
+    #[serde(default = "default_secret_kind")]
     pub kind: String,
     pub metadata: V1ResourceMeta,
     pub value: Option<String>,
     pub expires_at: Option<i32>,
+}
+
+impl V1Secret {
+    /// Convert this secret into a V1ResourceReference.
+    pub fn to_resource_reference(&self) -> V1ResourceReference {
+        V1ResourceReference {
+            kind: self.kind.clone(),
+            name: self.metadata.name.clone(),
+            namespace: self.metadata.namespace.clone(),
+        }
+    }
+}
+
+fn default_secret_kind() -> String {
+    "Secret".to_string()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
