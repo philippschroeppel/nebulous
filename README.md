@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./static/nebu_logo1_alpha.png" alt="Nebulous Logo" width="400">
+  <img src="./static/nebu_logo2_alpha.png" alt="Nebulous Logo" width="400">
 </p>
 
 
@@ -9,7 +9,8 @@ Think of it as a Kubernetes that can span clouds and regions with a focus on __a
    
 Why not Kubernetes? See [why_not_kube.md](docs/why_not_kube.md)   
    
-:warning: Nebulous is in __alpha__, things may break.
+> [!WARNING]
+> Nebulous is in __alpha__, things may break.
 
 ## Installation
 
