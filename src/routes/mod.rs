@@ -2,7 +2,7 @@ use crate::handlers::v1::{
     create_container, create_secret, delete_container, delete_container_by_id, delete_secret,
     delete_secret_by_id, fetch_container_logs, fetch_container_logs_by_id, get_container,
     get_container_by_id, get_secret, get_secret_by_id, list_containers, list_secrets,
-    update_secret, update_secret_by_id,
+    patch_container, update_secret, update_secret_by_id,
 };
 use crate::handlers::{health_handler, root_handler};
 use crate::middleware::auth_middleware;
@@ -31,7 +31,9 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
         .route("/v1/containers/:id/logs", get(fetch_container_logs_by_id))
         .route(
             "/v1/containers/:namespace/:name",
-            get(get_container).delete(delete_container),
+            get(get_container)
+                .delete(delete_container)
+                .patch(patch_container),
         )
         .route(
             "/v1/containers/:namespace/:name/logs",

@@ -2,6 +2,7 @@ pub mod container;
 pub use container::{
     create_container, delete_container, delete_container_by_id, fetch_container_logs,
     fetch_container_logs_by_id, get_container, get_container_by_id, list_containers,
+    patch_container,
 };
 pub mod secrets;
 pub use secrets::{

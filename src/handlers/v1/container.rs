@@ -1,7 +1,8 @@
 // src/handlers/containers.rs
 
 use crate::models::{
-    V1Container, V1ContainerList, V1ContainerRequest, V1ResourceMeta, V1UserProfile,
+    V1Container, V1ContainerList, V1ContainerRequest, V1ContainerResources, V1EnvVar, V1Meter,
+    V1ResourceMeta, V1ResourceMetaRequest, V1UpdateContainer, V1UserProfile, V1VolumePath,
 };
 use crate::resources::v1::containers::factory::platform_factory;
 
@@ -474,4 +475,362 @@ pub async fn _fetch_container_logs_by_id(
         })?;
 
     Ok(Json(logs))
+}
+
+#[axum::debug_handler]
+pub async fn patch_container(
+    State(state): State<AppState>,
+    Extension(user_profile): Extension<V1UserProfile>,
+    Path((namespace, name)): Path<(String, String)>,
+    Json(update_request): Json<V1UpdateContainer>,
+) -> Result<Json<V1Container>, (StatusCode, Json<serde_json::Value>)> {
+    let db_pool = &state.db_pool;
+
+    // Collect owner IDs from user_profile to use in your `Query` call
+    let mut owner_ids: Vec<String> = user_profile
+        .organizations
+        .as_ref()
+        .map(|orgs| orgs.keys().cloned().collect())
+        .unwrap_or_default();
+
+    // Add user email if necessary for ownership checks
+    owner_ids.push(user_profile.email.clone());
+    let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
+
+    // Find the container in the DB, ensuring the user has permission
+    let container = match Query::find_container_by_namespace_name_and_owners(
+        db_pool,
+        &namespace,
+        &name,
+        &owner_id_refs,
+    )
+    .await
+    {
+        Ok(container) => container,
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Database error: {}", e)})),
+            ));
+        }
+    };
+
+    let container_ref = &container;
+    let no_delete = update_request.no_delete.unwrap_or(false);
+
+    let container_env = container
+        .env
+        .clone()
+        .and_then(|json_value| serde_json::from_value::<Vec<V1EnvVar>>(json_value).ok())
+        .unwrap_or_default();
+
+    let container_volumes = container
+        .volumes
+        .clone()
+        .and_then(|json_value| serde_json::from_value::<Vec<V1VolumePath>>(json_value).ok())
+        .unwrap_or_default();
+
+    let container_resources = container
+        .resources
+        .clone()
+        .and_then(|json_value| serde_json::from_value::<V1ContainerResources>(json_value).ok())
+        .unwrap_or_default();
+
+    let container_meters = container
+        .meters
+        .clone()
+        .and_then(|json_value| serde_json::from_value::<Vec<V1Meter>>(json_value).ok())
+        .unwrap_or_default();
+
+    let updated_platform = update_request
+        .platform
+        .clone()
+        .unwrap_or(container.platform.clone().unwrap_or_default());
+    let updated_image = update_request
+        .image
+        .clone()
+        .unwrap_or(container.image.clone());
+    // let updated_ports = update_request.ports.clone().unwrap_or(container.ports);
+    // let updated_authz = update_request.authz.clone().unwrap_or(container.authz);
+
+    let updated_env = update_request.env.clone().unwrap_or(container_env.clone());
+    let updated_command = update_request
+        .command
+        .clone()
+        .unwrap_or_else(|| container.command.clone().unwrap_or_default());
+    let updated_args = update_request
+        .args
+        .clone()
+        .unwrap_or_else(|| container.args.clone().unwrap_or_default());
+    let updated_volumes = update_request
+        .volumes
+        .clone()
+        .unwrap_or(container_volumes.clone());
+    let updated_accelerators = update_request
+        .accelerators
+        .clone()
+        .unwrap_or_else(|| container.accelerators.clone().unwrap_or_default());
+    let updated_resources = update_request
+        .resources
+        .clone()
+        .unwrap_or(container_resources.clone());
+    let updated_meters = update_request
+        .meters
+        .clone()
+        .unwrap_or(container_meters.clone());
+    let updated_restart = update_request
+        .restart
+        .clone()
+        .unwrap_or_else(|| container.restart.clone());
+    let updated_queue = update_request
+        .queue
+        .clone()
+        .unwrap_or_else(|| container.queue.clone().unwrap_or_default());
+    let updated_timeout = update_request
+        .timeout
+        .clone()
+        .unwrap_or_else(|| container.timeout.clone().unwrap_or_default());
+    let updated_proxy_port = update_request
+        .proxy_port
+        .clone()
+        .unwrap_or_else(|| container.proxy_port.clone().unwrap_or_default());
+
+    // Log changes in debug
+    {
+        {
+            debug!("Comparing new container fields with old container fields");
+        }
+    }
+    {
+        {
+            if updated_platform != container.platform.clone().unwrap_or_default() {
+                debug!(
+                    "platform changed from '{:?}' to '{:?}'",
+                    container.platform.clone().unwrap_or_default(),
+                    updated_platform
+                );
+            }
+        }
+    }
+    {
+        {
+            if updated_image != container.image {
+                debug!(
+                    "image changed from '{:?}' to '{:?}'",
+                    container.image, updated_image
+                );
+            }
+        }
+    }
+    {
+        {
+            let container_env_clone = container_env.clone();
+            if Some(updated_env.clone()) != Some(container_env_clone.clone()) {
+                debug!(
+                    "env changed from '{:?}' to '{:?}'",
+                    container_env_clone,
+                    updated_env.clone()
+                );
+            }
+        }
+    }
+    {
+        {
+            if Some(updated_command.clone()) != container.command.clone() {
+                debug!(
+                    "command changed from '{:?}' to '{:?}'",
+                    container.command, updated_command
+                );
+            }
+        }
+    }
+    {
+        {
+            if Some(updated_args.clone()) != container.args.clone() {
+                debug!(
+                    "args changed from '{:?}' to '{:?}'",
+                    container.args, updated_args
+                );
+            }
+        }
+    }
+    {
+        {
+            let container_volumes_clone = container_volumes.clone();
+            if Some(updated_volumes.clone()) != Some(container_volumes_clone.clone()) {
+                debug!(
+                    "volumes changed from '{:?}' to '{:?}'",
+                    container_volumes_clone,
+                    updated_volumes.clone()
+                );
+            }
+        }
+    }
+    {
+        {
+            if Some(updated_accelerators.clone()) != container.accelerators.clone() {
+                debug!(
+                    "accelerators changed from '{:?}' to '{:?}'",
+                    container.accelerators, updated_accelerators
+                );
+            }
+        }
+    }
+    {
+        {
+            let container_resources_clone = container_resources.clone();
+            if Some(updated_resources.clone()) != Some(container_resources_clone.clone()) {
+                debug!(
+                    "resources changed from '{:?}' to '{:?}'",
+                    container_resources_clone,
+                    updated_resources.clone()
+                );
+            }
+        }
+    }
+    {
+        {
+            let container_meters_clone = container_meters.clone();
+            if Some(updated_meters.clone()) != Some(container_meters_clone.clone()) {
+                debug!(
+                    "meters changed from '{:?}' to '{:?}'",
+                    container_meters_clone,
+                    updated_meters.clone()
+                );
+            }
+        }
+    }
+    {
+        {
+            if updated_restart != container.restart.clone() {
+                debug!(
+                    "restart changed from '{:?}' to '{:?}'",
+                    container.restart, updated_restart
+                );
+            }
+        }
+    }
+    {
+        {
+            if Some(updated_queue.clone()) != container.queue.clone() {
+                debug!(
+                    "queue changed from '{:?}' to '{:?}'",
+                    container.queue, updated_queue
+                );
+            }
+        }
+    }
+    {
+        {
+            if Some(updated_timeout.clone()) != container.timeout.clone() {
+                debug!(
+                    "timeout changed from '{:?}' to '{:?}'",
+                    container.timeout, updated_timeout
+                );
+            }
+        }
+    }
+    {
+        {
+            if Some(updated_proxy_port.clone()) != container.proxy_port.clone() {
+                debug!(
+                    "proxy_port changed from '{:?}' to '{:?}'",
+                    container.proxy_port, updated_proxy_port
+                );
+            }
+        }
+    }
+
+    let changed_outside_metadata = {
+        let container_platform = container.platform.clone();
+        updated_platform.clone() != container_platform.unwrap_or_default()
+            || updated_image.clone() != container.image
+            // || updated_ssh_keys != container.ssh_keys
+            // || updated_ports != container.ports
+            // || updated_authz != container.authz
+            || Some(updated_env.clone()) != Some(container_env)
+            || Some(updated_command.clone()) != container.command
+            || Some(updated_args.clone()) != container.args
+            || Some(updated_volumes.clone()) != Some(container_volumes)
+            || Some(updated_accelerators.clone()) != container.accelerators
+            || Some(updated_resources.clone()) != Some(container_resources)
+            || Some(updated_meters.clone()) != Some(container_meters)
+            || updated_restart.clone() != container.restart
+            || Some(updated_queue.clone()) != container.queue
+            || Some(updated_timeout.clone()) != container.timeout
+            || Some(updated_proxy_port.clone()) != container.proxy_port
+    };
+
+    // If anything changed, we may need to delete+recreate the container unless no_delete = true.
+    if changed_outside_metadata {
+        debug!("Container changed outside metadata");
+        if no_delete {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": "Container changes require deletion, but no_delete=true"
+                })),
+            ));
+        }
+
+        debug!("Deleting old container");
+        if let Err(e) = _delete_container_by_id(db_pool, &container.id, &user_profile).await {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Failed to delete container: {:?}", e)})),
+            ));
+        }
+
+        let request_meta = V1ResourceMetaRequest {
+            name: Some(container.name.clone()),
+            namespace: Some(container.namespace.clone()),
+            ..Default::default()
+        };
+
+        // Now we create the new container with merged (old + new) values
+        debug!("Creating new container with updated fields");
+        let to_create = V1ContainerRequest {
+            kind: "Container".to_string(),
+            platform: Some(updated_platform),
+            image: updated_image,
+            ssh_keys: None,
+            ports: None,
+            authz: None,
+            metadata: Some(request_meta),
+            env: Some(updated_env),
+            command: Some(updated_command),
+            args: Some(updated_args),
+            volumes: Some(updated_volumes),
+            accelerators: Some(updated_accelerators),
+            resources: Some(updated_resources),
+            meters: Some(updated_meters),
+            restart: updated_restart,
+            queue: Some(updated_queue),
+            timeout: Some(updated_timeout),
+            proxy_port: Some(updated_proxy_port),
+        };
+
+        let platform = platform_factory(
+            update_request
+                .clone()
+                .platform
+                .unwrap_or("runpod".to_string()),
+        );
+        let created = platform
+            .declare(&to_create, db_pool, &user_profile, &user_profile.email)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": e.to_string()})),
+                )
+            })?;
+        debug!("Created new container: {:?}", created);
+
+        return Ok(Json(created));
+    } else {
+        debug!("No changes to LLM server, skipping update");
+    }
+
+    Ok(Json(container_ref.to_v1_container().unwrap()))
 }

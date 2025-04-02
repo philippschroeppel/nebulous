@@ -2,7 +2,9 @@ use crate::auth::agent::create_agent_key;
 use crate::config::GlobalConfig;
 use crate::config::CONFIG;
 use crate::entities::containers;
-use crate::models::{V1Container, V1ContainerRequest, V1CreateAgentKeyRequest, V1UserProfile};
+use crate::models::{
+    V1Container, V1ContainerRequest, V1CreateAgentKeyRequest, V1UpdateContainer, V1UserProfile,
+};
 use crate::query::Query;
 use sea_orm::DatabaseConnection;
 use std::collections::HashMap;

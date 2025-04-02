@@ -2,8 +2,8 @@ use crate::accelerator::base::AcceleratorProvider;
 use crate::accelerator::runpod::RunPodProvider;
 use crate::entities::containers;
 use crate::models::{
-    RestartPolicy, V1Container, V1ContainerRequest, V1ContainerStatus, V1Meter, V1Port,
-    V1UserProfile, V1VolumePath,
+    RestartPolicy, V1Container, V1ContainerRequest, V1ContainerResources, V1ContainerStatus,
+    V1EnvVar, V1Meter, V1Port, V1UpdateContainer, V1UserProfile, V1VolumePath,
 };
 use crate::mutation::{self, Mutation};
 use crate::oci::client::pull_and_parse_config;
@@ -384,7 +384,7 @@ impl RunpodPlatform {
                             }
                         };
                         // Extract status information using desired_status field
-                        let current_status = match pod_info.desired_status.as_str() {
+                        let mut current_status = match pod_info.desired_status.as_str() {
                             "RUNNING" => ContainerStatus::Running,
                             "EXITED" => ContainerStatus::Completed,
                             "TERMINATED" => ContainerStatus::Stopped,
@@ -401,6 +401,21 @@ impl RunpodPlatform {
                             }
                         };
                         debug!("[Runpod Controller] current_status: {:?}", current_status);
+
+                        let is_ssh_accessible = match self.is_ssh_accessible(&container).await {
+                            Ok(is_accessible) => is_accessible,
+                            Err(e) => {
+                                error!(
+                                    "[Runpod Controller] Error checking SSH accessibility: {}",
+                                    e
+                                );
+                                false
+                            }
+                        };
+                        if !is_ssh_accessible {
+                            info!("[Runpod Controller] SSH is not accessible, setting status to Creating");
+                            current_status = ContainerStatus::Creating;
+                        }
 
                         // Handle metering if container has meters defined and status is Running
                         if current_status == ContainerStatus::Running {
@@ -746,6 +761,68 @@ impl RunpodPlatform {
             container_id
         );
         Ok(())
+    }
+
+    /// Check if the container is accessible via SSH
+    async fn is_ssh_accessible(
+        &self,
+        container: &containers::Model,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let hostname = match &container.tailnet_ip {
+            Some(ip) => ip.clone(),
+            None => self.get_tailscale_device_name(container).await,
+        };
+
+        let user = container
+            .container_user
+            .clone()
+            .unwrap_or("root".to_string());
+        let cmd = "echo 'SSH connection test'";
+
+        info!(
+            "[Runpod Controller] Testing SSH connectivity to {} as user {}",
+            hostname.clone(),
+            user
+        );
+
+        let hostname_for_ssh = hostname.clone();
+        // Set a short timeout for the SSH check (5 seconds)
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            tokio::task::spawn_blocking(move || {
+                run_ssh_command_ts(
+                    &hostname_for_ssh,
+                    cmd.split_whitespace().map(|s| s.to_string()).collect(),
+                    false,
+                    false,
+                    Some(&user),
+                )
+            }),
+        )
+        .await
+        {
+            Ok(Ok(_)) => {
+                info!(
+                    "[Runpod Controller] SSH connection successful to {}",
+                    hostname
+                );
+                Ok(true)
+            }
+            Ok(Err(e)) => {
+                info!(
+                    "[Runpod Controller] SSH connection failed to {}: {}",
+                    hostname, e
+                );
+                Ok(false)
+            }
+            Err(_) => {
+                info!(
+                    "[Runpod Controller] SSH connection timed out to {}",
+                    hostname
+                );
+                Ok(false)
+            }
+        }
     }
 
     // A helper for substituting both $VAR and ${VAR} with values from env_map
@@ -1134,15 +1211,25 @@ impl RunpodPlatform {
         let docker_command = self.build_command(&model, &hostname);
         info!("[Runpod Controller] Docker command: {:?}", docker_command);
 
-        let datacenters = self
-            .runpod_client
-            .find_datacenters_with_desired_gpu(&runpod_gpu_type_id, requested_gpu_count)
-            .await
-            .expect("Failed to find datacenters");
+        let datacenter_id =
+            if model.accelerators.is_some() && !model.accelerators.as_ref().unwrap().is_empty() {
+                // Only find datacenters with desired GPU if accelerators are requested
+                let datacenters = self
+                    .runpod_client
+                    .find_datacenters_with_desired_gpu(&runpod_gpu_type_id, requested_gpu_count)
+                    .await
+                    .map_err(|e| format!("Failed to find datacenters: {}", e))?;
 
-        // grab the first datacenter
-        let datacenter = datacenters.first().unwrap();
-        println!("\n\nselected datacenter: {:?}", datacenter);
+                // grab the first datacenter's ID
+                datacenters
+                    .first()
+                    .ok_or("No datacenters available for the requested GPU type")?
+                    .id
+                    .clone()
+            } else {
+                // For CPU-only workloads, default to EU-RO-1
+                "EU-RO-1".to_string()
+            };
 
         let volume = match self
             .runpod_client
@@ -1153,7 +1240,7 @@ impl RunpodPlatform {
                     .replace("@", "-")
                     .replace("+", "-")
                     .replace("_", "-"),
-                &datacenter.id,
+                &datacenter_id,
                 500,
             )
             .await
@@ -1165,23 +1252,48 @@ impl RunpodPlatform {
         };
 
         // 5) Create an on-demand instance instead of a spot instance
-        let create_request = CreateOnDemandPodRequest {
-            cloud_type: Some("SECURE".to_string()),
-            gpu_count: Some(requested_gpu_count),
-            volume_in_gb: Some(500),
-            container_disk_in_gb: Some(1000),
-            min_vcpu_count: Some(8),
-            min_memory_in_gb: Some(30),
-            gpu_type_id: Some(runpod_gpu_type_id),
-            name: Some(model.id.clone()),
-            image_name: Some(model.image.clone()),
-            docker_args: None,
-            docker_entrypoint: docker_command.clone(),
-            ports: Some(vec!["22/tcp".to_string(), "8080/http".to_string()]),
-            env: env_vec,
-            network_volume_id: Some(volume.id),
-            volume_mount_path: Some("/nebu/cache".to_string()),
-        };
+        let create_request =
+            if model.accelerators.is_some() && !model.accelerators.as_ref().unwrap().is_empty() {
+                // GPU workload
+                CreateOnDemandPodRequest {
+                    cloud_type: Some("SECURE".to_string()),
+                    gpu_count: Some(requested_gpu_count),
+                    volume_in_gb: Some(500),
+                    compute_type: Some("GPU".to_string()),
+                    container_disk_in_gb: Some(1000),
+                    min_vcpu_count: Some(8),
+                    min_memory_in_gb: Some(30),
+                    gpu_type_id: Some(runpod_gpu_type_id),
+                    name: Some(model.id.clone()),
+                    image_name: Some(model.image.clone()),
+                    docker_args: None,
+                    docker_entrypoint: docker_command.clone(),
+                    ports: Some(vec!["22/tcp".to_string(), "8080/http".to_string()]),
+                    env: env_vec,
+                    network_volume_id: Some(volume.id),
+                    volume_mount_path: Some("/nebu/cache".to_string()),
+                }
+            } else {
+                // CPU-only workload
+                CreateOnDemandPodRequest {
+                    cloud_type: Some("SECURE".to_string()),
+                    gpu_count: None, // No GPUs for CPU workload
+                    volume_in_gb: Some(500),
+                    compute_type: Some("CPU".to_string()),
+                    container_disk_in_gb: Some(1000),
+                    min_vcpu_count: Some(8),
+                    min_memory_in_gb: Some(30),
+                    gpu_type_id: None, // No GPU type for CPU workload
+                    name: Some(model.id.clone()),
+                    image_name: Some(model.image.clone()),
+                    docker_args: None,
+                    docker_entrypoint: docker_command.clone(),
+                    ports: Some(vec!["22/tcp".to_string(), "8080/http".to_string()]),
+                    env: env_vec,
+                    network_volume_id: Some(volume.id),
+                    volume_mount_path: Some("/nebu/cache".to_string()),
+                }
+            };
 
         info!(
             "[Runpod Controller] Creating on-demand pod with request: {:?}",

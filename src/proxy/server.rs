@@ -72,7 +72,7 @@ async fn forward_proxy(
     debug!("[PROXY] Namespace: {:?}", namespace);
     debug!("[PROXY] Kind: {:?}", kind);
 
-    match kind {
+    match kind.to_lowercase().as_str() {
         "container" => forward_container(
             State(app_state),
             user_profile,

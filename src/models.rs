@@ -209,6 +209,7 @@ pub struct V1UpdateContainer {
     pub timeout: Option<String>,
     pub resources: Option<V1ContainerResources>,
     pub proxy_port: Option<i16>,
+    pub no_delete: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
