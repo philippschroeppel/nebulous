@@ -1,7 +1,7 @@
 use crate::config::GlobalConfig;
 use crate::models::{
-    V1Container, V1ContainerRequest, V1Containers, V1Secret, V1SecretRequest, V1Secrets,
-    V1UpdateContainer,
+    V1Container, V1ContainerRequest, V1ContainerSearch, V1Containers, V1Secret, V1SecretRequest,
+    V1Secrets, V1UpdateContainer,
 };
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
@@ -320,6 +320,32 @@ impl NebulousClient {
                 ns, name, error_text
             )
             .into())
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // SEARCH METHODS
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    pub async fn search_containers(
+        &self,
+        search_request: &V1ContainerSearch,
+    ) -> Result<V1Containers, Box<dyn Error>> {
+        let url = format!("{}/v1/containers/search", self.base_url);
+        let response = self
+            .http_client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(search_request)
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            let containers = response.json::<V1Containers>().await?;
+            Ok(containers)
+        } else {
+            let error_text = response.text().await?;
+            Err(format!("Failed to search containers: {}", error_text).into())
         }
     }
 }
