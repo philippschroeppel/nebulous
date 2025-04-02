@@ -2,8 +2,8 @@ use crate::accelerator::base::AcceleratorProvider;
 use crate::accelerator::runpod::RunPodProvider;
 use crate::entities::containers;
 use crate::models::{
-    RestartPolicy, V1Container, V1ContainerRequest, V1ContainerResources, V1ContainerStatus,
-    V1EnvVar, V1Meter, V1Port, V1UpdateContainer, V1UserProfile, V1VolumePath,
+    RestartPolicy, V1Container, V1ContainerHealthCheck, V1ContainerRequest, V1ContainerResources,
+    V1ContainerStatus, V1EnvVar, V1Meter, V1Port, V1UpdateContainer, V1UserProfile, V1VolumePath,
 };
 use crate::mutation::{self, Mutation};
 use crate::oci::client::pull_and_parse_config;
@@ -359,6 +359,7 @@ impl RunpodPlatform {
                             None,
                             None,
                             Some(pod_info.cost_per_hr),
+                            None,
                         )
                         .await
                         {
@@ -415,6 +416,29 @@ impl RunpodPlatform {
                         if !is_ssh_accessible {
                             info!("[Runpod Controller] SSH is not accessible, setting status to Creating");
                             current_status = ContainerStatus::Creating;
+                        }
+
+                        match container.parse_health_check() {
+                            Ok(Some(health_check)) => {
+                                info!("[Runpod Controller] Health check: {:?}", health_check);
+                                if let Err(e) = self
+                                    .perform_health_check(
+                                        &container,
+                                        &health_check,
+                                        &current_status,
+                                        db,
+                                    )
+                                    .await
+                                {
+                                    error!("[Runpod Controller] Health check error: {}", e);
+                                }
+                            }
+                            Ok(None) => {
+                                info!("[Runpod Controller] No health check defined, using default status");
+                            }
+                            Err(e) => {
+                                error!("[Runpod Controller] Failed to parse health check: {}", e);
+                            }
                         }
 
                         // Handle metering if container has meters defined and status is Running
@@ -552,6 +576,7 @@ impl RunpodPlatform {
                                 Some(ports),
                                 None,
                                 None,
+                                None,
                             )
                             .await
                             {
@@ -614,6 +639,7 @@ impl RunpodPlatform {
                                                     None,
                                                     None,
                                                     None,
+                                                    None,
                                                 )
                                                 .await
                                                 {
@@ -637,6 +663,7 @@ impl RunpodPlatform {
                                                     container_id.to_string(),
                                                     Some(ContainerStatus::Completed.to_string()),
                                                     Some("Pod no longer exists".to_string()),
+                                                    None,
                                                     None,
                                                     None,
                                                     None,
@@ -688,6 +715,7 @@ impl RunpodPlatform {
                                     None,
                                     None,
                                     None,
+                                    None,
                                 )
                                 .await
                             {
@@ -730,6 +758,7 @@ impl RunpodPlatform {
                             container_id.to_string(),
                             Some(ContainerStatus::Failed.to_string()),
                             Some("Too many consecutive errors".to_string()),
+                            None,
                             None,
                             None,
                             None,
@@ -909,6 +938,7 @@ impl RunpodPlatform {
             db,
             model.id.clone(),
             Some(ContainerStatus::Creating.to_string()),
+            None,
             None,
             None,
             None,
@@ -1329,6 +1359,7 @@ impl RunpodPlatform {
                         None,
                         Some(format!("http://{}", hostname)),
                         None,
+                        None,
                     )
                     .await?;
 
@@ -1581,6 +1612,112 @@ done
         info!("[Runpod Controller] File exists: {}", file_exists);
         Ok(file_exists)
     }
+
+    // Add this new function to the RunpodPlatform impl block
+    async fn perform_health_check(
+        &self,
+        container: &containers::Model,
+        health_check: &V1ContainerHealthCheck,
+        current_status: &ContainerStatus,
+        db: &DatabaseConnection,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Get the container's tailnet IP or hostname
+        let hostname = match &container.tailnet_ip {
+            Some(ip) => ip.clone(),
+            None => self.get_tailscale_device_name(container).await,
+        };
+
+        // Build the health check URL
+        let port = health_check.port.unwrap_or(8080);
+        let path = health_check.path.as_ref().map_or("/health", |s| s);
+        let protocol = health_check.protocol.as_ref().map_or("http", |s| s);
+        let url = format!("{}://{}:{}{}", protocol, hostname, port, path);
+
+        info!("[Runpod Controller] Checking health at URL: {}", url);
+
+        // Create a client with appropriate timeout
+        let timeout_duration = match &health_check.timeout {
+            Some(timeout_str) => std::time::Duration::from_secs(
+                humantime::parse_duration(timeout_str)
+                    .unwrap_or(std::time::Duration::from_secs(5))
+                    .as_secs(),
+            ),
+            None => std::time::Duration::from_secs(5),
+        };
+
+        let client = reqwest::Client::builder()
+            .timeout(timeout_duration)
+            .build()
+            .unwrap_or_default();
+
+        // Perform the health check
+        match client.get(&url).send().await {
+            Ok(response) => {
+                if response.status().is_success() {
+                    info!(
+                        "[Runpod Controller] Health check passed for {}",
+                        container.id
+                    );
+                    if *current_status != ContainerStatus::Running {
+                        Mutation::update_container_status(
+                            db,
+                            container.id.clone(),
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            Some(true),
+                        )
+                        .await?;
+                    }
+                } else {
+                    warn!(
+                        "[Runpod Controller] Health check failed for {} with status: {}",
+                        container.id,
+                        response.status()
+                    );
+                    if *current_status == ContainerStatus::Running {
+                        Mutation::update_container_status(
+                            db,
+                            container.id.clone(),
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            Some(false),
+                        )
+                        .await?;
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "[Runpod Controller] Health check request failed for {}: {}",
+                    container.id, e
+                );
+                if *current_status == ContainerStatus::Running {
+                    Mutation::update_container_status(
+                        db,
+                        container.id.clone(),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(false),
+                    )
+                    .await?;
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl ContainerPlatform for RunpodPlatform {
@@ -1758,6 +1895,7 @@ impl ContainerPlatform for RunpodPlatform {
                 public_ports: None,
                 cost_per_hr: None,
                 tailnet_url: None,
+                ready: None,
             }))),
             platform: Set(Some("runpod".to_string())),
             platforms: Set(None),
@@ -1781,6 +1919,10 @@ impl ContainerPlatform for RunpodPlatform {
                 .resources
                 .clone()
                 .map(|resources| serde_json::json!(resources))),
+            health_check: Set(config
+                .health_check
+                .clone()
+                .map(|health_check| serde_json::json!(health_check))),
             desired_status: Set(Some(ContainerStatus::Running.to_string())),
             ssh_keys: Set(config.ssh_keys.clone().map(|keys| serde_json::json!(keys))),
             public_addr: Set(None),
@@ -1839,9 +1981,11 @@ impl ContainerPlatform for RunpodPlatform {
                 public_ports: None,
                 cost_per_hr: None,
                 tailnet_url: None,
+                ready: None,
             }),
             restart: config.restart.clone(),
             resources: config.resources.clone(),
+            health_check: config.health_check.clone(),
             ports: config.ports.clone(),
             proxy_port: config.proxy_port.clone(),
             authz: config.authz.clone(),
@@ -1887,6 +2031,7 @@ impl ContainerPlatform for RunpodPlatform {
                             container.id.clone(),
                             Some(ContainerStatus::Queued.to_string()),
                             Some("Blocked by another running container in queue".to_string()),
+                            None,
                             None,
                             None,
                             None,
@@ -2091,6 +2236,7 @@ impl ContainerPlatform for RunpodPlatform {
                                     &db,
                                     id.to_string(),
                                     Some(ContainerStatus::Stopped.to_string()),
+                                    None,
                                     None,
                                     None,
                                     None,

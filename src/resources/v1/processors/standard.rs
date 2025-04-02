@@ -155,6 +155,7 @@ impl StandardProcessor {
             accelerators: parsed_container.accelerators,
             meters: parsed_container.meters,
             resources: parsed_container.resources,
+            health_check: parsed_container.health_check,
             restart: RestartPolicy::Always.to_string(), // TODO
             queue: parsed_container.queue,
             timeout: parsed_container.timeout,

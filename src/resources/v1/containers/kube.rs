@@ -192,6 +192,7 @@ impl KubePlatform {
                             None,
                             None,
                             None,
+                            None,
                         )
                         .await
                         {
@@ -236,6 +237,7 @@ impl KubePlatform {
                             None,
                             None,
                             None,
+                            Some(false),
                         )
                         .await
                         {
@@ -521,6 +523,7 @@ impl ContainerPlatform for KubePlatform {
                                     public_ports: None,
                                     cost_per_hr: None,
                                     tailnet_url: None,
+                                    ready: None,
                                 }))),
                                 meters: Set(config
                                     .meters
@@ -554,6 +557,10 @@ impl ContainerPlatform for KubePlatform {
                                     .resources
                                     .clone()
                                     .map(|resources| serde_json::json!(resources))),
+                                health_check: Set(config
+                                    .health_check
+                                    .clone()
+                                    .map(|health_check| serde_json::json!(health_check))),
                                 labels: Set(config
                                     .metadata
                                     .as_ref()
@@ -641,9 +648,11 @@ impl ContainerPlatform for KubePlatform {
                 public_ports: None,
                 cost_per_hr: None,
                 tailnet_url: None,
+                ready: None,
             }),
             restart: config.restart.clone(),
             resources: config.resources.clone(),
+            health_check: config.health_check.clone(),
             ports: config.ports.clone(),
             proxy_port: config.proxy_port.clone(),
             authz: config.authz.clone(),

@@ -1,8 +1,9 @@
 // src/handlers/containers.rs
 
 use crate::models::{
-    V1Container, V1ContainerList, V1ContainerRequest, V1ContainerResources, V1EnvVar, V1Meter,
-    V1ResourceMeta, V1ResourceMetaRequest, V1UpdateContainer, V1UserProfile, V1VolumePath,
+    V1AuthzConfig, V1Container, V1ContainerHealthCheck, V1ContainerList, V1ContainerRequest,
+    V1ContainerResources, V1EnvVar, V1Meter, V1ResourceMeta, V1ResourceMetaRequest,
+    V1UpdateContainer, V1UserProfile, V1VolumePath,
 };
 use crate::resources::v1::containers::factory::platform_factory;
 
@@ -142,6 +143,9 @@ pub async fn _get_container_by_id(
         resources: container
             .resources
             .and_then(|v| serde_json::from_value(v).ok()),
+        health_check: container
+            .health_check
+            .and_then(|v| serde_json::from_value(v).ok()),
         ssh_keys: container
             .ssh_keys
             .and_then(|v| serde_json::from_value(v).ok()),
@@ -216,6 +220,7 @@ pub async fn list_containers(
             queue: c.queue,
             timeout: c.timeout,
             resources: c.resources.and_then(|v| serde_json::from_value(v).ok()),
+            health_check: c.health_check.and_then(|v| serde_json::from_value(v).ok()),
             ssh_keys: c.ssh_keys.and_then(|v| serde_json::from_value(v).ok()),
             ports: c.ports.and_then(|v| serde_json::from_value(v).ok()),
             proxy_port: c.proxy_port,
@@ -542,6 +547,22 @@ pub async fn patch_container(
         .and_then(|json_value| serde_json::from_value::<Vec<V1Meter>>(json_value).ok())
         .unwrap_or_default();
 
+    let container_health_check = container
+        .health_check
+        .clone()
+        .and_then(|json_value| serde_json::from_value::<V1ContainerHealthCheck>(json_value).ok())
+        .unwrap_or_default();
+
+    let container_authz = container
+        .authz
+        .clone()
+        .and_then(|json_value| serde_json::from_value::<V1AuthzConfig>(json_value).ok())
+        .unwrap_or_default();
+
+    //
+    //
+    //
+
     let updated_platform = update_request
         .platform
         .clone()
@@ -594,6 +615,14 @@ pub async fn patch_container(
         .proxy_port
         .clone()
         .unwrap_or_else(|| container.proxy_port.clone().unwrap_or_default());
+    let updated_health_check = update_request
+        .health_check
+        .clone()
+        .unwrap_or_else(|| container_health_check.clone());
+    let updated_authz = update_request
+        .authz
+        .clone()
+        .unwrap_or_else(|| container_authz.clone());
 
     // Log changes in debug
     {
@@ -740,6 +769,26 @@ pub async fn patch_container(
             }
         }
     }
+    {
+        {
+            if Some(updated_health_check.clone()) != Some(container_health_check.clone()) {
+                debug!(
+                    "health_check changed from '{:?}' to '{:?}'",
+                    container.health_check, updated_health_check
+                );
+            }
+        }
+    }
+    {
+        {
+            if Some(updated_authz.clone()) != Some(container_authz.clone()) {
+                debug!(
+                    "authz changed from '{:?}' to '{:?}'",
+                    container.authz, updated_authz
+                );
+            }
+        }
+    }
 
     let changed_outside_metadata = {
         let container_platform = container.platform.clone();
@@ -759,6 +808,8 @@ pub async fn patch_container(
             || Some(updated_queue.clone()) != container.queue
             || Some(updated_timeout.clone()) != container.timeout
             || Some(updated_proxy_port.clone()) != container.proxy_port
+            || Some(updated_health_check.clone()) != Some(container_health_check)
+            || Some(updated_authz.clone()) != Some(container_authz)
     };
 
     // If anything changed, we may need to delete+recreate the container unless no_delete = true.
@@ -795,7 +846,6 @@ pub async fn patch_container(
             image: updated_image,
             ssh_keys: None,
             ports: None,
-            authz: None,
             metadata: Some(request_meta),
             env: Some(updated_env),
             command: Some(updated_command),
@@ -808,6 +858,8 @@ pub async fn patch_container(
             queue: Some(updated_queue),
             timeout: Some(updated_timeout),
             proxy_port: Some(updated_proxy_port),
+            health_check: Some(updated_health_check),
+            authz: Some(updated_authz),
         };
 
         let platform = platform_factory(

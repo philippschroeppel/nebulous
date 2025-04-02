@@ -6,8 +6,8 @@ use serde_json::Value as Json;
 use std::collections::HashMap;
 
 use crate::models::{
-    V1AuthzConfig, V1Container, V1ContainerResources, V1ContainerStatus, V1EnvVar, V1Meter,
-    V1PortRequest, V1SSHKey, V1VolumePath,
+    V1AuthzConfig, V1Container, V1ContainerHealthCheck, V1ContainerResources, V1ContainerStatus,
+    V1EnvVar, V1Meter, V1PortRequest, V1SSHKey, V1VolumePath,
 };
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
@@ -43,6 +43,7 @@ pub struct Model {
     pub proxy_port: Option<i16>,
     pub timeout: Option<String>,
     pub resources: Option<Json>,
+    pub health_check: Option<Json>,
     pub restart: String,
     pub authz: Option<Json>,
     pub public_addr: Option<String>,
@@ -157,6 +158,15 @@ impl Model {
         }
     }
 
+    /// Attempt to parse `health_check` into a `V1ContainerHealthCheck`.
+    pub fn parse_health_check(&self) -> Result<Option<V1ContainerHealthCheck>, serde_json::Error> {
+        if let Some(json_value) = &self.health_check {
+            serde_json::from_value(json_value.clone()).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Construct a full V1Container from the current model row.
     /// Returns a serde_json Error if any JSON parsing in subfields fails.
     pub fn to_v1_container(&self) -> Result<V1Container, serde_json::Error> {
@@ -169,6 +179,7 @@ impl Model {
         let ssh_keys = self.parse_ssh_keys()?;
         let ports = self.parse_ports()?;
         let authz = self.parse_authz()?;
+        let health_check = self.parse_health_check()?;
 
         // Build metadata; fill with defaults or unwrap as needed
         let metadata = crate::models::V1ResourceMeta {
@@ -200,6 +211,7 @@ impl Model {
             timeout: self.timeout.clone(),
             status,
             resources,
+            health_check,
             ssh_keys,
             ports: ports.clone(),
             proxy_port: self.proxy_port.clone(),

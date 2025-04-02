@@ -104,6 +104,7 @@ pub async fn create_container(
             ports: None,
             proxy_port: command.proxy_port,
             authz: None,
+            health_check: None,
         }
     };
 

@@ -159,6 +159,7 @@ impl StandardProcessor {
             queue: parsed_container.queue,
             timeout: parsed_container.timeout,
             ssh_keys: parsed_container.ssh_keys,
+            health_check: parsed_container.health_check,
             metadata: Some(V1ResourceMetaRequest {
                 name: Some(format!("processor-{}", processor.name)),
                 namespace: Some(processor.namespace.clone()),

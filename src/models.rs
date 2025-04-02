@@ -43,6 +43,17 @@ pub struct V1ContainerMetaRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
+pub struct V1ContainerHealthCheck {
+    pub interval: Option<String>,
+    pub timeout: Option<String>,
+    pub retries: Option<i32>,
+    pub start_period: Option<String>,
+    pub path: Option<String>,
+    pub port: Option<i32>,
+    pub protocol: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1ContainerRequest {
     #[serde(default = "default_container_kind")]
     pub kind: String,
@@ -61,6 +72,7 @@ pub struct V1ContainerRequest {
     pub restart: String,
     pub queue: Option<String>,
     pub timeout: Option<String>,
+    pub health_check: Option<V1ContainerHealthCheck>,
     pub ssh_keys: Option<Vec<V1SSHKey>>,
     pub ports: Option<Vec<V1PortRequest>>,
     pub proxy_port: Option<i16>,
@@ -137,6 +149,7 @@ pub struct V1ContainerStatus {
     pub public_ports: Option<Vec<V1Port>>,
     pub cost_per_hr: Option<f64>,
     pub tailnet_url: Option<String>,
+    pub ready: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
@@ -163,6 +176,7 @@ pub struct V1Container {
     pub queue: Option<String>,
     pub timeout: Option<String>,
     pub resources: Option<V1ContainerResources>,
+    pub health_check: Option<V1ContainerHealthCheck>,
     pub status: Option<V1ContainerStatus>,
     pub ssh_keys: Option<Vec<V1SSHKey>>,
     pub ports: Option<Vec<V1PortRequest>>,
@@ -203,6 +217,7 @@ pub struct V1UpdateContainer {
     pub cpu_request: Option<String>,
     pub memory_request: Option<String>,
     pub platform: Option<String>,
+    pub health_check: Option<V1ContainerHealthCheck>,
     pub meters: Option<Vec<V1Meter>>,
     pub restart: Option<String>,
     pub queue: Option<String>,
@@ -210,6 +225,7 @@ pub struct V1UpdateContainer {
     pub resources: Option<V1ContainerResources>,
     pub proxy_port: Option<i16>,
     pub no_delete: Option<bool>,
+    pub authz: Option<V1AuthzConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]

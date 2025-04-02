@@ -83,6 +83,7 @@ impl Mutation {
                     None,
                     Some(format!("http://{}", pod_ip)),
                     None,
+                    None,
                 )
                 .await?;
 
@@ -102,6 +103,7 @@ impl Mutation {
         ports: Option<Vec<V1Port>>,
         tailnet_url: Option<String>,
         cost_per_hr: Option<f64>,
+        ready: Option<bool>,
     ) -> Result<containers::Model, DbErr> {
         let container = containers::Entity::find_by_id(id)
             .one(db)
@@ -168,6 +170,10 @@ impl Mutation {
         if let Some(cost) = cost_per_hr {
             debug!("[Mutation] Updating container cost_per_hr to {:?}", cost);
             existing_status.cost_per_hr = Some(cost);
+        }
+        if let Some(ready) = ready {
+            debug!("[Mutation] Updating container ready to {:?}", ready);
+            existing_status.ready = Some(ready);
         }
 
         // 3. Store the merged status back as JSON
