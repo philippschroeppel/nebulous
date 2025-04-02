@@ -1,6 +1,7 @@
 use crate::config::GlobalConfig;
 use crate::models::{
     V1Container, V1ContainerRequest, V1Containers, V1Secret, V1SecretRequest, V1Secrets,
+    V1UpdateContainer,
 };
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
@@ -283,6 +284,42 @@ impl NebulousClient {
         } else {
             let error_text = response.text().await?;
             Err(format!("Failed to delete secret '{}/{}': {}", ns, name, error_text).into())
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // PATCH METHODS
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /// PATCH a container by `/:namespace/:name`.  
+    /// Defaults to `"default"` namespace if none is provided.
+    pub async fn patch_container(
+        &self,
+        name: &str,
+        namespace: Option<&str>,
+        update_request: &V1UpdateContainer,
+    ) -> Result<V1Container, Box<dyn Error>> {
+        let ns = namespace.unwrap_or("default");
+        let url = format!("{}/v1/containers/{}/{}", self.base_url, ns, name);
+
+        let response = self
+            .http_client
+            .patch(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(update_request)
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            let container = response.json::<V1Container>().await?;
+            Ok(container)
+        } else {
+            let error_text = response.text().await?;
+            Err(format!(
+                "Failed to patch container '{}/{}': {}",
+                ns, name, error_text
+            )
+            .into())
         }
     }
 }
