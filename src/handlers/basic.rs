@@ -5,7 +5,7 @@ pub async fn root_handler() -> impl IntoResponse {
     let response = json!({
         "name": "nebulous",
         "version": env!("CARGO_PKG_VERSION"),
-        "description": "A cross-cloud container orchestration platform",
+        "description": "A globally distributed container orchestrator",
         "documentation": "https://docs.nebu.sh",
     });
     Json(response)

@@ -291,6 +291,29 @@ fn default_cache_dir() -> String {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
+pub struct V1ContainerSearch {
+    pub namespace: Option<String>,
+    pub image: Option<String>,
+    pub env: Option<Vec<V1EnvVar>>,
+    pub command: Option<String>,
+    pub args: Option<String>,
+    pub volumes: Option<Vec<V1VolumePath>>,
+    pub accelerators: Option<Vec<String>>,
+    pub labels: Option<HashMap<String, String>>,
+    pub cpu_request: Option<String>,
+    pub memory_request: Option<String>,
+    pub platform: Option<String>,
+    pub health_check: Option<V1ContainerHealthCheck>,
+    pub meters: Option<Vec<V1Meter>>,
+    pub restart: Option<String>,
+    pub queue: Option<String>,
+    pub timeout: Option<String>,
+    pub resources: Option<V1ContainerResources>,
+    pub proxy_port: Option<i16>,
+    pub authz: Option<V1AuthzConfig>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1ProcessorStatus {
     pub status: Option<String>,
     pub message: Option<String>,

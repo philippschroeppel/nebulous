@@ -2,8 +2,8 @@
 
 use crate::models::{
     V1AuthzConfig, V1Container, V1ContainerHealthCheck, V1ContainerList, V1ContainerRequest,
-    V1ContainerResources, V1EnvVar, V1Meter, V1ResourceMeta, V1ResourceMetaRequest,
-    V1UpdateContainer, V1UserProfile, V1VolumePath,
+    V1ContainerResources, V1ContainerSearch, V1Containers, V1EnvVar, V1Meter, V1ResourceMeta,
+    V1ResourceMetaRequest, V1UpdateContainer, V1UserProfile, V1VolumePath,
 };
 use crate::resources::v1::containers::factory::platform_factory;
 
@@ -12,13 +12,17 @@ use crate::mutation::Mutation;
 use crate::query::Query;
 use crate::state::AppState;
 
+use crate::entities::containers;
 use axum::{
     extract::Extension, extract::Json, extract::Path, extract::State, http::StatusCode,
     response::IntoResponse,
 };
+use sea_orm::sea_query::extension::postgres::PgExpr;
+use sea_orm::sea_query::{Alias, Expr};
 use sea_orm::*;
+use sea_orm::{ColumnTrait, Condition, DatabaseConnection, EntityTrait, QueryFilter};
 use serde_json::json;
-use tracing::debug;
+use tracing::{debug, error};
 
 pub async fn get_container(
     State(state): State<AppState>,
@@ -582,7 +586,7 @@ pub async fn patch_container(
     let updated_args = update_request
         .args
         .clone()
-        .unwrap_or_else(|| container.args.clone().unwrap_or_default());
+        .or_else(|| container.args.clone());
     let updated_volumes = update_request
         .volumes
         .clone()
@@ -606,11 +610,11 @@ pub async fn patch_container(
     let updated_queue = update_request
         .queue
         .clone()
-        .unwrap_or_else(|| container.queue.clone().unwrap_or_default());
+        .or_else(|| container.queue.clone());
     let updated_timeout = update_request
         .timeout
         .clone()
-        .unwrap_or_else(|| container.timeout.clone().unwrap_or_default());
+        .or_else(|| container.timeout.clone());
     let updated_proxy_port = update_request
         .proxy_port
         .clone()
@@ -675,7 +679,7 @@ pub async fn patch_container(
     }
     {
         {
-            if Some(updated_args.clone()) != container.args.clone() {
+            if Some(updated_args.clone()) != Some(container.args.clone()) {
                 debug!(
                     "args changed from '{:?}' to '{:?}'",
                     container.args, updated_args
@@ -741,7 +745,7 @@ pub async fn patch_container(
     }
     {
         {
-            if Some(updated_queue.clone()) != container.queue.clone() {
+            if Some(updated_queue.clone()) != Some(container.queue.clone()) {
                 debug!(
                     "queue changed from '{:?}' to '{:?}'",
                     container.queue, updated_queue
@@ -751,7 +755,7 @@ pub async fn patch_container(
     }
     {
         {
-            if Some(updated_timeout.clone()) != container.timeout.clone() {
+            if Some(updated_timeout.clone()) != Some(container.timeout.clone()) {
                 debug!(
                     "timeout changed from '{:?}' to '{:?}'",
                     container.timeout, updated_timeout
@@ -799,14 +803,14 @@ pub async fn patch_container(
             // || updated_authz != container.authz
             || Some(updated_env.clone()) != Some(container_env)
             || Some(updated_command.clone()) != container.command
-            || Some(updated_args.clone()) != container.args
+            || updated_args != container.args
             || Some(updated_volumes.clone()) != Some(container_volumes)
             || Some(updated_accelerators.clone()) != container.accelerators
             || Some(updated_resources.clone()) != Some(container_resources)
             || Some(updated_meters.clone()) != Some(container_meters)
             || updated_restart.clone() != container.restart
-            || Some(updated_queue.clone()) != container.queue
-            || Some(updated_timeout.clone()) != container.timeout
+            || updated_queue != container.queue
+            || updated_timeout != container.timeout
             || Some(updated_proxy_port.clone()) != container.proxy_port
             || Some(updated_health_check.clone()) != Some(container_health_check)
             || Some(updated_authz.clone()) != Some(container_authz)
@@ -849,14 +853,14 @@ pub async fn patch_container(
             metadata: Some(request_meta),
             env: Some(updated_env),
             command: Some(updated_command),
-            args: Some(updated_args),
+            args: updated_args,
             volumes: Some(updated_volumes),
             accelerators: Some(updated_accelerators),
             resources: Some(updated_resources),
             meters: Some(updated_meters),
             restart: updated_restart,
-            queue: Some(updated_queue),
-            timeout: Some(updated_timeout),
+            queue: updated_queue,
+            timeout: updated_timeout,
             proxy_port: Some(updated_proxy_port),
             health_check: Some(updated_health_check),
             authz: Some(updated_authz),
@@ -885,4 +889,203 @@ pub async fn patch_container(
     }
 
     Ok(Json(container_ref.to_v1_container().unwrap()))
+}
+
+pub async fn _search_containers(
+    db_pool: &DatabaseConnection,
+    search: &V1ContainerSearch,
+    user_profile: &V1UserProfile,
+) -> Result<Vec<V1Container>, (StatusCode, Json<serde_json::Value>)> {
+    debug!("Searching for containers: {:?}", search);
+    // Collect owner IDs from user_profile
+    let mut owner_ids: Vec<String> = user_profile
+        .organizations
+        .as_ref()
+        .map(|orgs| orgs.keys().cloned().collect())
+        .unwrap_or_default();
+
+    // Add user's email to owner IDs
+    owner_ids.push(user_profile.email.clone());
+    let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
+
+    let mut conditions = Condition::all();
+
+    // Add owner condition first
+    conditions = conditions.add(containers::Column::Owner.is_in(owner_id_refs));
+
+    // Rest of the search conditions remain the same
+    if let Some(namespace) = &search.namespace {
+        debug!("Searching for containers in namespace: {:?}", namespace);
+        conditions = conditions.add(containers::Column::Namespace.eq(namespace));
+    }
+
+    // Rest of the search conditions remain the same
+    if let Some(image) = &search.image {
+        debug!("Searching for containers with image: {:?}", image);
+        conditions = conditions.add(containers::Column::Image.eq(image));
+    }
+
+    if let Some(command) = &search.command {
+        debug!("Searching for containers with command: {:?}", command);
+        conditions = conditions.add(containers::Column::Command.eq(command));
+    }
+
+    if let Some(args) = &search.args {
+        debug!("Searching for containers with args: {:?}", args);
+        conditions = conditions.add(containers::Column::Args.eq(args));
+    }
+
+    if let Some(platform) = &search.platform {
+        debug!("Searching for containers with platform: {:?}", platform);
+        conditions = conditions.add(containers::Column::Platform.eq(platform));
+    }
+
+    if let Some(queue) = &search.queue {
+        debug!("Searching for containers with queue: {:?}", queue);
+        conditions = conditions.add(containers::Column::Queue.eq(queue));
+    }
+
+    if let Some(timeout) = &search.timeout {
+        debug!("Searching for containers with timeout: {:?}", timeout);
+        conditions = conditions.add(containers::Column::Timeout.eq(timeout));
+    }
+
+    if let Some(proxy_port) = &search.proxy_port {
+        debug!("Searching for containers with proxy_port: {:?}", proxy_port);
+        conditions = conditions.add(containers::Column::ProxyPort.eq(*proxy_port));
+    }
+
+    // For complex fields that are stored as JSON, we need to use proper JSON comparison operators
+    if let Some(env) = &search.env {
+        debug!("Searching for containers with env: {:?}", env);
+        conditions = conditions.add(
+            Expr::col(containers::Column::Env)
+                .cast_as(Alias::new("jsonb"))
+                .contains(
+                    Expr::val(serde_json::to_string(env).unwrap()).cast_as(Alias::new("jsonb")),
+                ),
+        );
+    }
+
+    if let Some(volumes) = &search.volumes {
+        debug!("Searching for containers with volumes: {:?}", volumes);
+        conditions = conditions.add(
+            Expr::col(containers::Column::Volumes)
+                .cast_as(Alias::new("jsonb"))
+                .contains(
+                    Expr::val(serde_json::to_string(volumes).unwrap()).cast_as(Alias::new("jsonb")),
+                ),
+        );
+    }
+
+    if let Some(accelerators) = &search.accelerators {
+        debug!(
+            "Searching for containers with accelerators: {:?}",
+            accelerators
+        );
+        conditions = conditions.add(
+            Expr::col(containers::Column::Accelerators)
+                .cast_as(Alias::new("text[]"))
+                .eq(Expr::val(accelerators.clone())),
+        );
+    }
+
+    if let Some(labels) = &search.labels {
+        debug!("Searching for containers with labels: {:?}", labels);
+        conditions = conditions.add(
+            Expr::col(containers::Column::Labels)
+                .cast_as(Alias::new("jsonb"))
+                .contains(
+                    Expr::val(serde_json::to_string(labels).unwrap()).cast_as(Alias::new("jsonb")),
+                ),
+        );
+    }
+
+    if let Some(resources) = &search.resources {
+        debug!("Searching for containers with resources: {:?}", resources);
+        conditions = conditions.add(
+            Expr::col(containers::Column::Resources)
+                .cast_as(Alias::new("jsonb"))
+                .contains(
+                    Expr::val(serde_json::to_string(resources).unwrap())
+                        .cast_as(Alias::new("jsonb")),
+                ),
+        );
+    }
+
+    if let Some(meters) = &search.meters {
+        debug!("Searching for containers with meters: {:?}", meters);
+        conditions = conditions.add(
+            Expr::col(containers::Column::Meters)
+                .cast_as(Alias::new("jsonb"))
+                .contains(
+                    Expr::val(serde_json::to_string(meters).unwrap()).cast_as(Alias::new("jsonb")),
+                ),
+        );
+    }
+
+    if let Some(health_check) = &search.health_check {
+        debug!(
+            "Searching for containers with health_check: {:?}",
+            health_check
+        );
+        conditions = conditions.add(
+            Expr::col(containers::Column::HealthCheck)
+                .cast_as(Alias::new("jsonb"))
+                .contains(
+                    Expr::val(serde_json::to_string(health_check).unwrap())
+                        .cast_as(Alias::new("jsonb")),
+                ),
+        );
+    }
+
+    if let Some(authz) = &search.authz {
+        debug!("Searching for containers with authz: {:?}", authz);
+        conditions = conditions.add(
+            Expr::col(containers::Column::Authz)
+                .cast_as(Alias::new("jsonb"))
+                .contains(
+                    Expr::val(serde_json::to_string(authz).unwrap()).cast_as(Alias::new("jsonb")),
+                ),
+        );
+    }
+
+    debug!("Conditions: {:?}", conditions);
+    // Execute the query with ownership check included
+    let containers = containers::Entity::find()
+        .filter(conditions)
+        .all(db_pool)
+        .await
+        .map_err(|e| {
+            error!("Database error: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Database error: {}", e)})),
+            )
+        })?;
+
+    debug!("Found {} containers", containers.len());
+
+    // Convert the database models to V1Container
+    let v1_containers = containers
+        .into_iter()
+        .filter_map(|c| c.to_v1_container().ok())
+        .collect();
+
+    debug!("Converted containers: {:?}", v1_containers);
+    Ok(v1_containers)
+}
+
+#[axum::debug_handler]
+pub async fn search_containers(
+    State(state): State<AppState>,
+    Extension(user_profile): Extension<V1UserProfile>,
+    Json(search): Json<V1ContainerSearch>,
+) -> Result<Json<V1Containers>, (StatusCode, Json<serde_json::Value>)> {
+    debug!("Searching for containers: {:?}", search);
+    let db_pool = &state.db_pool;
+
+    let containers = _search_containers(db_pool, &search, &user_profile).await?;
+
+    Ok(Json(V1Containers { containers }))
 }

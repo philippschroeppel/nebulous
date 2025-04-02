@@ -5,7 +5,8 @@
 
 __A globally distributed container orchestrator__
 
-Think of it as a Kubernetes that can span clouds and regions with a focus on __accelerated compute__. Ships as a single binary, performant and lightweight via Rust :crab:    
+Think of it as a Kubernetes that can span clouds and regions with a focus on __accelerated compute__.    
+Ships as a single binary, performant and lightweight via Rust :crab:    
    
 Why not Kubernetes? See [why_not_kube.md](docs/why_not_kube.md)   
    
@@ -47,7 +48,7 @@ nebu get platforms
 ```
 
 > [!TIP]
-> Prefer a pythonic interface? Try [nebulous-py](https://github.com/agentsea/nebulous-py)
+> Prefer a pythonic interface? Try [nebulous-py](https://github.com/agentsea/nebulous-py)   
 > Prefer a higher level LLM interface? Try [orign](https://github.com/agentsea/orign)
 
 ### Containers
