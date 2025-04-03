@@ -1,8 +1,10 @@
 use crate::entities::containers;
-use crate::models::{
-    V1Container, V1ContainerRequest, V1ContainerStatus, V1ResourceMeta, V1UserProfile,
-};
+use crate::models::V1ResourceMeta;
+use crate::models::V1UserProfile;
 use crate::resources::v1::containers::base::{ContainerPlatform, ContainerStatus};
+use crate::resources::v1::containers::models::{
+    V1Container, V1ContainerRequest, V1ContainerStatus,
+};
 use k8s_openapi::api::batch::v1::{Job, JobSpec};
 use k8s_openapi::api::core::v1::{
     Container as K8sContainer, ContainerPort, EnvVar, PodSpec, PodTemplateSpec,

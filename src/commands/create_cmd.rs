@@ -1,8 +1,10 @@
 use nebulous::config::GlobalConfig;
-use nebulous::models::{
-    RestartPolicy, V1ContainerRequest, V1ContainerResources, V1EnvVar, V1Meter,
-    V1ResourceMetaRequest, V1VolumeConfig, V1VolumeDriver, V1VolumePath,
+use nebulous::models::{V1Meter, V1ResourceMetaRequest};
+use nebulous::resources::v1::containers::models::{
+    RestartPolicy, V1ContainerRequest, V1ContainerResources, V1EnvVar,
 };
+use nebulous::resources::v1::secrets::models::V1SecretRequest;
+use nebulous::resources::v1::volumes::models::{V1VolumeConfig, V1VolumeDriver, V1VolumePath};
 use reqwest::Client;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -141,7 +143,7 @@ pub async fn create_secret(
     println!("Creating secret...");
 
     // Build the metadata (reused whether file is provided or not)
-    let metadata = crate::models::V1ResourceMetaRequest {
+    let metadata = V1ResourceMetaRequest {
         name: Some(command.name.clone()),
         namespace: Some(command.namespace.clone().unwrap_or("default".to_string())),
         ..Default::default()
@@ -154,7 +156,7 @@ pub async fn create_secret(
         let file_content = std::fs::read_to_string(&file)?;
         println!("File content read");
 
-        crate::models::V1SecretRequest {
+        V1SecretRequest {
             metadata,
             value: file_content,
             expires_at: command.expires_at,
@@ -166,7 +168,7 @@ pub async fn create_secret(
         }
 
         // Construct the request object directly from CLI arguments
-        crate::models::V1SecretRequest {
+        V1SecretRequest {
             metadata,
             value: command.value.clone().unwrap(),
             expires_at: command.expires_at,

@@ -1,11 +1,14 @@
 use crate::auth::agent::create_agent_key;
+use crate::auth::aws::create_s3_scoped_user;
 use crate::config::GlobalConfig;
 use crate::config::CONFIG;
 use crate::entities::containers;
-use crate::models::{
-    V1Container, V1ContainerRequest, V1CreateAgentKeyRequest, V1UpdateContainer, V1UserProfile,
-};
+use crate::handlers::v1::volumes::ensure_volume;
+use crate::models::{V1CreateAgentKeyRequest, V1UserProfile};
 use crate::query::Query;
+use crate::resources::v1::containers::models::{
+    V1Container, V1ContainerRequest, V1UpdateContainer,
+};
 use sea_orm::DatabaseConnection;
 use std::collections::HashMap;
 use std::env;
@@ -185,11 +188,23 @@ pub trait ContainerPlatform {
 
         let agent_key = Query::get_agent_key(db, model.id.clone()).await.unwrap();
 
-        // Get AWS credentials from environment
-        let aws_access_key =
-            env::var("AWS_ACCESS_KEY_ID").expect("AWS_ACCESS_KEY_ID environment variable not set");
-        let aws_secret_key = env::var("AWS_SECRET_ACCESS_KEY")
-            .expect("AWS_SECRET_ACCESS_KEY environment variable not set");
+        let source = format!("s3://{}/data/{}", CONFIG.bucket_name, model.namespace);
+
+        let _ = ensure_volume(
+            db,
+            &model.namespace,
+            &model.id,
+            &model.owner,
+            &source,
+            &model.created_by.clone().unwrap_or_default(),
+            model.labels.clone(),
+        )
+        .await
+        .unwrap();
+
+        let s3_token = create_s3_scoped_user(&CONFIG.bucket_name, &model.namespace, &model.id)
+            .await
+            .unwrap();
 
         // Add RCLONE environment variables
         env.insert("RCLONE_CONFIG_S3REMOTE_TYPE".to_string(), "s3".to_string());
@@ -201,11 +216,14 @@ pub trait ContainerPlatform {
             "RCLONE_CONFIG_S3REMOTE_ENV_AUTH".to_string(),
             "true".to_string(),
         );
-        env.insert("AWS_ACCESS_KEY_ID".to_string(), aws_access_key);
-        env.insert("AWS_SECRET_ACCESS_KEY".to_string(), aws_secret_key);
+        env.insert("AWS_ACCESS_KEY_ID".to_string(), s3_token.access_key_id);
+        env.insert(
+            "AWS_SECRET_ACCESS_KEY".to_string(),
+            s3_token.secret_access_key,
+        );
         env.insert(
             "RCLONE_CONFIG_S3REMOTE_REGION".to_string(),
-            "us-east-1".to_string(),
+            CONFIG.bucket_region.clone(),
         );
         env.insert("NEBU_API_KEY".to_string(), agent_key.unwrap());
         env.insert(
@@ -319,8 +337,8 @@ pub trait ContainerPlatform {
             },
         };
 
-        // The second parameter below (true) often corresponds to “override” in some older client versions;
-        // adjust as needed based on your Tailscale library’s signature.
+        // The second parameter below (true) often corresponds to "override" in some older client versions;
+        // adjust as needed based on your Tailscale library's signature.
         let response = client
             .create_auth_key(&tailnet, true, &request_body)
             .await

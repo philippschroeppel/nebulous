@@ -1,4 +1,6 @@
-use crate::models::{V1ResourceMeta, V1Secret, V1SecretRequest};
+use crate::auth::ns::auth_ns;
+use crate::models::V1ResourceMeta;
+use crate::resources::v1::secrets::models::{V1Secret, V1SecretRequest};
 use crate::{
     entities::secrets, models::V1UserProfile, mutation::Mutation, query::Query, state::AppState,
 };
@@ -207,14 +209,6 @@ pub async fn create_secret(
     // Generate a unique ID for the secret. You might use `short_uuid`, etc.
     let secret_id = ShortUuid::generate().to_string();
 
-    // id: String,
-    // name: String,
-    // namespace: String,
-    // owner: String,
-    // value: &str,
-    // created_by: Option<String>,
-    // labels: Option<Json>,
-
     // If the name is None, we generate a petname. Otherwise, use the provided name.
     let name = payload
         .metadata
@@ -230,11 +224,37 @@ pub async fn create_secret(
     })?;
 
     // Also set the namespace to "default" if not provided
-    let namespace = payload
-        .metadata
-        .namespace
-        .clone()
-        .unwrap_or_else(|| "default".to_string());
+    let namespace_opt = payload.metadata.namespace;
+
+    let handle = match user_profile.handle.clone() {
+        Some(handle) => handle,
+        None => user_profile
+            .email
+            .clone()
+            .replace("@", "-")
+            .replace(".", "-"),
+    };
+
+    let namespace = match namespace_opt {
+        Some(namespace) => namespace,
+        None => match crate::handlers::v1::namespaces::ensure_namespace(
+            db_pool,
+            &handle,
+            &user_profile.email,
+            &user_profile.email,
+            None,
+        )
+        .await
+        {
+            Ok(_) => handle,
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": format!("Invalid namespace: {}", e) })),
+                ));
+            }
+        },
+    };
 
     crate::validate::validate_namespace(&namespace).map_err(|err| {
         (
@@ -243,15 +263,31 @@ pub async fn create_secret(
         )
     })?;
 
+    let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
+        orgs.keys().cloned().collect()
+    } else {
+        Vec::new()
+    };
+    owner_ids.push(user_profile.email.clone());
+
+    let owner = auth_ns(db_pool, &owner_ids, &namespace)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Authorization error: {}", e)})),
+            )
+        })?;
+
     // Create the new Model, which will auto-encrypt the secret value
     let secret_model = secrets::Model::new(
         secret_id.clone(),
         name,
         namespace,
-        user_profile.email.clone(), // owner_id
+        owner,
         &payload.value,
-        Some(user_profile.email.clone()), // created_by
-        Some(serde_json::json!(payload.metadata.labels)), // labels
+        Some(user_profile.email.clone()),
+        Some(serde_json::json!(payload.metadata.labels)),
         payload.expires_at,
     )
     .map_err(|err| {

@@ -2,8 +2,8 @@
 use crate::entities::containers;
 use crate::entities::processors;
 use crate::entities::secrets;
-use crate::models::V1ContainerStatus;
 use crate::resources::v1::containers::base::ContainerStatus;
+use crate::resources::v1::containers::models::V1ContainerStatus;
 use sea_orm::sea_query::Expr;
 use sea_orm::Value;
 use sea_orm::*;
@@ -350,5 +350,26 @@ impl Query {
             ))
             .all(db)
             .await
+    }
+
+    /// Find a volume by namespace, name, and owners
+    pub async fn find_volume_by_namespace_name_and_owners(
+        db: &DatabaseConnection,
+        namespace: &str,
+        name: &str,
+        owners: &[&str],
+    ) -> Result<crate::entities::volumes::Model, DbErr> {
+        use crate::entities::volumes;
+
+        let result = volumes::Entity::find()
+            .filter(volumes::Column::Namespace.eq(namespace))
+            .filter(volumes::Column::Name.eq(name))
+            .filter(volumes::Column::Owner.is_in(owners.iter().copied()))
+            .one(db)
+            .await?;
+
+        result.ok_or(DbErr::RecordNotFound(format!(
+            "Volume with namespace '{namespace}' and name '{name}' not found for the specified owners"
+        )))
     }
 }

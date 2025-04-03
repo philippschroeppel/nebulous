@@ -1,5 +1,6 @@
 use crate::entities::processors;
-use crate::models::{V1Processor, V1ProcessorRequest, V1UserProfile};
+use crate::models::V1UserProfile;
+use crate::resources::v1::processors::models::{V1Processor, V1ProcessorRequest};
 use sea_orm::DatabaseConnection;
 use std::fmt;
 use std::str::FromStr;

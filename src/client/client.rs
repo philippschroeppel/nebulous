@@ -1,8 +1,8 @@
 use crate::config::GlobalConfig;
-use crate::models::{
-    V1Container, V1ContainerRequest, V1ContainerSearch, V1Containers, V1Secret, V1SecretRequest,
-    V1Secrets, V1UpdateContainer,
+use crate::resources::v1::containers::models::{
+    V1Container, V1ContainerRequest, V1ContainerSearch, V1Containers, V1UpdateContainer,
 };
+use crate::resources::v1::secrets::models::{V1Secret, V1SecretRequest, V1Secrets};
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

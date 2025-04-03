@@ -1,13 +1,16 @@
 use crate::accelerator::base::AcceleratorProvider;
 use crate::accelerator::runpod::RunPodProvider;
+use crate::config::CONFIG;
 use crate::entities::containers;
-use crate::models::{
-    RestartPolicy, V1Container, V1ContainerHealthCheck, V1ContainerRequest, V1ContainerResources,
-    V1ContainerStatus, V1EnvVar, V1Meter, V1Port, V1UpdateContainer, V1UserProfile, V1VolumePath,
-};
+use crate::models::{V1Meter, V1UserProfile};
 use crate::mutation::{self, Mutation};
 use crate::oci::client::pull_and_parse_config;
 use crate::resources::v1::containers::base::{ContainerPlatform, ContainerStatus};
+use crate::resources::v1::containers::models::{
+    RestartPolicy, V1Container, V1ContainerHealthCheck, V1ContainerRequest, V1ContainerResources,
+    V1ContainerStatus, V1EnvVar, V1Port, V1UpdateContainer,
+};
+use crate::resources::v1::volumes::models::V1VolumePath;
 use crate::ssh::exec::run_ssh_command_ts;
 use crate::ssh::keys;
 use crate::volumes::rclone::{SymlinkConfig, VolumeConfig, VolumePath};
@@ -874,6 +877,8 @@ impl RunpodPlatform {
 
     fn determine_volumes_config(
         &self,
+        name: &str,
+        namespace: &str,
         model: Vec<V1VolumePath>,
         env_map: &HashMap<String, String>,
     ) -> VolumeConfig {
@@ -892,9 +897,27 @@ impl RunpodPlatform {
             // Check if destination path is local (not starting with s3:// or other remote protocol)
             let is_local_destination = !expanded_dest.starts_with("s3://")
                 && !expanded_dest.starts_with("gs://")
-                && !expanded_dest.starts_with("azure://");
+                && !expanded_dest.starts_with("azure://")
+                && !expanded_dest.starts_with("nebu://");
 
-            let final_dest = if is_local_destination {
+            let final_dest = if expanded_dest.starts_with("nebu://") {
+                // Handle nebu:// paths by replacing with s3://{CONFIG.bucket_name}/data/{namespace}/{name}
+
+                let bucket_name = CONFIG.bucket_name.clone();
+
+                // Extract the path part after nebu://
+                let path_part = expanded_dest.strip_prefix("nebu://").unwrap_or("");
+
+                // Construct the S3 path
+                let s3_path = if path_part.starts_with('/') {
+                    format!("s3://{}/data/{}{}", bucket_name, namespace, path_part)
+                } else {
+                    format!("s3://{}/data/{}", bucket_name, namespace)
+                };
+
+                debug!("[Runpod Controller] Converted nebu:// path to: {}", s3_path);
+                s3_path
+            } else if is_local_destination {
                 // For local paths, we'll sync to cache directory instead
                 let path_without_leading_slash = expanded_dest.trim_start_matches('/');
                 let cache_path = format!("{}/{}", cache_dir, path_without_leading_slash);
@@ -1146,7 +1169,12 @@ impl RunpodPlatform {
         match model.parse_volumes() {
             Ok(Some(volumes)) => {
                 // We got a valid Vec of V1VolumePath. Proceed as before.
-                let volume_config = self.determine_volumes_config(volumes, &common_env);
+                let volume_config = self.determine_volumes_config(
+                    &model.namespace,
+                    &model.name,
+                    volumes,
+                    &common_env,
+                );
                 info!("[Runpod Controller] Volume config: {:?}", volume_config);
 
                 match serde_yaml::to_string(&volume_config) {

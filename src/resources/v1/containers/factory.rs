@@ -1,7 +1,8 @@
 use crate::entities::containers;
-use crate::models::{V1Container, V1ContainerRequest, V1UserProfile};
+use crate::models::V1UserProfile;
 use crate::resources::v1::containers::base::ContainerPlatform;
 use crate::resources::v1::containers::kube::KubePlatform;
+use crate::resources::v1::containers::models::{V1Container, V1ContainerRequest};
 use crate::resources::v1::containers::runpod::RunpodPlatform;
 use sea_orm::DatabaseConnection;
 use std::error::Error;

@@ -1,25 +1,24 @@
 // src/handlers/containers.rs
 
-use crate::models::{
-    V1AuthzConfig, V1Container, V1ContainerHealthCheck, V1ContainerList, V1ContainerRequest,
-    V1ContainerResources, V1ContainerSearch, V1Containers, V1EnvVar, V1Meter, V1ResourceMeta,
-    V1ResourceMetaRequest, V1UpdateContainer, V1UserProfile, V1VolumePath,
-};
+use crate::models::{V1AuthzConfig, V1Meter, V1ResourceMeta, V1ResourceMetaRequest, V1UserProfile};
 use crate::resources::v1::containers::factory::platform_factory;
-
+use crate::resources::v1::containers::models::{
+    V1Container, V1ContainerHealthCheck, V1ContainerRequest, V1ContainerResources,
+    V1ContainerSearch, V1Containers, V1EnvVar, V1UpdateContainer,
+};
+use crate::resources::v1::volumes::models::V1VolumePath;
 // Adjust the crate paths below to match your own project structure:
+use crate::auth::ns::auth_ns;
+use crate::entities::containers;
 use crate::mutation::Mutation;
 use crate::query::Query;
 use crate::state::AppState;
-
-use crate::entities::containers;
 use axum::{
     extract::Extension, extract::Json, extract::Path, extract::State, http::StatusCode,
     response::IntoResponse,
 };
 use sea_orm::sea_query::extension::postgres::PgExpr;
 use sea_orm::sea_query::{Alias, Expr};
-use sea_orm::*;
 use sea_orm::{ColumnTrait, Condition, DatabaseConnection, EntityTrait, QueryFilter};
 use serde_json::json;
 use tracing::{debug, error};
@@ -36,10 +35,16 @@ pub async fn get_container(
     } else {
         Vec::new()
     };
-
-    // Include user's email (assuming owner_id is user's email)
     owner_ids.push(user_profile.email.clone());
-    let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
+
+    let owner = auth_ns(db_pool, &owner_ids, &namespace)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Authorization error: {}", e)})),
+            )
+        })?;
 
     debug!(
         "Getting container by namespace and name: {} {}",
@@ -49,7 +54,7 @@ pub async fn get_container(
         db_pool,
         &namespace,
         &name,
-        &owner_id_refs,
+        &vec![owner.as_str()],
     )
     .await
     {
@@ -105,6 +110,15 @@ pub async fn _get_container_by_id(
             )
         })?;
 
+    let owner = auth_ns(db_pool, &owner_ids, &container.namespace)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Authorization error: {}", e)})),
+            )
+        })?;
+
     debug!("Found container by id and owners: {:?}", container);
 
     let out_container = V1Container {
@@ -113,7 +127,7 @@ pub async fn _get_container_by_id(
             name: container.name.clone(),
             namespace: container.namespace.clone(),
             id: container.id.to_string(),
-            owner: container.owner.clone(),
+            owner: owner,
             created_at: container.created_at.timestamp(),
             updated_at: container.updated_at.timestamp(),
             created_by: container.created_by.unwrap_or_default(),
@@ -165,7 +179,7 @@ pub async fn _get_container_by_id(
 pub async fn list_containers(
     State(state): State<AppState>,
     Extension(user_profile): Extension<V1UserProfile>,
-) -> Result<Json<V1ContainerList>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Json<V1Containers>, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
 
     let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
@@ -232,7 +246,7 @@ pub async fn list_containers(
         })
         .collect();
 
-    Ok(Json(V1ContainerList { containers }))
+    Ok(Json(V1Containers { containers }))
 }
 
 pub async fn create_container(
@@ -259,22 +273,64 @@ pub async fn create_container(
         }
     }
 
-    match crate::validate::validate_namespace(
-        &container_request
+    let namespace_opt = container_request
+        .clone()
+        .metadata
+        .unwrap_or_default()
+        .namespace;
+
+    let handle = match user_profile.handle.clone() {
+        Some(handle) => handle,
+        None => user_profile
+            .email
             .clone()
-            .metadata
-            .unwrap_or_default()
-            .namespace
-            .unwrap_or_default(),
-    ) {
-        Ok(_) => (),
-        Err(e) => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": format!("Invalid namespace: {}", e) })),
-            ));
-        }
-    }
+            .replace("@", "-")
+            .replace(".", "-"),
+    };
+
+    let namespace = match namespace_opt {
+        Some(namespace) => namespace,
+        None => match crate::handlers::v1::namespaces::ensure_namespace(
+            db_pool,
+            &handle,
+            &user_profile.email,
+            &user_profile.email,
+            None,
+        )
+        .await
+        {
+            Ok(_) => handle,
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": format!("Invalid namespace: {}", e) })),
+                ));
+            }
+        },
+    };
+
+    crate::validate::validate_namespace(&namespace).map_err(|err| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": format!("Invalid namespace: {}", err) })),
+        )
+    })?;
+
+    let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
+        orgs.keys().cloned().collect()
+    } else {
+        Vec::new()
+    };
+    owner_ids.push(user_profile.email.clone());
+
+    let owner = auth_ns(db_pool, &owner_ids, &namespace)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Authorization error: {}", e)})),
+            )
+        })?;
 
     let platform = platform_factory(
         container_request
@@ -283,12 +339,7 @@ pub async fn create_container(
             .unwrap_or("runpod".to_string()),
     );
     let container = platform
-        .declare(
-            &container_request,
-            db_pool,
-            &user_profile,
-            &user_profile.email,
-        )
+        .declare(&container_request, db_pool, &user_profile, &owner)
         .await
         .map_err(|e| {
             (

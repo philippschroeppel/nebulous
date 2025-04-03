@@ -1,5 +1,6 @@
-use crate::models::{V1ContainerStatus, V1VolumeDriver};
 use crate::query::Query;
+use crate::resources::v1::containers::models::V1ContainerStatus;
+use crate::resources::v1::volumes::models::V1VolumeDriver;
 use sea_orm::{DatabaseConnection, DbErr};
 use serde::{Deserialize, Serialize};
 use serde_json::from_str;

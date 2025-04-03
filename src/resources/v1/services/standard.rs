@@ -1,9 +1,12 @@
 use crate::config::CONFIG;
 use crate::entities::processors;
-use crate::models::{
-    V1EnvVar, V1Processor, V1ProcessorRequest, V1ResourceMetaRequest, V1UserProfile,
-};
+use crate::models::V1ResourceMetaRequest;
+use crate::models::V1UserProfile;
+use crate::resources::v1::containers::models::V1EnvVar;
+use crate::resources::v1::containers::models::{RestartPolicy, V1ContainerRequest};
 use crate::resources::v1::processors::base::{ProcessorPlatform, ProcessorStatus};
+use crate::resources::v1::processors::models::V1Processor;
+use crate::resources::v1::processors::models::V1ProcessorRequest;
 use crate::state::MessageQueue;
 use crate::streams::redis::get_consumer_group_progress;
 use crate::AppState;
@@ -31,11 +34,12 @@ impl StandardProcessor {
         db: &DatabaseConnection,
         processor: processors::Model,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        use crate::models::{RestartPolicy, V1ContainerRequest, V1UserProfile};
+        use crate::models::V1UserProfile;
         use crate::mutation::Mutation;
         use crate::resources::v1::containers::base::ContainerPlatform;
         use crate::resources::v1::containers::runpod::RunpodPlatform;
         use crate::resources::v1::processors::base::ProcessorStatus;
+        use crate::resources::v1::processors::models::V1ProcessorRequest;
         use tracing::info;
 
         info!("[Processor Controller] Starting processor {}", processor.id);

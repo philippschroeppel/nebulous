@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
 use std::collections::HashMap;
 
-use crate::models::{V1Container, V1Processor, V1ProcessorStatus, V1Scale};
+use crate::resources::v1::containers::models::V1Container;
+use crate::resources::v1::processors::models::{V1Processor, V1ProcessorStatus, V1Scale};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "processors")]
@@ -113,7 +114,7 @@ impl Model {
         };
 
         // Construct final V1Container
-        let processor = crate::models::V1Processor {
+        let processor = V1Processor {
             kind: "Processor".to_owned(), // or use default_container_kind() if needed
             metadata,
             stream: self.stream.clone(),
