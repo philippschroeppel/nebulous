@@ -1756,6 +1756,7 @@ impl ContainerPlatform for RunpodPlatform {
         db: &DatabaseConnection,
         user_profile: &V1UserProfile,
         owner_id: &str,
+        namespace: &str,
     ) -> Result<V1Container, Box<dyn std::error::Error + Send + Sync>> {
         let name = config
             .metadata
@@ -1883,12 +1884,6 @@ impl ContainerPlatform for RunpodPlatform {
         self.store_agent_key_secret(db, user_profile, &id, owner_id)
             .await?;
 
-        let namespace = config
-            .metadata
-            .as_ref()
-            .and_then(|meta| meta.namespace.clone())
-            .unwrap_or_else(|| "default".to_string());
-
         let owner_ref: Option<String> = config
             .metadata
             .as_ref()
@@ -1904,7 +1899,7 @@ impl ContainerPlatform for RunpodPlatform {
         // Create the container record in the database
         let container = crate::entities::containers::ActiveModel {
             id: Set(id.clone()),
-            namespace: Set(namespace.clone()),
+            namespace: Set(namespace.clone().to_string()),
             name: Set(name.clone()),
             full_name: Set(format!("{}/{}", namespace, name)),
             owner: Set(owner_id.to_string()),
@@ -1979,7 +1974,7 @@ impl ContainerPlatform for RunpodPlatform {
             kind: "Container".to_string(),
             metadata: crate::models::V1ResourceMeta {
                 name: name.clone(),
-                namespace: namespace.clone(),
+                namespace: namespace.clone().to_string(),
                 id: id.clone(),
                 owner: owner_id.to_string(),
                 owner_ref: owner_ref.clone(),

@@ -80,7 +80,7 @@ pub enum Commands {
 
         /// Container namespace.
         #[arg(long, short)]
-        namespace: Option<String>,
+        namespace: String,
     },
 
     /// Login to a Nebulous API server.

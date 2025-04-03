@@ -272,6 +272,7 @@ pub async fn create_container(
             ));
         }
     }
+    debug!("Container request: {:?}", container_request);
 
     let namespace_opt = container_request
         .clone()
@@ -287,6 +288,7 @@ pub async fn create_container(
             .replace("@", "-")
             .replace(".", "-"),
     };
+    debug!("Handle: {:?}", handle);
 
     let namespace = match namespace_opt {
         Some(namespace) => namespace,
@@ -308,6 +310,7 @@ pub async fn create_container(
             }
         },
     };
+    debug!("Using namespace: {:?}", namespace);
 
     crate::validate::validate_namespace(&namespace).map_err(|err| {
         (
@@ -315,6 +318,7 @@ pub async fn create_container(
             Json(json!({ "error": format!("Invalid namespace: {}", err) })),
         )
     })?;
+    debug!("Validated namespace");
 
     let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
         orgs.keys().cloned().collect()
@@ -323,6 +327,7 @@ pub async fn create_container(
     };
     owner_ids.push(user_profile.email.clone());
 
+    debug!("Authorizing namespace");
     let owner = auth_ns(db_pool, &owner_ids, &namespace)
         .await
         .map_err(|e| {
@@ -331,7 +336,7 @@ pub async fn create_container(
                 Json(json!({"error": format!("Authorization error: {}", e)})),
             )
         })?;
-
+    debug!("Authorized namespace");
     let platform = platform_factory(
         container_request
             .clone()
@@ -339,7 +344,13 @@ pub async fn create_container(
             .unwrap_or("runpod".to_string()),
     );
     let container = platform
-        .declare(&container_request, db_pool, &user_profile, &owner)
+        .declare(
+            &container_request,
+            db_pool,
+            &user_profile,
+            &owner,
+            &namespace,
+        )
         .await
         .map_err(|e| {
             (
@@ -924,7 +935,13 @@ pub async fn patch_container(
                 .unwrap_or("runpod".to_string()),
         );
         let created = platform
-            .declare(&to_create, db_pool, &user_profile, &user_profile.email)
+            .declare(
+                &to_create,
+                db_pool,
+                &user_profile,
+                &user_profile.email,
+                &namespace,
+            )
             .await
             .map_err(|e| {
                 (

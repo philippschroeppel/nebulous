@@ -6,11 +6,10 @@ use serde::Deserialize;
 
 pub async fn fetch_container_logs(
     name: String,
-    namespace: Option<String>,
+    namespace: String,
 ) -> Result<String, Box<dyn StdError>> {
     // Step 1: Fetch container ID by calling your server’s HTTP GET /v1/containers/:namespace/:name
-    let ns = namespace.unwrap_or_else(|| "default".to_string());
-    let container_id = fetch_container_id_from_api(&ns, &name).await?;
+    let container_id = fetch_container_id_from_api(&namespace, &name).await?;
 
     // Load config the same way as in get_cmd.rs
     let config = GlobalConfig::read()?;

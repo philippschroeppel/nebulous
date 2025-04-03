@@ -1,4 +1,5 @@
 use anyhow::Result;
+use aws_config::BehaviorVersion;
 use aws_config::SdkConfig;
 use aws_sdk_iam::Client as IamClient;
 use aws_sdk_s3::config::{Credentials, Region};
@@ -106,9 +107,10 @@ pub async fn create_s3_scoped_user(
     namespace: &str,
     name: &str,
 ) -> Result<IamCredentials> {
-    let config = SdkConfig::builder()
+    let config = aws_config::defaults(BehaviorVersion::latest())
         .region(Region::new("us-east-1"))
-        .build();
+        .load()
+        .await;
     let client = IamClient::new(&config);
 
     // Create a unique username

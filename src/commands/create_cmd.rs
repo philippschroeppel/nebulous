@@ -145,7 +145,7 @@ pub async fn create_secret(
     // Build the metadata (reused whether file is provided or not)
     let metadata = V1ResourceMetaRequest {
         name: Some(command.name.clone()),
-        namespace: Some(command.namespace.clone().unwrap_or("default".to_string())),
+        namespace: command.namespace,
         ..Default::default()
     };
 

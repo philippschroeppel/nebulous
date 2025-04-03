@@ -223,7 +223,6 @@ pub async fn create_secret(
         )
     })?;
 
-    // Also set the namespace to "default" if not provided
     let namespace_opt = payload.metadata.namespace;
 
     let handle = match user_profile.handle.clone() {

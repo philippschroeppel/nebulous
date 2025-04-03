@@ -15,7 +15,7 @@ use std::env;
 use std::fmt;
 use std::str::FromStr;
 use tailscale_client::TailscaleClient;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 /// Enum for container status
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
@@ -148,6 +148,7 @@ pub trait ContainerPlatform {
         db: &DatabaseConnection,
         user_profile: &V1UserProfile,
         owner_id: &str,
+        namespace: &str,
     ) -> Result<V1Container, Box<dyn std::error::Error + Send + Sync>>;
 
     async fn reconcile(
@@ -186,11 +187,19 @@ pub trait ContainerPlatform {
         let config = GlobalConfig::read().unwrap();
         let mut env = HashMap::new();
 
-        let agent_key = Query::get_agent_key(db, model.id.clone()).await.unwrap();
+        debug!("Getting agent key");
+        let agent_key = match Query::get_agent_key(db, model.id.clone()).await {
+            Ok(key) => key,
+            Err(e) => {
+                error!("Error getting agent key: {:?}", e);
+                return env;
+            }
+        };
 
         let source = format!("s3://{}/data/{}", CONFIG.bucket_name, model.namespace);
 
-        let _ = ensure_volume(
+        debug!("Ensuring volume: {:?}", source);
+        let _ = match ensure_volume(
             db,
             &model.namespace,
             &model.id,
@@ -200,12 +209,25 @@ pub trait ContainerPlatform {
             model.labels.clone(),
         )
         .await
-        .unwrap();
+        {
+            Ok(_) => (),
+            Err(e) => {
+                error!("Error ensuring volume: {:?}", e);
+                return env;
+            }
+        };
 
-        let s3_token = create_s3_scoped_user(&CONFIG.bucket_name, &model.namespace, &model.id)
-            .await
-            .unwrap();
+        debug!("Creating s3 token");
+        let s3_token =
+            match create_s3_scoped_user(&CONFIG.bucket_name, &model.namespace, &model.id).await {
+                Ok(token) => token,
+                Err(e) => {
+                    error!("Error creating s3 token: {:?}", e);
+                    return env;
+                }
+            };
 
+        debug!("Adding RCLONE environment variables");
         // Add RCLONE environment variables
         env.insert("RCLONE_CONFIG_S3REMOTE_TYPE".to_string(), "s3".to_string());
         env.insert(

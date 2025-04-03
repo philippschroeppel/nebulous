@@ -13,6 +13,7 @@ use sea_orm::{
 };
 use serde_json::json;
 use short_uuid;
+use tracing::debug;
 
 pub async fn get_namespace(
     State(state): State<AppState>,
@@ -240,16 +241,20 @@ pub async fn ensure_namespace(
     created_by: &str,
     labels: Option<serde_json::Value>,
 ) -> Result<(namespaces::Model, bool), DbErr> {
+    debug!("Ensuring namespace: {:?}", name);
     // First, try to find the namespace by namespace and name
     let existing_namespace = namespaces::Entity::find()
         .filter(namespaces::Column::Name.eq(name.clone()))
         .one(db_pool)
         .await?;
 
+    debug!("Existing namespace: {:?}", existing_namespace);
     // If the namespace exists, return it
     if let Some(namespace) = existing_namespace {
+        debug!("Namespace already exists");
         return Ok((namespace, false));
     }
+    debug!("Namespace does not exist");
 
     // If we get here, the namespace doesn't exist
     // Generate a unique ID for the new namespace
@@ -268,6 +273,7 @@ pub async fn ensure_namespace(
     };
 
     let namespace_entity = namespace_entity.insert(db_pool).await?;
+    debug!("Namespace inserted: {:?}", namespace_entity);
 
     Ok((namespace_entity, true))
 }

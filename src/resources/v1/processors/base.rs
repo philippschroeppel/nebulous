@@ -113,6 +113,7 @@ pub trait ProcessorPlatform {
         db: &DatabaseConnection,
         user_profile: &V1UserProfile,
         owner_id: &str,
+        namespace: &str,
     ) -> Result<V1Processor, Box<dyn std::error::Error + Send + Sync>>;
 
     async fn reconcile(

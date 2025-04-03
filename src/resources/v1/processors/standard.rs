@@ -30,6 +30,7 @@ impl StandardProcessor {
         &self,
         db: &DatabaseConnection,
         processor: processors::Model,
+        namespace: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use crate::models::V1UserProfile;
         use crate::mutation::Mutation;
@@ -204,7 +205,13 @@ impl StandardProcessor {
             );
 
             let declared = runpod
-                .declare(&request_for_replica, db, &user_profile, &owner_id)
+                .declare(
+                    &request_for_replica,
+                    db,
+                    &user_profile,
+                    &owner_id,
+                    &processor.namespace,
+                )
                 .await?;
 
             info!(
@@ -357,6 +364,7 @@ impl ProcessorPlatform for StandardProcessor {
         db: &DatabaseConnection,
         user_profile: &V1UserProfile,
         owner_id: &str,
+        namespace: &str,
     ) -> Result<V1Processor, Box<dyn std::error::Error + Send + Sync>> {
         // 1. Generate a unique ID for the new processor.
         let new_id = Uuid::new_v4().to_string();
@@ -370,11 +378,7 @@ impl ProcessorPlatform for StandardProcessor {
                 .name
                 .clone()
                 .unwrap_or(petname::petname(3, "-").unwrap())),
-            namespace: Set(config
-                .metadata
-                .namespace
-                .clone()
-                .unwrap_or("default".to_string())),
+            namespace: Set(namespace.to_string()),
             owner: Set(owner_id.to_string()),
             created_by: Set(Some(user_profile.email.clone())),
 
@@ -454,7 +458,8 @@ impl ProcessorPlatform for StandardProcessor {
                             "[Processor Controller] Processor {} desired_status is 'Running'; starting...",
                             processor.id
                         );
-                        self.start_processor(db, processor.clone()).await?;
+                        self.start_processor(db, processor.clone(), &processor.namespace.as_str())
+                            .await?;
                     } else {
                         info!(
                             "[Processor Controller] Processor {} desired_status is '{}', not 'Running'",

@@ -22,13 +22,18 @@ impl PlatformType {
         db: &DatabaseConnection,
         user_profile: &V1UserProfile,
         owner_id: &str,
+        namespace: &str,
     ) -> Result<V1Container, Box<dyn Error + Send + Sync>> {
         match self {
             PlatformType::Runpod(platform) => {
-                platform.declare(request, db, user_profile, owner_id).await
+                platform
+                    .declare(request, db, user_profile, owner_id, namespace)
+                    .await
             }
             PlatformType::Kube(platform) => {
-                platform.declare(request, db, user_profile, owner_id).await
+                platform
+                    .declare(request, db, user_profile, owner_id, namespace)
+                    .await
             }
         }
     }
