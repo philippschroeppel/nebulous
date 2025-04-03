@@ -84,7 +84,19 @@ pub enum Commands {
     },
 
     /// Login to a Nebulous API server.
-    Login,
+    Login {
+        /// Address of the API server
+        #[arg(default_value = "https://api.nebulous.sh")]
+        url: String,
+
+        /// Address of the Auth server
+        #[arg(long, default_value = None)]
+        auth: Option<String>,
+
+        /// Address of the Hub
+        #[arg(long, default_value = None)]
+        hub: Option<String>,
+    },
 
     /// Execute a command inside a container.
     Exec(ExecArgs),
