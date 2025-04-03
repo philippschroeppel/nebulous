@@ -9,7 +9,12 @@ use tracing::debug;
 pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
     let config = GlobalConfig::read()?;
     debug!("Config: {:?}", config);
-    let current_server = config.get_current_server_config().unwrap();
+
+    let current_server = match config.get_current_server_config() {
+        Some(server) => server,
+        None => return Err("No current server configuration found".into()),
+    };
+
     let server = current_server.server.as_ref().unwrap();
     let api_key = current_server.api_key.as_ref().unwrap();
 
