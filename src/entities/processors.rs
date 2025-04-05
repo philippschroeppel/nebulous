@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
 use std::collections::HashMap;
 
-use crate::resources::v1::containers::models::V1Container;
+use crate::resources::v1::containers::models::V1ContainerRequest;
 use crate::resources::v1::processors::models::{V1Processor, V1ProcessorStatus, V1Scale};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
@@ -21,11 +21,11 @@ pub struct Model {
     pub owner: String,
     pub container: Option<Json>,
     pub cluster: Option<Json>,
-    pub scale: Option<Json>,
+    pub scale: Json,
     pub min_replicas: Option<i32>,
     pub max_replicas: Option<i32>,
     pub desired_replicas: Option<i32>,
-    pub stream: Option<String>,
+    pub stream: String,
     pub schema: Option<Json>,
     pub common_schema: Option<String>,
     pub status: Option<Json>,
@@ -56,14 +56,14 @@ impl Model {
     }
 
     pub fn parse_scale(&self) -> Result<Option<V1Scale>, serde_json::Error> {
-        if let Some(json_value) = &self.scale {
-            serde_json::from_value(json_value.clone()).map(Some)
-        } else {
+        if self.scale.is_null() {
             Ok(None)
+        } else {
+            serde_json::from_value(self.scale.clone()).map(Some)
         }
     }
 
-    pub fn parse_container(&self) -> Result<Option<V1Container>, serde_json::Error> {
+    pub fn parse_container(&self) -> Result<Option<V1ContainerRequest>, serde_json::Error> {
         if let Some(json_value) = &self.container {
             serde_json::from_value(json_value.clone()).map(Some)
         } else {

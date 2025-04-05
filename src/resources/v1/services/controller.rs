@@ -135,7 +135,7 @@ impl ProcessorController {
                             );
                             // If your platform_factory is async, call it here.
                             let platform = StandardProcessor::new(app_state.clone());
-                            let _ = platform.reconcile(&processor_clone, &db_pool).await;
+                            // let _ = platform.reconcile(&processor_clone, &db_pool).await;
 
                             // TODO: Implement platform reconciliation
                             // let platform =

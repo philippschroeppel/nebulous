@@ -120,20 +120,37 @@ pub async fn create_s3_scoped_user(
     // Create the IAM user
     client.create_user().user_name(&username).send().await?;
 
-    // Create the policy document
     let policy_document = json!({
-        "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Effect": "Allow",
-                "Action": "s3:*",
-                "Resource": [
-                    format!("arn:aws:s3:::{}/data/{}", bucket_name, namespace),
-                    format!("arn:aws:s3:::{}/data/{}/*", bucket_name, namespace),
-                    format!("arn:aws:s3:::{}/data/{}/**", bucket_name, namespace)
-                ]
+      "Version": "2012-10-17",
+      "Statement": [
+        // -- 1) Allow listing objects only under data/<namespace> prefix
+        {
+          "Effect": "Allow",
+          "Action": "s3:ListBucket",
+          "Resource": [
+            format!("arn:aws:s3:::{}", bucket_name)
+          ],
+          "Condition": {
+            "StringLike": {
+              "s3:prefix": [
+                format!("data/{}/", namespace),
+                format!("data/{}/*", namespace)
+              ]
             }
-        ]
+          }
+        },
+        // -- 2) Allow working with objects under data/<namespace> prefix
+        {
+          "Effect": "Allow",
+          "Action": [
+            "s3:*"
+          ],
+          "Resource": [
+            format!("arn:aws:s3:::{}/data/{}", bucket_name, namespace),
+            format!("arn:aws:s3:::{}/data/{}/*", bucket_name, namespace)
+          ]
+        }
+      ]
     });
 
     debug!(">>> Policy document: {}", policy_document);

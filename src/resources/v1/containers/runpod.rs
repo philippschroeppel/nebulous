@@ -237,7 +237,7 @@ impl RunpodPlatform {
 
         // If the pod was found, extract its public ports as Vec<V1Port>
         if let Some(pod) = maybe_pod {
-            // The `runtime` field is optional, so check if it’s present
+            // The `runtime` field is optional, so check if it's present
             if let Some(runtime) = pod.runtime {
                 // Filter only the public ports, then map fields into our V1Port model
                 let public_ports: Vec<V1Port> = runtime
@@ -275,6 +275,31 @@ impl RunpodPlatform {
         let container_id = container.id.to_string();
         let pause_seconds = 5;
         let duration = Duration::from_secs(pause_seconds);
+
+        // Parse timeout if specified
+        let timeout_duration = if let Some(timeout_str) = &container.timeout {
+            match humantime::parse_duration(timeout_str) {
+                Ok(timeout) => {
+                    info!(
+                        "[Runpod Controller] Container {} has timeout of {:?}",
+                        container_id, timeout
+                    );
+                    Some((timeout, timeout_str.clone()))
+                }
+                Err(e) => {
+                    error!(
+                        "[Runpod Controller] Failed to parse timeout '{}' for container {}: {}",
+                        timeout_str, container_id, e
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        // Track container start time for timeout calculation
+        let mut container_start_time: Option<std::time::Instant> = None;
 
         // Get initial status from database
         let (mut last_status, resource_name) =
@@ -447,6 +472,60 @@ impl RunpodPlatform {
 
                         // Handle metering if container has meters defined and status is Running
                         if current_status == ContainerStatus::Running {
+                            // Start timing if this is the first time we've seen the container running
+                            if container_start_time.is_none() {
+                                info!("[Runpod Controller] Container {} started running, recording start time", container_id);
+                                container_start_time = Some(std::time::Instant::now());
+                            }
+
+                            // Check timeout if applicable
+                            if let (Some(start_time), Some(ref timeout_data)) =
+                                (container_start_time, &timeout_duration)
+                            {
+                                let (timeout, timeout_str) = timeout_data;
+                                let elapsed = start_time.elapsed();
+                                if elapsed >= *timeout {
+                                    info!(
+                                        "[Runpod Controller] Container {} has exceeded timeout of {:?} (elapsed: {:?}), terminating",
+                                        container_id, timeout, elapsed
+                                    );
+
+                                    // Terminate the container due to timeout
+                                    if let Err(del_err) = self.delete(&container_id, db).await {
+                                        error!(
+                                            "[Runpod Controller] Error deleting timed-out container {}: {}",
+                                            container_id, del_err
+                                        );
+                                    } else {
+                                        // Update container status to indicate timeout
+                                        if let Err(e) = Mutation::update_container_status(
+                                            db,
+                                            container_id.to_string(),
+                                            Some(ContainerStatus::Failed.to_string()),
+                                            Some(format!("Container terminated after exceeding timeout of {}", timeout_str)),
+                                            None,
+                                            None,
+                                            None,
+                                            None,
+                                            None,
+                                        )
+                                        .await
+                                        {
+                                            error!(
+                                                "[Runpod Controller] Failed to update status for timed-out container: {}",
+                                                e
+                                            );
+                                        }
+                                    }
+                                    break;
+                                } else {
+                                    debug!(
+                                        "[Runpod Controller] Container {} running for {:?} of {:?} timeout",
+                                        container_id, elapsed, timeout
+                                    );
+                                }
+                            }
+
                             // 1) Check for /done.txt in the container
                             info!("[Runpod Controller] container running...");
 
@@ -660,7 +739,7 @@ impl RunpodPlatform {
                                                 );
                                             }
                                         } else {
-                                            // If we have no prior status, treat it as if it’s not terminal
+                                            // If we have no prior status, treat it as if it's not terminal
                                             if let Err(e) =
                                                 crate::mutation::Mutation::update_container_status(
                                                     db,
@@ -1334,7 +1413,7 @@ impl RunpodPlatform {
             Err(e) => {
                 // A serialization error occurred, so handle it (log, return, etc.)
                 error!("[Runpod Controller] Failed to parse volumes: {}", e);
-                // If you’d prefer to ignore the parse failure and still run, you could do so here
+                // If you'd prefer to ignore the parse failure and still run, you could do so here
             }
         }
         info!("[Runpod Controller] Environment variables: {:?}", env_vec);
@@ -1523,7 +1602,7 @@ impl RunpodPlatform {
             fi
         "#;
 
-        // Here’s the new portion for checking tailscale before installing
+        // Here's the new portion for checking tailscale before installing
         let tailscale_install = r#"
     echo "[DEBUG] Installing tailscale (if not present)..."
     if ! command -v tailscale &> /dev/null; then
@@ -2109,14 +2188,12 @@ impl ContainerPlatform for RunpodPlatform {
                 crate::query::Query::is_queue_free(db, queue_name, &container.id).await?;
             if !queue_is_free {
                 // The queue is blocked by another container.
-                // Optionally move this container to "Queued" status, or just do nothing.
+                // Set this container to "Queued" status if it's not already in a terminal state.
                 info!(
-                    "[Runpod Controller] Container {} is blocked by an active container in queue '{}'; skipping start.",
+                    "[Runpod Controller] Container {} is blocked by another container in queue '{}'; setting to Queued.",
                     container.id, queue_name
                 );
 
-                // If you'd like to explicitly set the container status to Queued in DB:
-                // (Only do this if not already in some other terminal or running state.)
                 if let Ok(Some(parsed_status)) = container.parse_status() {
                     let current_status = parsed_status.status.unwrap_or_default();
                     // If it's not already queued (or in a terminal state), set to queued:
@@ -2129,7 +2206,7 @@ impl ContainerPlatform for RunpodPlatform {
                             db,
                             container.id.clone(),
                             Some(ContainerStatus::Queued.to_string()),
-                            Some("Blocked by another running container in queue".to_string()),
+                            Some("Waiting in queue".to_string()),
                             None,
                             None,
                             None,
@@ -2142,6 +2219,12 @@ impl ContainerPlatform for RunpodPlatform {
                 }
 
                 return Ok(()); // do not proceed to create or watch
+            } else {
+                // Queue is free and this is the next container in line
+                info!(
+                    "[Runpod Controller] Container {} is next in queue '{}'; proceeding with start.",
+                    container.id, queue_name
+                );
             }
         }
 

@@ -3,6 +3,7 @@ use crate::query::Query;
 use crate::resources::v1::processors::base::ProcessorPlatform;
 use crate::resources::v1::processors::standard::StandardProcessor;
 use crate::state::AppState;
+use crate::state::MessageQueue;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info};
@@ -124,6 +125,10 @@ impl ProcessorController {
                     // Actually spawn a background task
                     let handle = tokio::spawn({
                         let db_pool = self.app_state.db_pool.clone();
+                        let redis_client = match &self.app_state.message_queue {
+                            MessageQueue::Redis { client } => client.clone(),
+                            _ => panic!("Redis client not found in app state"),
+                        };
                         async move {
                             info!(
                                 "[Processor Controller] Reconciling processor {} in background task",
@@ -135,7 +140,9 @@ impl ProcessorController {
                             );
                             // If your platform_factory is async, call it here.
                             let platform = StandardProcessor::new(app_state.clone());
-                            platform.reconcile(&processor_clone, &db_pool).await;
+                            platform
+                                .reconcile(&processor_clone, &db_pool, &redis_client)
+                                .await;
 
                             // TODO: Implement platform reconciliation
                             // let platform =

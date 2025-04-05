@@ -120,6 +120,7 @@ pub trait ProcessorPlatform {
         &self,
         processor: &processors::Model,
         db: &DatabaseConnection,
+        redis_client: &redis::Client,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     async fn delete(

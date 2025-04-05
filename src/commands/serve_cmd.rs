@@ -17,8 +17,8 @@ pub async fn execute(host: String, port: u16) -> Result<(), Box<dyn Error>> {
     println!("Container controller started");
 
     println!("Starting processor controller");
-    // let processor_controller = ProcessorController::new(std::sync::Arc::new(app_state.clone()));
-    // processor_controller.spawn_reconciler();
+    let processor_controller = ProcessorController::new(std::sync::Arc::new(app_state.clone()));
+    processor_controller.spawn_reconciler();
     println!("Processor controller started");
 
     println!("Starting proxy server");

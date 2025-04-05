@@ -158,6 +158,13 @@ pub struct V1Meter {
 //
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct V1StreamData {
+    #[serde(default)]
+    pub content: Value,
+    pub wait: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct V1StreamMessage {
     #[serde(default = "kind_v1_stream_message")]
     pub kind: String,
@@ -173,7 +180,7 @@ pub struct V1StreamMessage {
 }
 
 fn kind_v1_stream_message() -> String {
-    "V1StreamMessage".to_string()
+    "StreamMessage".to_string()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
