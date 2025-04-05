@@ -4,7 +4,8 @@ mod models;
 use std::path::Path;
 
 use crate::cli::{
-    Cli, Commands, CreateCommands, DeleteCommands, GetCommands, ProxyCommands, SelectCommands,
+    ApiKeyActions, AuthCommands, Cli, Commands, CreateCommands, DeleteCommands, GetCommands,
+    ProxyCommands, SelectCommands,
 };
 use clap::Parser;
 use cli::SyncCommands;
@@ -125,6 +126,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Commands::Exec(args) => {
             commands::exec_cmd::exec_cmd(args).await?;
         }
+        Commands::Auth { command } => match command {
+            AuthCommands::ApiKeys { action } => match action {
+                ApiKeyActions::List => {
+                    commands::auth_cmd::list_api_keys().await?;
+                }
+                ApiKeyActions::Generate => {
+                    commands::auth_cmd::generate_api_key().await?;
+                }
+                ApiKeyActions::Revoke { id } => {
+                    commands::auth_cmd::revoke_api_key(&id).await?;
+                }
+            },
+        },
     }
 
     Ok(())

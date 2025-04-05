@@ -5,7 +5,11 @@ use nebulous::config::{GlobalConfig, ServerConfig};
 use open;
 use rpassword;
 
-pub async fn execute(nebu_url: String, auth: Option<String>, hub: Option<String>) -> Result<(), Box<dyn Error>> {
+pub async fn execute(
+    nebu_url: String,
+    auth: Option<String>,
+    hub: Option<String>,
+) -> Result<(), Box<dyn Error>> {
     if auth.is_none() ^ hub.is_none() {
         eprintln!("Either auth or hub URL provided. Please provide both or neither.");
         return Ok(());
@@ -37,7 +41,6 @@ pub async fn execute(nebu_url: String, auth: Option<String>, hub: Option<String>
         });
         config.current_server = Some("cloud".to_string());
     } else {
-
         let auth_url = format!("{}/auth", nebu_url);
 
         // TODO: Get an API key
