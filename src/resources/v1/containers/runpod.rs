@@ -5,6 +5,7 @@ use crate::entities::containers;
 use crate::models::{V1Meter, V1UserProfile};
 use crate::mutation::{self, Mutation};
 use crate::oci::client::pull_and_parse_config;
+use crate::query::Query;
 use crate::resources::v1::containers::base::{ContainerPlatform, ContainerStatus};
 use crate::resources::v1::containers::models::{
     RestartPolicy, V1Container, V1ContainerHealthCheck, V1ContainerRequest, V1ContainerResources,
@@ -875,13 +876,15 @@ impl RunpodPlatform {
         .to_string()
     }
 
-    fn determine_volumes_config(
+    async fn determine_volumes_config(
         &self,
         name: &str,
         namespace: &str,
         model: Vec<V1VolumePath>,
         env_map: &HashMap<String, String>,
-    ) -> VolumeConfig {
+        db: &DatabaseConnection,
+        owner: &str,
+    ) -> anyhow::Result<VolumeConfig> {
         let mut volume_paths = Vec::new();
         let mut symlinks = Vec::new();
         let cache_dir = "/nebu/cache".to_string();
@@ -901,22 +904,71 @@ impl RunpodPlatform {
                 && !expanded_dest.starts_with("nebu://");
 
             let final_dest = if expanded_dest.starts_with("nebu://") {
-                // Handle nebu:// paths by replacing with s3://{CONFIG.bucket_name}/data/{namespace}/{name}
+                // Extract the volume name and remaining path from nebu://{volume}/rest/of/path
+                let path_without_prefix = expanded_dest.strip_prefix("nebu://").unwrap_or("");
+                let mut parts = path_without_prefix.splitn(2, '/');
 
-                let bucket_name = CONFIG.bucket_name.clone();
-
-                // Extract the path part after nebu://
-                let path_part = expanded_dest.strip_prefix("nebu://").unwrap_or("");
-
-                // Construct the S3 path
-                let s3_path = if path_part.starts_with('/') {
-                    format!("s3://{}/data/{}{}", bucket_name, namespace, path_part)
-                } else {
-                    format!("s3://{}/data/{}", bucket_name, namespace)
+                let volume_name = match parts.next() {
+                    Some(volume_name) => volume_name,
+                    None => {
+                        error!(
+                            "[Runpod Controller] Failed to parse nebu:// path: {}",
+                            expanded_dest
+                        );
+                        return Err(anyhow::anyhow!(
+                            "[Runpod Controller] Failed to parse nebu:// path: {}",
+                            expanded_dest
+                        ));
+                    }
                 };
+                debug!("[Runpod Controller] Volume name: {}", volume_name);
+                let remaining_path = parts.next().unwrap_or("");
 
-                debug!("[Runpod Controller] Converted nebu:// path to: {}", s3_path);
-                s3_path
+                debug!(
+                    "[Runpod Controller] Parsed nebu:// path - volume: {}, remaining: {} with owners: {} and namespace: {}",
+                    volume_name, remaining_path, owner, namespace
+                );
+
+                // Query for the volume
+                match Query::find_volume_by_namespace_name_and_owners(
+                    db,
+                    namespace,
+                    volume_name,
+                    &[owner], // Use the container's owner for authorization
+                )
+                .await
+                {
+                    Ok(volume) => {
+                        // Combine the volume's source with the remaining path
+                        let final_path = if remaining_path.is_empty() {
+                            volume.source
+                        } else {
+                            format!(
+                                "{}/{}",
+                                volume.source.trim_end_matches('/'),
+                                remaining_path.trim_start_matches('/')
+                            )
+                        };
+
+                        debug!(
+                            "[Runpod Controller] Resolved nebu:// path to: {}",
+                            final_path
+                        );
+                        final_path
+                    }
+                    Err(e) => {
+                        error!(
+                            "[Runpod Controller] Failed to find volume '{}' in namespace '{}' with owners '{}': {}",
+                            volume_name, namespace, owner, e
+                        );
+                        return Err(anyhow::anyhow!(
+                            "[Runpod Controller] Failed to find volume '{}' in namespace '{}': {}",
+                            volume_name,
+                            namespace,
+                            e
+                        ));
+                    }
+                }
             } else if is_local_destination {
                 // For local paths, we'll sync to cache directory instead
                 let path_without_leading_slash = expanded_dest.trim_start_matches('/');
@@ -949,7 +1001,7 @@ impl RunpodPlatform {
             symlinks,
         };
         debug!("[Runpod Controller] Volume config: {:?}", volume_config);
-        volume_config
+        Ok(volume_config)
     }
 
     async fn create(
@@ -1165,47 +1217,6 @@ impl RunpodPlatform {
         };
         Mutation::update_container_user(db, model.id.clone(), Some(final_user)).await?;
 
-        // Add NEBU_SYNC_CONFIG environment variable with serialized volumes configuration
-        match model.parse_volumes() {
-            Ok(Some(volumes)) => {
-                // We got a valid Vec of V1VolumePath. Proceed as before.
-                let volume_config = self.determine_volumes_config(
-                    &model.namespace,
-                    &model.name,
-                    volumes,
-                    &common_env,
-                );
-                info!("[Runpod Controller] Volume config: {:?}", volume_config);
-
-                match serde_yaml::to_string(&volume_config) {
-                    Ok(serialized_volumes) => {
-                        env_vec.push(runpod::EnvVar {
-                            key: "NEBU_SYNC_CONFIG".to_string(),
-                            value: serialized_volumes,
-                        });
-                        info!("[Runpod Controller] Added NEBU_SYNC_CONFIG environment variable");
-                    }
-                    Err(e) => {
-                        error!(
-                            "[Runpod Controller] Failed to serialize volumes configuration: {}",
-                            e
-                        );
-                        // Continue without this env var rather than failing the whole operation
-                    }
-                }
-            }
-            Ok(None) => {
-                // parse_volumes() returned Ok, but no volumes were present
-                info!("[Runpod Controller] No volumes configured, skipping NEBU_SYNC_CONFIG");
-            }
-            Err(e) => {
-                // A serialization error occurred, so handle it (log, return, etc.)
-                error!("[Runpod Controller] Failed to parse volumes: {}", e);
-                // If you’d prefer to ignore the parse failure and still run, you could do so here
-            }
-        }
-        info!("[Runpod Controller] Environment variables: {:?}", env_vec);
-
         match model.parse_env() {
             Ok(Some(env)) => {
                 // We have a valid, non-empty list of environment variables.
@@ -1259,6 +1270,71 @@ impl RunpodPlatform {
                     e
                 );
                 // Decide how you want to handle the error (return early, ignore, etc.)
+            }
+        }
+        info!("[Runpod Controller] Environment variables: {:?}", env_vec);
+
+        let env_map: HashMap<String, String> = env_vec
+            .iter()
+            .map(|env| (env.key.clone(), env.value.clone()))
+            .collect();
+
+        // Add NEBU_SYNC_CONFIG environment variable with serialized volumes configuration
+        match model.parse_volumes() {
+            Ok(Some(volumes)) => {
+                // We got a valid Vec of V1VolumePath. Proceed as before.
+                debug!("[Runpod Controller] Parsing volumes: {:?}", volumes);
+                debug!("[Runpod Controller] Environment map: {:?}", env_map);
+                debug!("[Runpod Controller] Namespace: {}", model.namespace);
+                debug!("[Runpod Controller] Name: {}", model.name);
+                debug!("[Runpod Controller] Owner: {}", model.owner);
+                let volume_config = match self
+                    .determine_volumes_config(
+                        &model.name,
+                        &model.namespace,
+                        volumes,
+                        &env_map, // Now passing the HashMap instead of Vec<EnvVar>
+                        db,
+                        &model.owner,
+                    )
+                    .await
+                {
+                    Ok(volume_config) => volume_config,
+                    Err(e) => {
+                        error!(
+                            "[Runpod Controller] Failed to determine volumes config: {}",
+                            e
+                        );
+                        return Err(e.into());
+                    }
+                };
+                info!("[Runpod Controller] Volume config: {:?}", volume_config);
+
+                match serde_yaml::to_string(&volume_config) {
+                    Ok(serialized_volumes) => {
+                        env_vec.push(runpod::EnvVar {
+                            key: "NEBU_SYNC_CONFIG".to_string(),
+                            value: serialized_volumes,
+                        });
+                        info!("[Runpod Controller] Added NEBU_SYNC_CONFIG environment variable");
+                    }
+                    Err(e) => {
+                        error!(
+                            "[Runpod Controller] Failed to serialize volumes configuration: {}",
+                            e
+                        );
+                        // Continue without this env var rather than failing the whole operation
+                    }
+                }
+            }
+            Ok(None) => {
+                // parse_volumes() returned Ok, but no volumes were present
+                info!("[Runpod Controller] No volumes configured, skipping NEBU_SYNC_CONFIG");
+            }
+            Err(e) => {
+                // A serialization error occurred, so handle it (log, return, etc.)
+                error!("[Runpod Controller] Failed to parse volumes: {}", e);
+                // If you’d prefer to ignore the parse failure and still run, you could do so here
             }
         }
         info!("[Runpod Controller] Environment variables: {:?}", env_vec);
@@ -1899,7 +1975,7 @@ impl ContainerPlatform for RunpodPlatform {
         // Create the container record in the database
         let container = crate::entities::containers::ActiveModel {
             id: Set(id.clone()),
-            namespace: Set(namespace.clone().to_string()),
+            namespace: Set(namespace.to_string()),
             name: Set(name.clone()),
             full_name: Set(format!("{}/{}", namespace, name)),
             owner: Set(owner_id.to_string()),
@@ -1974,7 +2050,7 @@ impl ContainerPlatform for RunpodPlatform {
             kind: "Container".to_string(),
             metadata: crate::models::V1ResourceMeta {
                 name: name.clone(),
-                namespace: namespace.clone().to_string(),
+                namespace: namespace.to_string(),
                 id: id.clone(),
                 owner: owner_id.to_string(),
                 owner_ref: owner_ref.clone(),

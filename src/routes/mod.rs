@@ -2,8 +2,8 @@ use crate::handlers::v1::{
     create_container, create_secret, create_volume, delete_container, delete_container_by_id,
     delete_secret, delete_secret_by_id, delete_volume, fetch_container_logs,
     fetch_container_logs_by_id, get_container, get_container_by_id, get_secret, get_secret_by_id,
-    get_volume, list_containers, list_secrets, list_volumes, patch_container, search_containers,
-    update_secret, update_secret_by_id,
+    get_user_profile, get_volume, list_containers, list_secrets, list_volumes, patch_container,
+    search_containers, update_secret, update_secret_by_id,
 };
 use crate::handlers::{health_handler, root_handler};
 use crate::middleware::auth_middleware;
@@ -61,6 +61,7 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
             "/v1/volumes/:namespace/:name",
             get(get_volume).delete(delete_volume),
         )
+        .route("/v1/users/me", get(get_user_profile))
         // Apply the authentication middleware to private routes
         .layer(middleware::from_fn_with_state(
             app_state.clone(),

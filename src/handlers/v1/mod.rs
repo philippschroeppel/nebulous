@@ -13,3 +13,5 @@ pub mod volumes;
 pub use volumes::{create_volume, delete_volume, get_volume, list_volumes};
 pub mod namespaces;
 pub use namespaces::{create_namespace, delete_namespace, get_namespace, list_namespaces};
+pub mod auth;
+pub use auth::get_user_profile;

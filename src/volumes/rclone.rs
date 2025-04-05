@@ -1441,18 +1441,30 @@ async fn create_s3_directory(path: &str) -> Result<(), Box<dyn Error>> {
         format!("{}/", prefix)
     };
 
+    println!("Checking S3 directory: s3:{}/{}", bucket, directory_prefix);
+
+    // First try to list the directory to see if it exists
+    let list_cmd = TokioCommand::new("rclone")
+        .arg("lsf")
+        .arg(format!("s3:{}/{}", bucket, directory_prefix))
+        .output()
+        .await?;
+
+    // If listing succeeds, the directory exists or we at least have read access
+    if list_cmd.status.success() {
+        return Ok(());
+    }
+
+    // If we get here, try to create the directory but don't fail if we get a permission error
     println!(
-        "Ensuring S3 directory exists: s3:{}/{}",
+        "Attempting to create S3 directory: s3:{}/{}",
         bucket, directory_prefix
     );
 
-    // Create an empty directory marker object
     let temp_dir = tempfile::tempdir()?;
     let temp_file_path = temp_dir.path().join(".rclone_directory_marker");
     std::fs::write(&temp_file_path, "")?;
 
-    // Use rclone to copy the empty file to S3 as a directory marker
-    // We don't need to check if it exists first - if it does, this is a no-op
     let create_cmd = TokioCommand::new("rclone")
         .arg("copy")
         .arg(&temp_file_path)
@@ -1462,6 +1474,12 @@ async fn create_s3_directory(path: &str) -> Result<(), Box<dyn Error>> {
 
     if !create_cmd.status.success() {
         let error = String::from_utf8_lossy(&create_cmd.stderr);
+        // If it's a permission error, log it but don't fail
+        if error.contains("Forbidden") || error.contains("status code: 403") {
+            println!("Note: Unable to create S3 directory marker due to permissions (this may be expected): s3:{}/{}", bucket, directory_prefix);
+            return Ok(());
+        }
+        // For other errors, return the error
         return Err(format!("Failed to create S3 directory: {}", error).into());
     }
 

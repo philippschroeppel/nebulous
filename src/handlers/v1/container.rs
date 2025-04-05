@@ -310,7 +310,7 @@ pub async fn create_container(
             }
         },
     };
-    debug!("Using namespace: {:?}", namespace);
+    debug!(">> Using namespace for container creation: {:?}", namespace);
 
     crate::validate::validate_namespace(&namespace).map_err(|err| {
         (
@@ -343,6 +343,8 @@ pub async fn create_container(
             .platform
             .unwrap_or("runpod".to_string()),
     );
+
+    debug!("Declaring container with namespace: {:?}", namespace);
     let container = platform
         .declare(
             &container_request,

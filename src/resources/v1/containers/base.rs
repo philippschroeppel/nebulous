@@ -202,7 +202,7 @@ pub trait ContainerPlatform {
         let _ = match ensure_volume(
             db,
             &model.namespace,
-            &model.id,
+            &model.namespace,
             &model.owner,
             &source,
             &model.created_by.clone().unwrap_or_default(),
@@ -238,6 +238,9 @@ pub trait ContainerPlatform {
             "RCLONE_CONFIG_S3REMOTE_ENV_AUTH".to_string(),
             "true".to_string(),
         );
+        debug!("Adding AWS credentials");
+        debug!("Access key: {}", s3_token.access_key_id);
+        debug!("Secret key: {}", s3_token.secret_access_key);
         env.insert("AWS_ACCESS_KEY_ID".to_string(), s3_token.access_key_id);
         env.insert(
             "AWS_SECRET_ACCESS_KEY".to_string(),
@@ -247,6 +250,7 @@ pub trait ContainerPlatform {
             "RCLONE_CONFIG_S3REMOTE_REGION".to_string(),
             CONFIG.bucket_region.clone(),
         );
+        env.insert("RCLONE_S3_NO_CHECK_BUCKET".to_string(), "true".to_string());
         env.insert("NEBU_API_KEY".to_string(), agent_key.unwrap());
         env.insert(
             "NEBU_SERVER".to_string(),
@@ -262,6 +266,7 @@ pub trait ContainerPlatform {
         env.insert("NEBU_CONTAINER_ID".to_string(), model.id.clone());
         env.insert("NEBU_DATE".to_string(), chrono::Utc::now().to_rfc3339());
         env.insert("HF_HOME".to_string(), "/nebu/cache/huggingface".to_string());
+        env.insert("NAMESPACE_VOLUME_URI".to_string(), source);
 
         env.insert(
             "TS_AUTHKEY".to_string(),

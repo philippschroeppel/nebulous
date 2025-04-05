@@ -244,7 +244,7 @@ pub async fn ensure_namespace(
     debug!("Ensuring namespace: {:?}", name);
     // First, try to find the namespace by namespace and name
     let existing_namespace = namespaces::Entity::find()
-        .filter(namespaces::Column::Name.eq(name.clone()))
+        .filter(namespaces::Column::Name.eq(name))
         .one(db_pool)
         .await?;
 

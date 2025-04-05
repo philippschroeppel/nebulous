@@ -5,6 +5,7 @@ use aws_sdk_iam::Client as IamClient;
 use aws_sdk_s3::config::{Credentials, Region};
 use aws_sdk_s3::Client as S3Client;
 use serde_json::json;
+use tracing::debug;
 
 pub struct S3ClientInternal {
     client: S3Client,
@@ -125,31 +126,17 @@ pub async fn create_s3_scoped_user(
         "Statement": [
             {
                 "Effect": "Allow",
-                "Action": [
-                    "s3:GetObject",
-                    "s3:PutObject",
-                    "s3:ListBucket"
-                ],
+                "Action": "s3:*",
                 "Resource": [
                     format!("arn:aws:s3:::{}/data/{}", bucket_name, namespace),
-                    format!("arn:aws:s3:::{}/data/{}", bucket_name, namespace)
+                    format!("arn:aws:s3:::{}/data/{}/*", bucket_name, namespace),
+                    format!("arn:aws:s3:::{}/data/{}/**", bucket_name, namespace)
                 ]
-            },
-            {
-                "Effect": "Allow",
-                "Action": "s3:ListBucket",
-                "Resource": format!("arn:aws:s3:::{}", bucket_name),
-                "Condition": {
-                    "StringLike": {
-                        "s3:prefix": [
-                            format!("data/{}", namespace),
-                            format!("data/{}", namespace)
-                        ]
-                    }
-                }
             }
         ]
     });
+
+    debug!(">>> Policy document: {}", policy_document);
 
     // Create the policy
     let policy_name = format!("s3-scope-{}-{}", namespace, name);
