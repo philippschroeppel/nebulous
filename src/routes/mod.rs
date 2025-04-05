@@ -1,3 +1,4 @@
+use crate::handlers::auth::{generate_api_key, get_api_key, list_api_keys, revoke_api_key};
 use crate::handlers::v1::{
     create_container, create_secret, delete_container, delete_container_by_id, delete_secret,
     delete_secret_by_id, fetch_container_logs, fetch_container_logs_by_id, get_container,
@@ -23,7 +24,10 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
 
     // Private routes that require authentication
     let private_routes = Router::new()
-        // Chat
+        .route("/auth/api-keys/:id", get(get_api_key))
+        .route("/auth/api-keys", get(list_api_keys))
+        .route("/auth/api-keys/generate", get(generate_api_key))
+        .route("/auth/api-keys/revoke", post(revoke_api_key))
         .route(
             "/v1/containers",
             get(list_containers).post(create_container),

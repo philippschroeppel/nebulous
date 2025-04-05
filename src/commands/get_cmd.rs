@@ -10,7 +10,8 @@ pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
     let config = GlobalConfig::read()?;
     debug!("Config: {:?}", config);
 
-    let (server, api_key) = config.get_current_server_config()
+    let (server, api_key) = config
+        .get_current_server_config()
         .and_then(|current_server| {
             Some((
                 current_server.server.as_ref()?,

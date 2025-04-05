@@ -1,6 +1,7 @@
 // src/lib.rs
 
 pub mod accelerator;
+pub mod agent;
 pub mod auth;
 pub mod cli;
 pub mod client;

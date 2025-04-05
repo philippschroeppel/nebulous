@@ -7,7 +7,6 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use sea_orm::ColIdx;
 use serde_json::json;
 
 pub async fn auth_middleware(
@@ -59,7 +58,7 @@ async fn external_auth(auth_header: &String, mut request: Request, next: Next) -
         .as_ref()
         .unwrap();
 
-    println!("🔐 Making auth request to: {}", auth_url);
+    println!("🔐 Making agent request to: {}", auth_url);
 
     // Validate the token with agentlabs
     let client = reqwest::Client::new();

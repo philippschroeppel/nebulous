@@ -417,7 +417,7 @@ pub enum DeleteCommands {
 #[derive(Subcommand)]
 pub enum WorkCommands {}
 
-/// Subcommands for the "auth" command
+/// Subcommands for the "agent" command
 #[derive(Subcommand)]
 pub enum AuthCommands {
     /// Manage API keys for authentication with the Nebulous API server.
@@ -426,13 +426,19 @@ pub enum AuthCommands {
         #[command(subcommand)]
         action: ApiKeyActions,
     },
-    // TODO: Add auth for tailnet
+    // TODO: Add agent for tailnet
 }
 
 #[derive(Subcommand)]
 pub enum ApiKeyActions {
     /// List API keys.
     List,
+
+    /// Get API key details.
+    Get {
+        /// The ID of the API key to get.
+        id: String,
+    },
 
     /// Generate a new API key.
     Generate,

@@ -111,7 +111,9 @@ impl GlobalConfig {
     /// with that name is found.
     pub fn get_current_server_config(&self) -> Option<&ServerConfig> {
         self.current_server.as_deref().and_then(|name| {
-            self.servers.iter().find(|srv| srv.name.as_deref() == Some(name))
+            self.servers
+                .iter()
+                .find(|srv| srv.name.as_deref() == Some(name))
         })
     }
 }

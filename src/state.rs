@@ -1,9 +1,9 @@
-use std::sync::Arc;
 use crate::db::DbPool;
-use redis::Client as RedisClient;
-use rdkafka::producer::FutureProducer;
 use rdkafka::admin::AdminClient;
 use rdkafka::client::DefaultClientContext;
+use rdkafka::producer::FutureProducer;
+use redis::Client as RedisClient;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub enum MessageQueue {

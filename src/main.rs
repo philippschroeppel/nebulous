@@ -131,6 +131,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 ApiKeyActions::List => {
                     commands::auth_cmd::list_api_keys().await?;
                 }
+                ApiKeyActions::Get { id } => {
+                    commands::auth_cmd::get_api_key(&id).await?;
+                }
                 ApiKeyActions::Generate => {
                     commands::auth_cmd::generate_api_key().await?;
                 }
