@@ -15,11 +15,11 @@ pub async fn auth_middleware(
     mut request: Request,
     next: Next,
 ) -> Response {
-    // Extract the Authorization header
     let auth_header = {
         match request.headers().get("Authorization") {
             Some(header) => header.to_str().unwrap_or("").to_string(),
             None => {
+                println!("No Authorization header");
                 return unauthorized_response();
             }
         }
@@ -27,27 +27,25 @@ pub async fn auth_middleware(
 
     if auth_header.starts_with("Bearer ") {
         let token = auth_header.trim_start_matches("Bearer ");
-        if token.is_empty() {
-            unauthorized_response();
-        }
 
-        if token.starts_with("nebu-") {
+        if token.is_empty() {
+            println!("Bearer token is empty");
+            unauthorized_response()
+        } else if token.starts_with("nebu-") {
             println!("🔐 Found Nebulous token: {}", token);
             internal_auth(token, request, next).await
-        } else if token.is_empty() {
-            println!("Token is empty");
-            unauthorized_response()
         } else {
             println!("🔐 Found external token: {}", token);
             external_auth(&auth_header, request, next).await
         }
     } else {
-        // Invalid token format
+        println!("Invalid Authorization header format");
         unauthorized_response()
     }
 }
 
 async fn internal_auth(token: &str, request: Request, next: Next) -> Response {
+    // TODO: Validate token
     return next.run(request).await;
 }
 
