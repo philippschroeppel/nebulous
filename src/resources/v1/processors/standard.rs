@@ -134,11 +134,14 @@ impl StandardProcessor {
             secret_name: None,
         });
 
-        // Redis URL with credentials
-        let redis_url = format!(
-            "redis://{}:{}@{}:{}",
-            username, password, CONFIG.redis_host, CONFIG.redis_port
-        );
+        // Redis URL with credentials - prioritize REDIS_URL if set
+        let redis_url = match CONFIG.redis_url.clone() {
+            Some(url) => url,
+            None => format!(
+                "redis://{}:{}@{}:{}",
+                username, password, CONFIG.redis_host, CONFIG.redis_port
+            ),
+        };
 
         // Add all Redis env vars
         env.push(V1EnvVar {
