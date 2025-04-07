@@ -13,11 +13,10 @@ use serde_json::json;
 
 pub async fn auth_middleware(
     State(state): State<AppState>,
-    mut request: Request,
+    request: Request,
     next: Next,
 ) -> Response {
     let db_pool = &state.db_pool;
-
     let auth_header = {
         match request.headers().get("Authorization") {
             Some(header) => header.to_str().unwrap_or("").to_string(),
@@ -27,7 +26,6 @@ pub async fn auth_middleware(
             }
         }
     };
-
     if auth_header.starts_with("Bearer ") {
         let token = auth_header.trim_start_matches("Bearer ");
 
@@ -53,7 +51,7 @@ async fn internal_auth(
     request: Request,
     next: Next,
 ) -> Response {
-    let is_valid = auth::api::validate_api_key(&db_conn, &token).await;
+    let is_valid = auth::api::validate_api_key(db_conn, token).await;
     match is_valid {
         Ok(is_valid) => {
             if is_valid {

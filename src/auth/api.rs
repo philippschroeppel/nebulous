@@ -69,7 +69,7 @@ pub async fn generate_api_key(
 pub async fn validate_api_key(
     db_conn: &DatabaseConnection,
     provided_key: &str,
-) -> Result<bool, Box<dyn std::error::Error>> {
+) -> Result<bool, Box<dyn std::error::Error + Sync + Send>> {
     if let Some(full_key) = provided_key.strip_prefix("nebu-") {
         let parts: Vec<&str> = full_key.split('.').collect();
         if parts.len() == 2 {
