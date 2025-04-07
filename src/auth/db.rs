@@ -7,7 +7,7 @@ use sea_orm::{ActiveModelBehavior, DeriveEntityModel, DeriveRelation, EnumIter, 
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: String,
-    pub key: String,
+    pub hash: String,
     pub created_at: DateTimeWithTimeZone,
     pub last_used_at: Option<DateTimeWithTimeZone>,
     pub revoked_at: Option<DateTimeWithTimeZone>,

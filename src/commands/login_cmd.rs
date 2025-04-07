@@ -11,7 +11,7 @@ pub async fn execute(
     hub: Option<String>,
 ) -> Result<(), Box<dyn Error>> {
     if auth.is_none() ^ hub.is_none() {
-        eprintln!("Either agent or hub URL provided. Please provide both or neither.");
+        eprintln!("Either auth or hub URL provided. Please provide both or neither.");
         return Ok(());
     }
 
@@ -41,7 +41,7 @@ pub async fn execute(
         });
         config.current_server = Some("cloud".to_string());
     } else {
-        let auth_url = format!("{}/agent", nebu_url);
+        let auth_url = format!("{}/auth", nebu_url);
 
         // TODO: Get an API key
 

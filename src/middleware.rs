@@ -1,3 +1,4 @@
+use crate::auth;
 use crate::models::V1UserProfile;
 use crate::AppState;
 use axum::{
@@ -7,13 +8,16 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use sea_orm::DatabaseConnection;
 use serde_json::json;
 
 pub async fn auth_middleware(
-    State(_app_state): State<AppState>,
+    State(state): State<AppState>,
     mut request: Request,
     next: Next,
 ) -> Response {
+    let db_pool = &state.db_pool;
+
     let auth_header = {
         match request.headers().get("Authorization") {
             Some(header) => header.to_str().unwrap_or("").to_string(),
@@ -32,7 +36,7 @@ pub async fn auth_middleware(
             unauthorized_response()
         } else if token.starts_with("nebu-") {
             println!("🔐 Found Nebulous token: {}", token);
-            internal_auth(token, request, next).await
+            internal_auth(db_pool, token, request, next).await
         } else {
             println!("🔐 Found external token: {}", token);
             external_auth(&auth_header, request, next).await
@@ -43,9 +47,29 @@ pub async fn auth_middleware(
     }
 }
 
-async fn internal_auth(token: &str, request: Request, next: Next) -> Response {
-    // TODO: Validate token
-    return next.run(request).await;
+async fn internal_auth(
+    db_conn: &DatabaseConnection,
+    token: &str,
+    request: Request,
+    next: Next,
+) -> Response {
+    let is_valid = auth::api::validate_api_key(&db_conn, &token).await;
+    match is_valid {
+        Ok(is_valid) => {
+            if is_valid {
+                println!("✅ Token is valid");
+                // TODO: Insert user details
+                next.run(request).await
+            } else {
+                println!("❌ Token is invalid");
+                unauthorized_response()
+            }
+        }
+        Err(_) => {
+            println!("❌ Failed to validate token");
+            unauthorized_response()
+        }
+    }
 }
 
 async fn external_auth(auth_header: &String, mut request: Request, next: Next) -> Response {
@@ -58,9 +82,9 @@ async fn external_auth(auth_header: &String, mut request: Request, next: Next) -
         .as_ref()
         .unwrap();
 
-    println!("🔐 Making agent request to: {}", auth_url);
+    println!("🔐 Making auth request to: {}", auth_url);
 
-    // Validate the token with agentlabs
+    // Validate the token with auth server
     let client = reqwest::Client::new();
     let user_profile_result = client
         .get(auth_url)
@@ -79,7 +103,7 @@ async fn external_auth(auth_header: &String, mut request: Request, next: Next) -
                 match serde_json::from_str::<V1UserProfile>(&response_text) {
                     Ok(user_profile) => {
                         request.extensions_mut().insert(user_profile);
-                        return next.run(request).await;
+                        next.run(request).await
                     }
                     Err(e) => {
                         println!("❌ Failed to parse user profile: {}", e);

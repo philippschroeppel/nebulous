@@ -84,6 +84,8 @@ oci-distribution = "0.11.0"
 regex = "1.11.1"
 jsonpath_lib = "0.3.0"
 humantime = "2.2.0"
+argon2 = "0.5.3"
+hex = "0.4.3"
 
 [lib]
 name = "nebulous"

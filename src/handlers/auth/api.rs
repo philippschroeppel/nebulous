@@ -13,6 +13,17 @@ pub struct ApiKeyRequest {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct RawApiKeyResponse {
+    pub api_key: String,
+}
+
+impl RawApiKeyResponse {
+    pub fn new(api_key: String) -> Self {
+        Self { api_key }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct ApiKeyListResponse {
     pub api_keys: Vec<SanitizedApiKey>,
 }
@@ -47,9 +58,9 @@ pub async fn list_api_keys(
 pub async fn generate_api_key(
     State(state): State<AppState>,
     Extension(user_profile): Extension<V1UserProfile>,
-) -> Result<Json<SanitizedApiKey>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Json<RawApiKeyResponse>, (StatusCode, Json<serde_json::Value>)> {
     match auth::api::generate_api_key(&state.db_pool).await {
-        Ok(api_key) => Ok(Json(SanitizedApiKey::from(api_key))),
+        Ok(api_key) => Ok(Json(RawApiKeyResponse::new(api_key))),
         Err(_) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": "Failed to generate API key"})),

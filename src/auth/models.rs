@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ApiKey {
     pub id: String,
-    pub key: String,
+    pub hash: String,
     pub created_at: String,
     pub last_used_at: Option<String>,
     pub revoked_at: Option<String>,
@@ -12,10 +12,10 @@ pub struct ApiKey {
 }
 
 impl ApiKey {
-    pub fn new(id: String, key: String) -> Self {
+    pub fn new(id: String, hash: String) -> Self {
         Self {
             id,
-            key,
+            hash,
             created_at: chrono::Utc::now().to_string(),
             last_used_at: None,
             revoked_at: None,
@@ -29,6 +29,7 @@ impl ApiKey {
 
     pub fn revoke(&mut self) {
         self.revoked_at = Some(chrono::Utc::now().to_string());
+        self.hash = String::new();
         self.is_active = false;
     }
 }
@@ -37,7 +38,7 @@ impl From<db::Model> for ApiKey {
     fn from(model: db::Model) -> Self {
         Self {
             id: model.id,
-            key: model.key,
+            hash: model.hash,
             created_at: model.created_at.to_string(),
             last_used_at: model.last_used_at.map(|dt| dt.to_string()),
             revoked_at: model.revoked_at.clone().map(|dt| dt.to_string()),
@@ -50,7 +51,7 @@ impl From<ApiKey> for db::Model {
     fn from(api_key: ApiKey) -> Self {
         Self {
             id: api_key.id,
-            key: api_key.key,
+            hash: api_key.hash,
             created_at: chrono::DateTime::parse_from_rfc3339(&api_key.created_at).unwrap(),
             last_used_at: api_key
                 .last_used_at
