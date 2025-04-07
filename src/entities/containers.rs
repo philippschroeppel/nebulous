@@ -1,4 +1,4 @@
-// src/entities/training_job.rs
+// src/entities/containers.rs
 
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};

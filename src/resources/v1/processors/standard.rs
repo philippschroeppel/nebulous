@@ -1,26 +1,28 @@
+use crate::auth::agent::create_agent_key;
 use crate::config::CONFIG;
 use crate::entities::containers;
 use crate::entities::processors;
-use crate::models::V1ResourceMetaRequest;
+use crate::models::V1CreateAgentKeyRequest;
 use crate::models::V1UserProfile;
 use crate::mutation::Mutation;
 use crate::query::Query;
-use crate::resources::v1::containers::base::ContainerPlatform;
 use crate::resources::v1::containers::factory::platform_factory;
+use crate::resources::v1::containers::models::V1ContainerRequest;
 use crate::resources::v1::containers::models::V1EnvVar;
-use crate::resources::v1::containers::models::{RestartPolicy, V1ContainerRequest};
-use crate::resources::v1::containers::runpod::RunpodPlatform;
 use crate::resources::v1::processors::base::{ProcessorPlatform, ProcessorStatus};
-use crate::resources::v1::processors::models::{V1Processor, V1ProcessorRequest};
+use crate::resources::v1::processors::models::{
+    V1Processor, V1ProcessorRequest, V1ProcessorStatus,
+};
 use crate::state::MessageQueue;
 use crate::streams::redis::get_consumer_group_progress;
 use crate::AppState;
 use chrono::{DateTime, Duration, Utc};
-use sea_orm::{ActiveModelTrait, ActiveValue::Set, DatabaseConnection};
+use reqwest;
+use sea_orm::{ActiveModelTrait, ActiveValue::Set, DatabaseConnection, EntityTrait};
+use short_uuid::ShortUuid;
 use std::str::FromStr;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
-use uuid::Uuid;
 
 /// Standard implementation of the ProcessorPlatform trait
 pub struct StandardProcessor {
@@ -187,7 +189,7 @@ impl StandardProcessor {
         &self,
         db: &DatabaseConnection,
         processor: processors::Model,
-        namespace: &str,
+        owner_profile: &V1UserProfile,
         redis_client: &redis::Client,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         info!("[Processor Controller] Starting processor {}", processor.id);
@@ -212,22 +214,19 @@ impl StandardProcessor {
         );
 
         // 4) Create a ContainerPlatform
-        let runpod = RunpodPlatform::new();
-
-        // 5) User profile for container creation
-        let user_profile = V1UserProfile {
-            email: processor
-                .created_by
-                .clone()
-                .unwrap_or_else(|| "unknown@domain.tld".to_string()),
-            ..Default::default()
-        };
+        // Determine the platform from the container config or default to runpod
+        let platform_str = container.platform.clone().unwrap_or("runpod".to_string());
+        let platform = platform_factory(platform_str);
 
         // 6) For each replica, create the container
         for replica_index in 0..min_replicas {
             let mut request_for_replica = container.clone();
             if let Some(mut meta) = request_for_replica.metadata.take() {
-                meta.name = Some(format!("{:?}-replica-{:?}", meta.name, replica_index));
+                meta.name = Some(format!(
+                    "{}-replica-{}",
+                    meta.name.unwrap_or_default(),
+                    replica_index
+                ));
                 request_for_replica.metadata = Some(meta);
             }
 
@@ -236,11 +235,11 @@ impl StandardProcessor {
                 replica_index, processor.id
             );
 
-            let declared = runpod
+            let declared = platform
                 .declare(
                     &request_for_replica,
                     db,
-                    &user_profile,
+                    owner_profile,
                     &processor.owner,
                     &processor.namespace,
                 )
@@ -353,6 +352,7 @@ impl StandardProcessor {
         &self,
         db: &DatabaseConnection,
         processor: processors::Model,
+        owner_profile: &V1UserProfile,
         redis_client: &redis::Client,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use tracing::info;
@@ -392,6 +392,7 @@ impl StandardProcessor {
             processor.desired_replicas.unwrap_or(1),
             parsed_container.clone(),
             db,
+            owner_profile,
             redis_client,
         )
         .await?;
@@ -410,7 +411,7 @@ impl StandardProcessor {
         debug!("Consumer group: {:?}", consumer_group);
 
         // 3) Check how many messages are pending for this group in the Redis stream (i.e. 'pressure').
-        //    This uses the `redis` crate’s XPending or XPendingCount functionality.
+        //    This uses the `redis` crate's XPending or XPendingCount functionality.
         //    Adjust the connection string or usage as necessary for your environment.
         let pending_count =
             match get_consumer_group_progress(&mut con, &stream_name, consumer_group) {
@@ -607,6 +608,7 @@ impl StandardProcessor {
                 new_replica_count as i32,
                 parsed_container,
                 db,
+                owner_profile,
                 redis_client,
             )
             .await?;
@@ -627,6 +629,7 @@ impl StandardProcessor {
         new_replica_count: i32,
         container_request: V1ContainerRequest,
         db: &DatabaseConnection,
+        owner_profile: &V1UserProfile,
         redis_client: &redis::Client,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Get the customized container with all our environment variables
@@ -660,19 +663,11 @@ impl StandardProcessor {
                     replica_index, processor.id
                 );
 
-                let user_profile = V1UserProfile {
-                    email: processor
-                        .created_by
-                        .clone()
-                        .unwrap_or_else(|| "unknown@domain.tld".to_string()),
-                    ..Default::default()
-                };
-
                 let declared = platform
                     .declare(
                         &request_for_replica,
                         db,
-                        &user_profile,
+                        owner_profile,
                         &processor.owner,
                         &processor.namespace,
                     )
@@ -685,21 +680,17 @@ impl StandardProcessor {
             }
         } else if new_replica_count < current_replicas {
             // Sort containers by replica number (extracted from name)
-            let containers: Vec<containers::Model> =
-                match Query::find_containers_by_owner_ref(db, &processor.id).await {
-                    Ok(c) => c,
-                    Err(e) => {
-                        error!(
-                            "[Processor Controller] Error finding containers for processor {}: {}",
-                            processor.id, e
-                        );
-                        return Err(e.into());
-                    }
-                };
+            let associated_containers_result =
+                Query::find_containers_by_owner_ref(db, &processor.id).await;
+            debug!(
+                "Container query result for processor {}: {:?}",
+                processor.id, associated_containers_result
+            );
+            let associated_containers = associated_containers_result?;
 
-            debug!("Containers: {:?}", containers);
+            debug!("Containers: {:?}", associated_containers);
 
-            let mut containers_to_remove: Vec<(i32, containers::Model)> = containers
+            let mut containers_to_remove: Vec<(i32, containers::Model)> = associated_containers
                 .into_iter()
                 .filter_map(|c: containers::Model| {
                     c.name
@@ -752,12 +743,17 @@ impl ProcessorPlatform for StandardProcessor {
         namespace: &str,
     ) -> Result<V1Processor, Box<dyn std::error::Error + Send + Sync>> {
         // 1. Generate a unique ID for the new processor.
-        let new_id = Uuid::new_v4().to_string();
+        let new_id = ShortUuid::generate().to_string();
         let name = config
             .metadata
             .name
             .clone()
             .unwrap_or(petname::petname(3, "-").unwrap());
+
+        debug!(
+            "Declaring processor {:?} in namespace {:?}",
+            name, namespace
+        );
 
         // 2. Create an ActiveModel to represent the new record in the database.
         let processor_am = processors::ActiveModel {
@@ -765,6 +761,7 @@ impl ProcessorPlatform for StandardProcessor {
             id: Set(new_id),
             name: Set(name.clone()),
             namespace: Set(namespace.to_string()),
+            full_name: Set(format!("{}/{}", namespace, name)),
             owner: Set(owner_id.to_string()),
             created_by: Set(Some(user_profile.email.clone())),
 
@@ -793,10 +790,14 @@ impl ProcessorPlatform for StandardProcessor {
             stream: Set(format!("processor:{}:{}", namespace, name)),
 
             // Typically set an initial status or desired_status to "Defined" or similar.
-            status: Set(Some(serde_json::to_value(ProcessorStatus::Defined)?)),
+            status: Set(Some(serde_json::to_value(V1ProcessorStatus {
+                status: Some(ProcessorStatus::Defined.to_string()),
+                message: None,
+                pressure: None,
+            })?)),
             desired_status: Set(Some(ProcessorStatus::Running.to_string())),
 
-            // For scale, you might also set min_replicas/max_replicas if that’s appropriate.
+            // For scale, you might also set min_replicas/max_replicas if that's appropriate.
             min_replicas: Set(config.min_replicas.clone()),
             max_replicas: Set(config.max_replicas.clone()),
 
@@ -807,11 +808,147 @@ impl ProcessorPlatform for StandardProcessor {
             ..Default::default()
         };
 
-        // 3. Insert into the DB.
-        let inserted_model = processor_am.insert(db).await?;
+        debug!("Processor ActiveModel: {:?}", processor_am);
 
-        // 4. Convert the inserted record back to your desired V1Processor and return.
-        Ok(inserted_model.to_v1_processor()?)
+        // 3. Insert into the DB.
+        let inserted_model = match processor_am.insert(db).await {
+            Ok(model) => model,
+            Err(e) => {
+                error!("Error inserting processor {:?}: {:?}", name, e);
+                return Err(e.into());
+            }
+        };
+
+        debug!("Inserted processor: {:?}", inserted_model);
+
+        // --- BEGIN: Add Processor Agent Key Creation ---
+        debug!(
+            "Creating agent key for processor {}",
+            inserted_model.id.clone()
+        );
+
+        // Assume a function exists to create the key using user profile
+        // We need the auth server URL, user token, desired agent ID, name, and duration.
+        let config = crate::config::GlobalConfig::read()
+            .map_err(|e| format!("Failed to read global config: {}", e))?;
+        let auth_server = config
+            .get_current_server_config()
+            .and_then(|cfg| cfg.auth_server.clone())
+            .ok_or_else(|| "Auth server URL not configured".to_string())?;
+        let user_token = user_profile
+            .token
+            .as_ref()
+            .ok_or_else(|| "User profile token is missing".to_string())?;
+
+        let agent_key_request = V1CreateAgentKeyRequest {
+            agent_id: format!("processor-{}", inserted_model.id),
+            name: format!("Processor Key for {}", inserted_model.name),
+            duration: 31536000, // e.g., 1 year
+        };
+
+        let processor_agent_key_response =
+            match create_agent_key(&auth_server, user_token, agent_key_request).await {
+                Ok(response) => response,
+                Err(e) => {
+                    error!(
+                        "Failed to create agent key for processor {}: {}",
+                        inserted_model.id, e
+                    );
+                    return Err(format!("Failed to create agent key for processor: {}", e).into());
+                }
+            };
+
+        let processor_agent_key = processor_agent_key_response
+            .key
+            .ok_or_else(|| "Auth server did not return an agent key".to_string())?;
+
+        // Store the processor's agent key as a secret
+        let secret_name = format!("processor-agent-key-{}", inserted_model.id);
+        let secret_namespace = "root";
+        let secret_full_name = format!("{}/{}", secret_namespace, secret_name);
+
+        // --- BEGIN: Check and Delete Existing Secret ---
+        debug!(
+            "Checking for existing secret {}/{}",
+            secret_namespace, secret_name
+        );
+        match Query::find_secret_by_namespace_and_name(db, secret_namespace, &secret_name).await {
+            Ok(Some(existing_secret)) => {
+                info!(
+                    "Found existing secret {}/{}, deleting it before creating a new one.",
+                    secret_namespace, secret_name
+                );
+                match crate::entities::secrets::Entity::delete_by_id(existing_secret.id)
+                    .exec(db)
+                    .await
+                {
+                    Ok(_) => debug!("Successfully deleted existing secret."),
+                    Err(e) => {
+                        error!(
+                            "Failed to delete existing secret {}: {}",
+                            secret_full_name, e
+                        );
+                        // Decide if we should return an error here or continue
+                        return Err(format!("Failed to delete existing secret: {}", e).into());
+                    }
+                }
+            }
+            Ok(None) => {
+                debug!("No existing secret found, proceeding with creation.");
+            }
+            Err(e) => {
+                error!(
+                    "Error checking for existing secret {}: {}",
+                    secret_full_name, e
+                );
+                return Err(format!("Database error checking for existing secret: {}", e).into());
+            }
+        }
+        // --- END: Check and Delete Existing Secret ---
+
+        debug!("Storing processor agent key secret: {}", secret_full_name);
+        // Adapt store_ssh_keypair logic for storing a single secret
+        let secret_model = crate::entities::secrets::Model::new(
+            ShortUuid::generate().to_string(), // Use a new UUID for the secret's own ID
+            secret_name,                       // Name of the secret
+            secret_namespace.to_string(),      // Namespace for the secret
+            user_profile.email.clone(),        // User who created/owns this secret record
+            &processor_agent_key,              // The value to encrypt and store
+            Some(inserted_model.id.clone()),   // owner_ref links to the processor
+            None,                              // Labels
+            None,                              // Expires_at
+        )
+        .map_err(|e| format!("Failed to prepare secret model: {}", e))?;
+
+        let active_secret_model: crate::entities::secrets::ActiveModel = secret_model.into();
+
+        crate::entities::secrets::Entity::insert(active_secret_model)
+            .exec(db)
+            .await
+            .map_err(|e| {
+                error!(
+                    "Failed to store processor agent key secret {}: {}",
+                    secret_full_name, e
+                );
+                format!("Failed to store processor agent key secret: {}", e)
+            })?;
+
+        // Update the processor record with the secret ID
+
+        let v1_processor = match inserted_model.to_v1_processor() {
+            Ok(processor) => processor,
+            Err(e) => {
+                error!(
+                    "Error converting processor {:?} to V1Processor: {:?}",
+                    name, e
+                );
+                return Err(e.into());
+            }
+        };
+
+        debug!("V1 processor: {:?}", v1_processor);
+
+        Ok(v1_processor)
     }
 
     async fn reconcile(
@@ -824,6 +961,72 @@ impl ProcessorPlatform for StandardProcessor {
             "[DEBUG:standard.rs:reconcile] Entering reconcile for processor {}",
             processor.id
         );
+
+        // --- BEGIN: Get Processor's Agent Key and User Profile ---
+        let secret_name = format!("processor-agent-key-{}", processor.id);
+        let secret_namespace = "root"; // As defined in `declare`
+
+        debug!("Fetching secret {}/{}", secret_namespace, secret_name);
+        let secret_model =
+            Query::find_secret_by_namespace_and_name(db, secret_namespace, &secret_name)
+                .await
+                .map_err(|e| format!("Database error fetching secret: {}", e))?
+                .ok_or_else(|| {
+                    format!(
+                        "Secret '{}/{}' not found for processor {}",
+                        secret_namespace, secret_name, processor.id
+                    )
+                })?;
+
+        debug!("Decrypting secret value for processor {}", processor.id);
+        let agent_key = secret_model
+            .decrypt_value()
+            .map_err(|e| format!("Failed to decrypt agent key: {}", e))?;
+
+        let config = crate::config::GlobalConfig::read()
+            .map_err(|e| format!("Failed to read global config: {}", e))?;
+        let auth_server = config
+            .get_current_server_config()
+            // Use .as_ref() to avoid moving out of shared reference
+            .as_ref()
+            .ok_or_else(|| "Current server config not found".to_string())?
+            .auth_server
+            // Use .as_ref() again to get Option<&String>
+            .as_ref()
+            .ok_or_else(|| "Auth server URL not configured".to_string())?;
+
+        debug!(
+            "Fetching user profile using processor agent key from {}",
+            auth_server
+        );
+        let client = reqwest::Client::new();
+        let user_profile_url = format!("{}/v1/users/me", auth_server);
+
+        let response = client
+            .get(&user_profile_url)
+            .header("Authorization", format!("Bearer {}", agent_key))
+            .send()
+            .await
+            .map_err(|e| format!("Auth request to {} failed: {}", user_profile_url, e))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Failed to read error body".to_string());
+            error!("Auth request failed with status {}: {}", status, error_text);
+            return Err(
+                format!("Auth request failed with status {}: {}", status, error_text).into(),
+            );
+        }
+
+        let owner_profile = response
+            .json::<V1UserProfile>()
+            .await
+            .map_err(|e| format!("Failed to parse user profile response: {}", e))?;
+
+        debug!("Retrieved owner profile: {:?}", owner_profile);
 
         // 1) Attempt to parse the current status from the DB row
         if let Ok(Some(parsed_status)) = processor.parse_status() {
@@ -850,13 +1053,8 @@ impl ProcessorPlatform for StandardProcessor {
                             "[Processor Controller] Processor {} desired_status is 'Running'; starting...",
                             processor.id
                         );
-                        self.start_processor(
-                            db,
-                            processor.clone(),
-                            &processor.namespace.as_str(),
-                            redis_client,
-                        )
-                        .await?;
+                        self.start_processor(db, processor.clone(), &owner_profile, redis_client)
+                            .await?;
                     } else {
                         info!(
                             "[Processor Controller] Processor {} desired_status is '{}', not 'Running'",
@@ -877,11 +1075,16 @@ impl ProcessorPlatform for StandardProcessor {
                     "[Processor Controller] Processor {} needs to be watched",
                     processor.id
                 );
-                // 1) Match on the enum to get the Redis Client, if it’s a Redis-based queue
+                // 1) Match on the enum to get the Redis Client, if it's a Redis-based queue
                 match &self.state.message_queue {
                     MessageQueue::Redis { client } => {
-                        self.watch_processor(db, processor.clone(), client.as_ref())
-                            .await?;
+                        self.watch_processor(
+                            db,
+                            processor.clone(),
+                            &owner_profile,
+                            client.as_ref(),
+                        )
+                        .await?;
                     }
                     MessageQueue::Kafka { .. } => {
                         info!("[Processor Controller] Not a Redis queue; skipping watch");
@@ -907,11 +1110,13 @@ impl ProcessorPlatform for StandardProcessor {
         id: &str,
         db: &DatabaseConnection,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        debug!("Deleting processor: {}", id);
         use crate::entities::processors;
         use crate::query::Query;
         use crate::resources::v1::containers::factory::platform_factory;
         use sea_orm::EntityTrait;
 
+        debug!("Finding processor: {}", id);
         // 1) Find the processor in the database by `id`.
         let Some(processor) = processors::Entity::find_by_id(id.to_string())
             .one(db)
@@ -922,9 +1127,21 @@ impl ProcessorPlatform for StandardProcessor {
 
         tracing::info!("Deleting processor '{}'...", processor.id);
 
-        // 2) If you query by metadata->>'owner_ref' or by labels->>'processor-id':
-        let associated_containers = Query::find_containers_by_owner_ref(db, &processor.id).await?;
+        // 2) Query containers using the correct owner_ref format
+        let owner_ref_string = format!("{}.{}.Processor", processor.name, processor.namespace);
+        let associated_containers_result =
+            Query::find_containers_by_owner_ref(db, &owner_ref_string).await; // Use the formatted string
+        debug!(
+            "Container query result for processor {} using owner_ref '{}': {:?}",
+            processor.id, owner_ref_string, associated_containers_result
+        );
+        let associated_containers = associated_containers_result?;
 
+        debug!(
+            "Found {} containers referencing processor '{}'",
+            associated_containers.len(),
+            processor.id
+        );
         if associated_containers.is_empty() {
             tracing::info!(
                 "No containers found referencing processor '{}'",
@@ -938,12 +1155,13 @@ impl ProcessorPlatform for StandardProcessor {
             );
         }
 
-        // 3) We’ll remove each container from its own platform:
+        // 3) We'll remove each container from its own platform:
         for container in associated_containers {
+            debug!("Deleting container: {}", container.id);
             // a) Parse the container's intended platform (e.g. "runpod" or "kube")
             let platform_str = container.platform.clone().unwrap_or("runpod".to_string());
             // fallback to "runpod" or whichever makes sense
-
+            debug!("Platform string: {}", platform_str);
             let platform = platform_factory(platform_str);
             platform.delete(&container.id, db).await?;
 
@@ -951,16 +1169,55 @@ impl ProcessorPlatform for StandardProcessor {
             // container.delete(db).await?;
         }
 
+        // --- BEGIN: Delete Associated Secret ---
+        let secret_name = format!("processor-agent-key-{}", processor.id);
+        let secret_namespace = "root"; // As defined in `declare`
+        debug!(
+            "Attempting to delete secret {}/{} for processor {}",
+            secret_namespace, secret_name, processor.id
+        );
+
+        match Query::find_secret_by_namespace_and_name(db, secret_namespace, &secret_name).await {
+            Ok(Some(secret_model)) => {
+                match crate::entities::secrets::Entity::delete_by_id(secret_model.id)
+                    .exec(db)
+                    .await
+                {
+                    Ok(_) => info!(
+                        "Successfully deleted secret {}/{} for processor {}",
+                        secret_namespace, secret_name, processor.id
+                    ),
+                    Err(e) => error!(
+                        "Failed to delete secret {}/{} for processor {}: {}",
+                        secret_namespace, secret_name, processor.id, e
+                    ),
+                }
+            }
+            Ok(None) => {
+                info!(
+                    "Secret {}/{} not found for processor {}, skipping deletion.",
+                    secret_namespace, secret_name, processor.id
+                );
+            }
+            Err(e) => {
+                error!(
+                    "Error finding secret {}/{} for processor {}: {}",
+                    secret_namespace, secret_name, processor.id, e
+                );
+                // Decide if this should be a hard error or just logged
+            }
+        }
+        // --- END: Delete Associated Secret ---
+
+        debug!("Deleting processor record: {}", processor.id);
         // 4) Finally, delete the processor record
         processors::Entity::delete_by_id(processor.id)
             .exec(db)
             .await?;
-
         tracing::info!(
             "Successfully deleted processor '{}' and its associated containers.",
             id
         );
-
         Ok(())
     }
 }

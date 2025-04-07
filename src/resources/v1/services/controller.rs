@@ -11,7 +11,7 @@ use dashmap::DashMap;
 use once_cell::sync::Lazy;
 use sea_orm::ActiveModelTrait;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use short_uuid::ShortUuid;
 
 /// A struct defining any reconciler metadata you want to store in `controller_data`.
 /// This might hold more fields (timestamps, logs, etc.) if desired.
@@ -100,7 +100,7 @@ impl ProcessorController {
                     );
 
                     // Otherwise, we spawn a fresh task.
-                    let new_thread_id = Uuid::new_v4().to_string();
+                    let new_thread_id = ShortUuid::generate().to_string();
                     existing_data.thread_id = Some(new_thread_id.clone());
 
                     // Persist new `thread_id` in `controller_data`, so if we lose the process,

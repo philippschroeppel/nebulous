@@ -96,6 +96,7 @@ pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
     // Process containers data
     for container in container_list {
         if let Value::Object(container_obj) = container {
+            debug!("Container: {:?}", container_obj);
             // Extract container details with defaults for missing values
             let id = container_obj
                 .get("metadata")

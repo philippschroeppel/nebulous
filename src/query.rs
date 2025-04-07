@@ -415,14 +415,8 @@ impl Query {
         db: &DatabaseConnection,
         owner_ref_value: &str,
     ) -> Result<Vec<containers::Model>, DbErr> {
-        use sea_orm::{sea_query::Expr, QueryFilter, Value};
-
         containers::Entity::find()
-            // SQL:  metadata->>'owner_ref' = $1
-            .filter(Expr::cust_with_values(
-                "metadata->>'owner_ref' = $1",
-                [Value::from(owner_ref_value)],
-            ))
+            .filter(containers::Column::OwnerRef.eq(owner_ref_value))
             .all(db)
             .await
     }
@@ -456,6 +450,18 @@ impl Query {
         use crate::resources::v1::containers::base::ContainerStatus;
         use sea_orm::{Condition, Value};
 
+        // Retrieve the processor to build the owner_ref format
+        let processor = processors::Entity::find_by_id(processor_id)
+            .one(db)
+            .await?
+            .ok_or(DbErr::RecordNotFound(format!(
+                "Processor with id {} not found",
+                processor_id
+            )))?;
+
+        // Build the owner_ref in the format "name.namespace.Processor"
+        let owner_ref = format!("{}.{}.Processor", processor.name, processor.namespace);
+
         // Define active statuses
         let active_statuses = vec![
             ContainerStatus::Defined.to_string(),
@@ -479,10 +485,7 @@ impl Query {
 
         // Find containers with this processor as owner_ref and with active status
         let count = containers::Entity::find()
-            .filter(Expr::cust_with_values(
-                "metadata->>'owner_ref' = $1",
-                [Value::from(processor_id)],
-            ))
+            .filter(containers::Column::OwnerRef.eq(owner_ref))
             .filter(status_condition)
             .count(db)
             .await?;

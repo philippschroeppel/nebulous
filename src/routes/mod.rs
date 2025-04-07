@@ -70,7 +70,7 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
             "/v1/processors/:namespace/:name",
             get(get_processor)
                 .delete(delete_processor)
-                .put(update_processor),
+                .patch(update_processor),
         )
         .route("/v1/processors/:namespace/:name/send", get(send_processor))
         .route(

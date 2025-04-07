@@ -1,9 +1,5 @@
-use crate::models::V1Meter;
 use crate::models::{V1ResourceMeta, V1ResourceMetaRequest, V1ResourceReference};
-use crate::resources::v1::containers::models::{
-    V1ContainerHealthCheck, V1ContainerRequest, V1ContainerResources, V1EnvVar,
-};
-use crate::resources::v1::volumes::models::V1VolumePath;
+use crate::resources::v1::containers::models::V1ContainerRequest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

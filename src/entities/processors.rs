@@ -1,4 +1,4 @@
-// src/entities/training_job.rs
+// src/entities/processors.rs
 
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -49,6 +49,17 @@ impl Model {
     /// Attempt to parse `status` into a `V1ProcessorStatus`.
     pub fn parse_status(&self) -> Result<Option<V1ProcessorStatus>, serde_json::Error> {
         if let Some(json_value) = &self.status {
+            // Try to parse as a string first
+            if let Ok(status_str) = serde_json::from_value::<String>(json_value.clone()) {
+                // If it's a string, convert it to a V1ProcessorStatus with just the status field
+                return Ok(Some(V1ProcessorStatus {
+                    status: Some(status_str),
+                    message: None,
+                    pressure: None,
+                }));
+            }
+
+            // Otherwise try to parse as a full V1ProcessorStatus object
             serde_json::from_value(json_value.clone()).map(Some)
         } else {
             Ok(None)

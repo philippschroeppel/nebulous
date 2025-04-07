@@ -12,7 +12,7 @@ use dashmap::DashMap;
 use once_cell::sync::Lazy;
 use sea_orm::ActiveModelTrait;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use short_uuid::ShortUuid;
 
 /// A struct defining any reconciler metadata you want to store in `controller_data`.
 /// This might hold more fields (timestamps, logs, etc.) if desired.
@@ -101,7 +101,7 @@ impl ProcessorController {
                     );
 
                     // Otherwise, we spawn a fresh task.
-                    let new_thread_id = Uuid::new_v4().to_string();
+                    let new_thread_id = ShortUuid::generate().to_string();
                     existing_data.thread_id = Some(new_thread_id.clone());
 
                     // Persist new `thread_id` in `controller_data`, so if we lose the process,
@@ -140,14 +140,19 @@ impl ProcessorController {
                             );
                             // If your platform_factory is async, call it here.
                             let platform = StandardProcessor::new(app_state.clone());
-                            platform
+                            match platform
                                 .reconcile(&processor_clone, &db_pool, &redis_client)
-                                .await;
+                                .await
+                            {
+                                Ok(_) => (),
+                                Err(e) => {
+                                    error!(
+                                        "Error reconciling processor {:?}: {:?}",
+                                        processor_clone.id, e
+                                    );
+                                }
+                            }
 
-                            // TODO: Implement platform reconciliation
-                            // let platform =
-                            //     crate::container::factory::platform_factory(platform_name);
-                            // platform.reconcile(&processor_clone, &db_pool).await;
                             debug!(
                                 "[DEBUG:controller.rs:spawn] Returned from platform.reconcile for processor {}",
                                 processor_clone.id
@@ -200,7 +205,7 @@ impl ProcessorController {
         tokio::spawn(async move {
             let controller = ProcessorController::new(app_state_clone);
 
-            // Create an infinite loop to continuously reconcile containers
+            // Create an infinite loop to continuously reconcile processors
             loop {
                 controller.reconcile().await;
                 // Add a delay between reconciliation cycles

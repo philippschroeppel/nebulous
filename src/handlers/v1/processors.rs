@@ -1,10 +1,7 @@
 use crate::auth::ns::auth_ns;
 use crate::entities::processors;
-use crate::models::{
-    V1ResourceMeta, V1ResourceMetaRequest, V1StreamData, V1StreamMessage, V1UserProfile,
-};
+use crate::models::{V1ResourceMetaRequest, V1StreamData, V1StreamMessage, V1UserProfile};
 use crate::query::Query;
-use crate::resources::v1::containers::models::V1ContainerRequest;
 use crate::resources::v1::processors::base::ProcessorPlatform;
 use crate::resources::v1::processors::models::{
     V1Processor, V1ProcessorRequest, V1ProcessorScaleRequest, V1Processors, V1UpdateProcessor,
@@ -17,9 +14,9 @@ use axum::{
 };
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection};
 use serde_json::json;
+use short_uuid::ShortUuid;
 use std::sync::Arc;
 use tracing::{debug, error};
-use uuid::Uuid;
 
 pub async fn create_processor(
     State(state): State<AppState>,
@@ -90,7 +87,10 @@ pub async fn create_processor(
     };
     owner_ids.push(user_profile.email.clone());
 
-    debug!("Authorizing namespace");
+    debug!(
+        "Authorizing namespace {:?} with owner_ids {:?}",
+        namespace, owner_ids
+    );
     let owner = auth_ns(db_pool, &owner_ids, &namespace)
         .await
         .map_err(|e| {
@@ -109,7 +109,7 @@ pub async fn create_processor(
     let platform = StandardProcessor::new(app_state);
 
     debug!("Declaring processor with namespace: {:?}", namespace);
-    let processor = platform
+    let processor = match platform
         .declare(
             &processor_request,
             db_pool,
@@ -118,12 +118,16 @@ pub async fn create_processor(
             &namespace,
         )
         .await
-        .map_err(|e| {
-            (
+    {
+        Ok(processor) => processor,
+        Err(e) => {
+            error!("Error declaring processor: {:?}", e);
+            return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": e.to_string()})),
-            )
-        })?;
+            ));
+        }
+    };
 
     Ok(Json(processor))
 }
@@ -373,7 +377,7 @@ pub async fn send_processor(
 
     // Generate a return stream name if we need to wait for a response
     let return_stream = if stream_data.wait.unwrap_or(false) {
-        let return_stream_name = format!("return-stream-{}", Uuid::new_v4());
+        let return_stream_name = format!("return-stream-{}", ShortUuid::generate());
         Some(return_stream_name)
     } else {
         None
@@ -382,12 +386,12 @@ pub async fn send_processor(
     // Create a stream message
     let message = V1StreamMessage {
         kind: "ProcessorInput".to_string(),
-        id: Uuid::new_v4().to_string(),
+        id: ShortUuid::generate().to_string(),
         content: stream_data.content,
         created_at: chrono::Utc::now().timestamp(),
         return_stream: return_stream.clone(),
         user_id: Some(user_profile.email.clone()),
-        organizations: user_profile.organizations.clone().map(|orgs| json!(orgs)),
+        orgs: user_profile.organizations.clone().map(|orgs| json!(orgs)),
         handle: user_profile.handle.clone(),
         adapter: Some(format!("processor:{}", processor.id)),
     };
@@ -523,6 +527,7 @@ pub async fn delete_processor(
     Extension(user_profile): Extension<V1UserProfile>,
     Path((namespace, name)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    debug!("Deleting processor: {} in namespace: {}", name, namespace);
     let db_pool = &state.db_pool;
 
     let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
@@ -533,6 +538,7 @@ pub async fn delete_processor(
     owner_ids.push(user_profile.email.clone());
     let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
 
+    debug!("Finding processor: {} in namespace: {}", name, namespace);
     let processor = Query::find_processor_by_namespace_name_and_owners(
         db_pool,
         &namespace,
@@ -547,6 +553,7 @@ pub async fn delete_processor(
         )
     })?;
 
+    debug!("Deleting processor: {}", processor.id);
     let app_state = Arc::new(AppState {
         db_pool: db_pool.clone(),
         message_queue: state.message_queue.clone(),
@@ -559,6 +566,8 @@ pub async fn delete_processor(
             Json(json!({"error": format!("Failed to delete processor: {}", e)})),
         )
     })?;
+
+    debug!("Deleted processor: {}", processor.id);
 
     Ok(StatusCode::OK)
 }

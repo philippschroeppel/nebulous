@@ -174,7 +174,7 @@ pub struct V1StreamMessage {
     pub created_at: i64,
     pub return_stream: Option<String>,
     pub user_id: Option<String>,
-    pub organizations: Option<Value>,
+    pub orgs: Option<Value>,
     pub handle: Option<String>,
     pub adapter: Option<String>,
 }
@@ -190,12 +190,13 @@ pub struct V1StreamResponseMessage {
     pub id: String,
     #[serde(default)]
     pub content: Value,
+    pub status: Option<String>,
     pub created_at: i64,
     pub user_id: Option<String>,
 }
 
 fn kind_v1_stream_response_message() -> String {
-    "V1StreamResponseMessage".to_string()
+    "StreamResponseMessage".to_string()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -207,13 +208,13 @@ pub struct V1OpenAIStreamMessage {
     pub created_at: i64,
     pub return_stream: Option<String>,
     pub user_id: Option<String>,
-    pub organizations: Option<Value>,
+    pub orgs: Option<Value>,
     pub handle: Option<String>,
     pub adapter: Option<String>,
 }
 
 fn kind_v1_openai_stream_message() -> String {
-    "V1OpenAIStreamMessage".to_string()
+    "OpenAIStreamMessage".to_string()
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -227,5 +228,5 @@ pub struct V1OpenAIStreamResponse {
 }
 
 fn kind_v1_openai_stream_response() -> String {
-    "V1OpenAIStreamResponse".to_string()
+    "OpenAIStreamResponse".to_string()
 }

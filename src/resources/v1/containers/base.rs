@@ -388,25 +388,66 @@ pub trait ContainerPlatform {
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let config = crate::config::GlobalConfig::read().unwrap();
 
+        debug!("[DEBUG] get_agent_key: Entering function");
+        debug!("[DEBUG] get_agent_key: user_profile = {:?}", user_profile);
+
+        // Check if token exists and log it
+        if user_profile.token.is_none() {
+            error!("[ERROR] get_agent_key: user_profile.token is None!");
+            return Err("User profile does not have a token".into());
+        }
+
+        debug!("[DEBUG] get_agent_key: Creating agent key request");
         let create_agent_key_request = V1CreateAgentKeyRequest {
             agent_id: "nebu".to_string(),
             name: format!("nebu-{}", uuid::Uuid::new_v4()),
             duration: 604800,
         };
 
-        let agent_key = create_agent_key(
-            &config
-                .get_current_server_config()
-                .unwrap()
-                .auth_server
-                .as_ref()
-                .unwrap(),
+        debug!("[DEBUG] get_agent_key: Getting server config");
+        let server_config = match config.get_current_server_config() {
+            Some(cfg) => cfg,
+            None => {
+                error!("[ERROR] get_agent_key: No current server config found");
+                return Err("No current server configuration available".into());
+            }
+        };
+
+        let auth_server = match &server_config.auth_server {
+            Some(server) => {
+                debug!("[DEBUG] get_agent_key: Using auth_server: {}", server);
+                server
+            }
+            None => {
+                error!("[ERROR] get_agent_key: No auth_server in server config");
+                return Err("No auth server specified in configuration".into());
+            }
+        };
+
+        debug!("[DEBUG] get_agent_key: Calling create_agent_key");
+        let agent_key = match create_agent_key(
+            auth_server,
             &user_profile.token.clone().unwrap(),
             create_agent_key_request,
         )
         .await
-        .unwrap();
+        {
+            Ok(key) => {
+                debug!("[DEBUG] get_agent_key: Successfully created agent key");
+                key
+            }
+            Err(e) => {
+                error!("[ERROR] get_agent_key: Failed to create agent key: {:?}", e);
+                return Err(format!("Failed to create agent key: {:?}", e).into());
+            }
+        };
 
+        if agent_key.key.is_none() {
+            error!("[ERROR] get_agent_key: agent_key.key is None!");
+            return Err("Agent key returned from server is None".into());
+        }
+
+        debug!("[DEBUG] get_agent_key: Successfully obtained agent key");
         Ok(agent_key.key.unwrap())
     }
 
@@ -421,10 +462,29 @@ pub trait ContainerPlatform {
         use crate::entities::secrets;
         use sea_orm::{EntityTrait, Set};
 
-        let agent_key = self.get_agent_key(user_profile).await?;
+        debug!(
+            "[DEBUG] store_agent_key_secret: Starting for container {}",
+            container_id
+        );
+        debug!("[DEBUG] store_agent_key_secret: owner_id={}", owner_id);
+        debug!(
+            "[DEBUG] store_agent_key_secret: user_profile = {:?}",
+            user_profile
+        );
 
+        // TODO: Re-evaluate how agent keys are generated.
+        // get_agent_key relied on user_profile.token which is no longer available here.
+        // For now, we might need a placeholder or a different mechanism.
+        // Let's use a temporary placeholder value for now.
+        let agent_key = format!("temp-agent-key-for-{}", container_id);
+        debug!(
+            "[DEBUG] store_agent_key_secret: Using temporary agent key: {}",
+            agent_key
+        );
+
+        debug!("[DEBUG] store_agent_key_secret: Creating new secret model");
         // Create a new secret with the agent key
-        let secret = secrets::Model::new(
+        let secret = match secrets::Model::new(
             container_id.to_string(),
             format!("agent-key-{}", container_id),
             "container-reconciler".to_string(),
@@ -433,12 +493,28 @@ pub trait ContainerPlatform {
             Some(owner_id.to_string()),
             None,
             None,
-        )?;
+        ) {
+            Ok(s) => {
+                debug!("[DEBUG] store_agent_key_secret: Created secret model");
+                s
+            }
+            Err(e) => {
+                error!(
+                    "[ERROR] store_agent_key_secret: Failed to create secret model: {}",
+                    e
+                );
+                return Err(e.into());
+            }
+        };
 
         let namespace = secret.namespace.clone();
         let name = secret.name.clone();
 
         let full_name = format!("{namespace}/{name}");
+        debug!(
+            "[DEBUG] store_agent_key_secret: Secret full_name={}",
+            full_name
+        );
 
         // Convert to active model for insertion
         let active_model = secrets::ActiveModel {
@@ -457,16 +533,23 @@ pub trait ContainerPlatform {
             expires_at: Set(None),
         };
 
+        debug!("[DEBUG] store_agent_key_secret: Inserting secret into database");
         // Insert into database
-        secrets::Entity::insert(active_model)
-            .exec(db)
-            .await
-            .map_err(|e| {
-                Box::<dyn std::error::Error + Send + Sync>::from(format!(
+        match secrets::Entity::insert(active_model).exec(db).await {
+            Ok(_) => {
+                debug!("[DEBUG] store_agent_key_secret: Successfully inserted secret");
+            }
+            Err(e) => {
+                error!(
+                    "[ERROR] store_agent_key_secret: Failed to insert secret: {}",
+                    e
+                );
+                return Err(Box::<dyn std::error::Error + Send + Sync>::from(format!(
                     "Failed to store agent key secret: {}",
                     e
-                ))
-            })?;
+                )));
+            }
+        }
 
         info!(
             "[RunPod] Stored agent key secret for container {}",

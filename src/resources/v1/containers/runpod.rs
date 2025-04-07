@@ -546,7 +546,7 @@ impl RunpodPlatform {
                                     }
                                 }
                                 Err(e) => {
-                                    error!(
+                                    warn!(
                                         "[Runpod Controller] Failed to get Tailscale device IP for container {}: {}",
                                         container.id, e
                                     );
@@ -2036,15 +2036,51 @@ impl ContainerPlatform for RunpodPlatform {
         let id = ShortUuid::generate().to_string();
         info!("[Runpod Controller] ID: {}", id);
 
-        self.store_agent_key_secret(db, user_profile, &id, owner_id)
-            .await?;
+        debug!("[Runpod Controller] About to store agent key secret");
+        // Restore user profile check (using the now-available full profile)
+        debug!("[Runpod Controller] user_profile = {:?}", user_profile);
+        if user_profile.token.is_none() {
+            error!("[Runpod Controller] user_profile.token is None, cannot get agent key for container");
+            return Err(Box::<dyn std::error::Error + Send + Sync>::from(
+                "Cannot create container: user profile is missing authentication token".to_string(),
+            ));
+        }
+
+        // Removed user_profile check as it's no longer passed.
+        // The store_agent_key_secret function now needs to fetch the token itself if required.
+        debug!(
+            "[Runpod Controller] Storing agent key secret: id={}, owner_id={}",
+            id, owner_id
+        );
+        match self
+            .store_agent_key_secret(db, user_profile, &id, owner_id)
+            .await
+        {
+            Ok(_) => debug!("[Runpod Controller] Successfully stored agent key secret"),
+            Err(e) => {
+                error!(
+                    "[Runpod Controller] Failed to store agent key secret: {}",
+                    e
+                );
+                return Err(Box::<dyn std::error::Error + Send + Sync>::from(format!(
+                    "Failed to store agent key secret: {}",
+                    e
+                )));
+            }
+        }
 
         let owner_ref: Option<String> = config
             .metadata
             .as_ref()
             .and_then(|meta| meta.owner_ref.clone());
 
-        let name = name.unwrap_or(petname::petname(3, "-").unwrap());
+        // Fix the unwrap that's causing the panic
+        let name = name.unwrap_or_else(|| {
+            petname::petname(3, "-").unwrap_or_else(|| {
+                // Fallback to a simple default name if petname fails
+                format!("container-{}", ShortUuid::generate())
+            })
+        });
 
         debug!(
             "[Runpod Controller] Creating container record in database with GPU type ID: {}",
