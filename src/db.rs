@@ -93,5 +93,14 @@ async fn create_tables(db: &DbPool) -> Result<(), DbErr> {
     )
     .await?;
 
+    db.execute(
+        db.get_database_backend().build(
+            schema
+                .create_table_from_entity(crate::auth::db::Entity)
+                .if_not_exists(),
+        ),
+    )
+        .await?;
+
     Ok(())
 }

@@ -5,12 +5,12 @@ use sea_orm::{ActiveModelBehavior, DeriveEntityModel, DeriveRelation, EnumIter, 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "api-keys")]
 pub struct Model {
-    #[sea_orm(primary_key)]
+    #[sea_orm(primary_key, auto_increment = false)]
     pub id: String,
     pub hash: String,
-    pub created_at: DateTimeWithTimeZone,
-    pub last_used_at: Option<DateTimeWithTimeZone>,
-    pub revoked_at: Option<DateTimeWithTimeZone>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

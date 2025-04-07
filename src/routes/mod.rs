@@ -20,13 +20,14 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
     // Public routes that do not require authentication
     let public_routes = Router::new()
         .route("/", get(root_handler))
-        .route("/health", get(health_handler));
+        .route("/health", get(health_handler))
+        // FIXME: Move this back to the authenticated routes
+        .route("/auth/api-keys/generate", get(generate_api_key));
 
     // Private routes that require authentication
     let private_routes = Router::new()
         .route("/auth/api-keys/:id", get(get_api_key))
         .route("/auth/api-keys", get(list_api_keys))
-        .route("/auth/api-keys/generate", get(generate_api_key))
         .route("/auth/api-keys/revoke", post(revoke_api_key))
         .route(
             "/v1/containers",

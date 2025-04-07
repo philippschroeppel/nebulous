@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 pub struct ApiKey {
     pub id: String,
     pub hash: String,
-    pub created_at: String,
-    pub last_used_at: Option<String>,
-    pub revoked_at: Option<String>,
+    created_at: chrono::DateTime<chrono::Utc>,
+    pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
     pub is_active: bool,
 }
 
@@ -16,7 +16,7 @@ impl ApiKey {
         Self {
             id,
             hash,
-            created_at: chrono::Utc::now().to_string(),
+            created_at: chrono::Utc::now(),
             last_used_at: None,
             revoked_at: None,
             is_active: true,
@@ -24,11 +24,11 @@ impl ApiKey {
     }
 
     pub fn access(&mut self) {
-        self.last_used_at = Some(chrono::Utc::now().to_string());
+        self.last_used_at = Some(chrono::Utc::now());
     }
 
     pub fn revoke(&mut self) {
-        self.revoked_at = Some(chrono::Utc::now().to_string());
+        self.revoked_at = Some(chrono::Utc::now());
         self.hash = String::new();
         self.is_active = false;
     }
@@ -39,9 +39,9 @@ impl From<db::Model> for ApiKey {
         Self {
             id: model.id,
             hash: model.hash,
-            created_at: model.created_at.to_string(),
-            last_used_at: model.last_used_at.map(|dt| dt.to_string()),
-            revoked_at: model.revoked_at.clone().map(|dt| dt.to_string()),
+            created_at: model.created_at,
+            last_used_at: model.last_used_at,
+            revoked_at: model.revoked_at,
             is_active: model.revoked_at.is_none(),
         }
     }
@@ -52,13 +52,9 @@ impl From<ApiKey> for db::Model {
         Self {
             id: api_key.id,
             hash: api_key.hash,
-            created_at: chrono::DateTime::parse_from_rfc3339(&api_key.created_at).unwrap(),
-            last_used_at: api_key
-                .last_used_at
-                .map(|dt| chrono::DateTime::parse_from_rfc3339(&dt).unwrap()),
-            revoked_at: api_key
-                .revoked_at
-                .map(|dt| chrono::DateTime::parse_from_rfc3339(&dt).unwrap()),
+            created_at: api_key.created_at,
+            last_used_at: api_key.last_used_at,
+            revoked_at: api_key.revoked_at,
         }
     }
 }
@@ -66,9 +62,9 @@ impl From<ApiKey> for db::Model {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct SanitizedApiKey {
     pub id: String,
-    pub created_at: String,
-    pub last_used_at: Option<String>,
-    pub revoked_at: Option<String>,
+    created_at: chrono::DateTime<chrono::Utc>,
+    pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
     pub is_active: bool,
 }
 
