@@ -88,12 +88,14 @@ async fn internal_auth(
 async fn external_auth(auth_header: &String, mut request: Request, next: Next) -> Response {
     let config = crate::config::GlobalConfig::read().unwrap();
 
-    let auth_url = config
+    let auth_server = config
         .get_current_server_config()
         .unwrap()
         .auth_server
         .as_ref()
         .unwrap();
+
+    let auth_url = format!("{}/v1/users/me", auth_server);
 
     println!("🔐 Making auth request to: {}", auth_url);
 
