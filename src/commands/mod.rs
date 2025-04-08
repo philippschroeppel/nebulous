@@ -1,3 +1,4 @@
+pub mod auth_cmd;
 pub mod configure_cmd;
 pub mod create_cmd;
 pub mod daemon_cmd;
@@ -7,6 +8,7 @@ pub mod get_cmd;
 pub mod log_cmd;
 pub mod login_cmd;
 pub mod proxy_cmd;
+mod request;
 pub mod select_cmd;
 pub mod serve_cmd;
 pub mod sync_cmd;

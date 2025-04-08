@@ -5,7 +5,7 @@ use crate::query::Query;
 use crate::resources::v1::volumes::models::{V1Volume, V1VolumeRequest};
 use crate::state::AppState;
 
-use crate::auth::ns::auth_ns;
+use crate::agent::ns::auth_ns;
 use crate::entities::volumes::{self, ActiveModel as VolumeActiveModel};
 use axum::{extract::Extension, extract::Json, extract::Path, extract::State, http::StatusCode};
 use chrono;

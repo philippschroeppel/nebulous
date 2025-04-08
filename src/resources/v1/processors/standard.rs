@@ -1,4 +1,4 @@
-use crate::auth::agent::create_agent_key;
+use crate::agent::agent::create_agent_key;
 use crate::config::CONFIG;
 use crate::entities::containers;
 use crate::entities::processors;

@@ -1,73 +1,24 @@
 use chrono::{DateTime, Utc};
 
-use nebulous::config::GlobalConfig;
-use serde::Serialize;
+use crate::commands::request::server_request;
+use nebulous::resources::v1::containers::models::{V1Container, V1Containers};
 use serde_json::Value;
 use std::error::Error;
-use tracing::debug;
 
 pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
-    let config = GlobalConfig::read()?;
-    debug!("Config: {:?}", config);
-    let current_server = config.get_current_server_config().unwrap();
-    let server = current_server.server.as_ref().unwrap();
-    let api_key = current_server.api_key.as_ref().unwrap();
-
-    let bearer_token = format!("Bearer {}", api_key);
-
-    let url = format!("{}/v1/containers", server);
-
-    // Create HTTP client
-    let client = reqwest::Client::new();
-
-    // Add name filter if provided
-    if let Some(container_id) = &id {
-        let url = format!("{}/v1/containers/{}", server, container_id);
-
-        // Build the request
-        let request = client.get(&url).header("Authorization", &bearer_token);
-
-        // Execute the request
-        let response = request.send().await?;
-
-        // Check if the request was successful
-        if !response.status().is_success() {
-            return Err(format!("Failed to get containers: {}", response.status()).into());
+    let containers: Vec<V1Container> = match id {
+        Some(id) => {
+            let url = format!("/v1/containers/{}", id);
+            let response = server_request(url.as_str(), reqwest::Method::GET).await?;
+            let container: V1Container = response.json().await?;
+            vec![container]
         }
-        // Parse the response
-        let mut containers: Value = response.json().await?;
-
-        // Remove null values for cleaner output
-        remove_null_values(&mut containers);
-
-        // Alternative approach using lower-level API
-        let mut buf = Vec::new();
-        {
-            let mut serializer = serde_yaml::Serializer::new(&mut buf);
-            containers.serialize(&mut serializer)?;
+        None => {
+            let response = server_request("/v1/containers", reqwest::Method::GET).await?;
+            let container_list: V1Containers = response.json().await?;
+            container_list.containers
         }
-        let yaml = String::from_utf8(buf)?;
-
-        println!("{}", yaml);
-        return Ok(());
-    }
-
-    // Build the request
-    let request = client.get(&url).header("Authorization", &bearer_token);
-
-    // Execute the request
-    let response = request.send().await?;
-
-    // Check if the request was successful
-    if !response.status().is_success() {
-        return Err(format!("Failed to get containers: {}", response.status()).into());
-    }
-
-    // Parse the response
-    let mut containers: Value = response.json().await?;
-
-    // Remove null values for cleaner output
-    remove_null_values(&mut containers);
+    };
 
     // Create a table to display the containers
     let mut table = prettytable::Table::new();
@@ -87,120 +38,68 @@ pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
         prettytable::Cell::new("UPTIME"),
     ]));
 
-    let empty_vec = Vec::new();
-    let container_list = containers
-        .get("containers")
-        .and_then(Value::as_array)
-        .unwrap_or(&empty_vec);
-
     // Process containers data
-    for container in container_list {
-        if let Value::Object(container_obj) = container {
-            debug!("Container: {:?}", container_obj);
-            // Extract container details with defaults for missing values
-            let id = container_obj
-                .get("metadata")
-                .and_then(Value::as_object)
-                .and_then(|metadata| metadata.get("id"))
-                .and_then(Value::as_str)
-                .unwrap_or("N/A");
-            let name = container_obj
-                .get("metadata")
-                .and_then(Value::as_object)
-                .and_then(|metadata| metadata.get("name"))
-                .and_then(Value::as_str)
-                .unwrap_or("N/A");
-            let namespace = container_obj
-                .get("metadata")
-                .and_then(Value::as_object)
-                .and_then(|metadata| metadata.get("namespace"))
-                .and_then(Value::as_str)
-                .unwrap_or("N/A");
-            let image = container_obj
-                .get("image")
-                .and_then(Value::as_str)
-                .unwrap_or("N/A");
-            let platform = container_obj
-                .get("platform")
-                .and_then(Value::as_str)
-                .unwrap_or("N/A");
-            let restart = container_obj
-                .get("restart")
-                .and_then(Value::as_str)
-                .unwrap_or("N/A");
-            let status = container_obj
-                .get("status")
-                .and_then(Value::as_object)
-                .and_then(|status_obj| status_obj.get("status"))
-                .and_then(Value::as_str)
-                .unwrap_or("N/A");
-            let accelerator = container_obj
-                .get("status")
-                .and_then(Value::as_object)
-                .and_then(|status_obj| status_obj.get("accelerator"))
-                .and_then(Value::as_str)
-                .unwrap_or("N/A");
-            let tailnet_url = container_obj
-                .get("status")
-                .and_then(Value::as_object)
-                .and_then(|status_obj| status_obj.get("tailnet_url"))
-                .and_then(Value::as_str)
-                .unwrap_or("N/A");
-            let price = container_obj
-                .get("status")
-                .and_then(Value::as_object)
-                .and_then(|status_obj| status_obj.get("cost_per_hr"))
-                .and_then(Value::as_f64)
-                .unwrap_or(0.0);
+    for container in containers {
+        let id = container.metadata.id;
+        let name = container.metadata.name;
+        let namespace = container.metadata.namespace;
+        let image = container.image;
+        let platform = container.platform;
+        let restart = container.restart;
 
-            let price_str = format!("{:.2}", price);
+        let status = match container.status.clone() {
+            Some(status) => status.status.unwrap_or("N/A".to_string()),
+            None => "N/A".to_string(),
+        };
 
-            // Instead of created time, calculate uptime from created_at
-            // Instead of created time, calculate uptime from created_at and only show the largest time unit
-            let uptime = container_obj
-                .get("metadata")
-                .and_then(Value::as_object)
-                .and_then(|metadata| metadata.get("created_at"))
-                .and_then(|v| v.as_i64().or_else(|| v.as_u64().map(|n| n as i64)))
-                .map(|timestamp| {
-                    // Convert timestamp to DateTime in UTC
-                    let dt = DateTime::<Utc>::from_timestamp(timestamp, 0).unwrap_or_default();
-                    let duration = Utc::now().signed_duration_since(dt);
+        let accelerator = match container.status.clone() {
+            Some(status) => status.accelerator.unwrap_or("N/A".to_string()),
+            None => "N/A".to_string(),
+        };
 
-                    // Collect total durations in various units
-                    let secs = duration.num_seconds();
-                    let mins = duration.num_minutes();
-                    let hours = duration.num_hours();
-                    let days = duration.num_days();
+        let tailnet_url = match container.status.clone() {
+            Some(status) => status.tailnet_url.unwrap_or("N/A".to_string()),
+            None => "N/A".to_string(),
+        };
 
-                    // Only display the largest unit
-                    if days.abs() > 0 {
-                        format!("{}d", days)
-                    } else if hours.abs() > 0 {
-                        format!("{}hr", hours)
-                    } else if mins.abs() > 0 {
-                        format!("{}m", mins)
-                    } else {
-                        format!("{}s", secs)
-                    }
-                })
-                .unwrap_or_else(|| "N/A".to_string());
+        let price_str = match container.status.clone() {
+            Some(status) => status
+                .cost_per_hr
+                .map(|cost| format!("{:.2}", cost))
+                .unwrap_or("N/A".to_string()),
+            None => "N/A".to_string(),
+        };
 
-            // Add row to table
-            table.add_row(prettytable::Row::new(vec![
-                prettytable::Cell::new(id),
-                prettytable::Cell::new(name),
-                prettytable::Cell::new(namespace),
-                prettytable::Cell::new(image),
-                prettytable::Cell::new(platform),
-                prettytable::Cell::new(restart),
-                prettytable::Cell::new(status),
-                prettytable::Cell::new(accelerator),
-                prettytable::Cell::new(&price_str),
-                prettytable::Cell::new(tailnet_url),
-                prettytable::Cell::new(&uptime),
-            ]));
-        }
+        let uptime = {
+            let dt = DateTime::<Utc>::from_timestamp(container.metadata.created_at, 0)
+                .unwrap_or_default();
+            let duration = Utc::now().signed_duration_since(dt);
+
+            if duration.num_days().abs() > 0 {
+                format!("{}d", duration.num_days())
+            } else if duration.num_hours().abs() > 0 {
+                format!("{}hr", duration.num_hours())
+            } else if duration.num_minutes().abs() > 0 {
+                format!("{}m", duration.num_minutes())
+            } else {
+                format!("{}s", duration.num_seconds())
+            }
+        };
+
+        // Add row to table
+        table.add_row(prettytable::Row::new(vec![
+            prettytable::Cell::new(&id),
+            prettytable::Cell::new(&name),
+            prettytable::Cell::new(&namespace),
+            prettytable::Cell::new(&image),
+            prettytable::Cell::new(&platform),
+            prettytable::Cell::new(&restart),
+            prettytable::Cell::new(&status),
+            prettytable::Cell::new(&accelerator),
+            prettytable::Cell::new(&price_str),
+            prettytable::Cell::new(&tailnet_url),
+            prettytable::Cell::new(&uptime),
+        ]));
     }
 
     // Set table format and print
@@ -211,66 +110,19 @@ pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
 }
 
 pub async fn get_secrets(id: Option<String>) -> Result<(), Box<dyn Error>> {
-    let config = GlobalConfig::read()?;
-    let current_server = config.get_current_server_config().unwrap();
-    let server = current_server.server.as_ref().unwrap();
-    let api_key = current_server.api_key.as_ref().unwrap();
-
-    let bearer_token = format!("Bearer {}", api_key);
-
-    // If an ID was provided, fetch a single secret
-    if let Some(secret_id) = &id {
-        let url = format!("{}/v1/secrets/{}", server, secret_id);
-
-        // Create HTTP client and build the request
-        let client = reqwest::Client::new();
-        let request = client.get(&url).header("Authorization", &bearer_token);
-
-        // Execute the request
-        let response = request.send().await?;
-
-        // Check if the request was successful
-        if !response.status().is_success() {
-            return Err(format!("Failed to get secret: {}", response.status()).into());
+    let secrets = match id {
+        Some(id) => {
+            let url = format!("/v1/secrets/{}", id);
+            let response = server_request(url.as_str(), reqwest::Method::GET).await?;
+            let secret: Value = response.json().await?;
+            vec![secret]
         }
-
-        // Parse the response
-        let mut secret: Value = response.json().await?;
-
-        // Remove null values for cleaner output
-        remove_null_values(&mut secret);
-
-        // Convert to YAML output
-        let mut buf = Vec::new();
-        {
-            let mut serializer = serde_yaml::Serializer::new(&mut buf);
-            secret.serialize(&mut serializer)?;
+        None => {
+            let response = server_request("/v1/secrets", reqwest::Method::GET).await?;
+            let secrets: Value = response.json().await?;
+            secrets.as_array().unwrap_or(&Vec::new()).to_vec()
         }
-        let yaml = String::from_utf8(buf)?;
-        println!("{}", yaml);
-        return Ok(());
-    }
-
-    // Otherwise, list all secrets
-    let url = format!("{}/v1/secrets", server);
-
-    // Create HTTP client and build the request
-    let client = reqwest::Client::new();
-    let request = client.get(&url).header("Authorization", &bearer_token);
-
-    // Execute the request
-    let response = request.send().await?;
-
-    // Check if the request was successful
-    if !response.status().is_success() {
-        return Err(format!("Failed to get secrets: {}", response.status()).into());
-    }
-
-    // Parse the response
-    let mut secrets: Value = response.json().await?;
-
-    // Remove null values for cleaner output
-    remove_null_values(&mut secrets);
+    };
 
     // Create a table to display secrets
     let mut table = prettytable::Table::new();
@@ -284,11 +136,8 @@ pub async fn get_secrets(id: Option<String>) -> Result<(), Box<dyn Error>> {
         prettytable::Cell::new("UPDATED"),
     ]));
 
-    let empty_vec = Vec::new();
-    let secret_list = secrets.as_array().unwrap_or(&empty_vec);
-
     // Process each secret in the array
-    for secret in secret_list {
+    for secret in secrets {
         if let Value::Object(secret_obj) = secret {
             // Access fields inside metadata
             let metadata = secret_obj.get("metadata").and_then(Value::as_object);

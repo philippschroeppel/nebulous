@@ -8,7 +8,7 @@ use crate::resources::v1::containers::models::{
 };
 use crate::resources::v1::volumes::models::V1VolumePath;
 // Adjust the crate paths below to match your own project structure:
-use crate::auth::ns::auth_ns;
+use crate::agent::ns::auth_ns;
 use crate::entities::containers;
 use crate::mutation::Mutation;
 use crate::query::Query;

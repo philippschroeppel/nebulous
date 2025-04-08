@@ -4,7 +4,8 @@ mod models;
 use std::path::Path;
 
 use crate::cli::{
-    Cli, Commands, CreateCommands, DeleteCommands, GetCommands, ProxyCommands, SelectCommands,
+    ApiKeyActions, AuthCommands, Cli, Commands, CreateCommands, DeleteCommands, GetCommands,
+    ProxyCommands, SelectCommands,
 };
 use clap::Parser;
 use cli::SyncCommands;
@@ -25,8 +26,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Serve { host, port } => {
-            commands::serve_cmd::execute(host, port).await?;
+        Commands::Serve {
+            host,
+            port,
+            internal_auth,
+            auth_port,
+        } => {
+            commands::serve_cmd::execute(host, port, internal_auth, auth_port).await?;
         }
         Commands::Sync { command } => match command {
             SyncCommands::Volumes {
@@ -119,12 +125,28 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Commands::Logs { name, namespace } => {
             commands::log_cmd::fetch_container_logs(name, namespace).await?;
         }
-        Commands::Login => {
-            commands::login_cmd::execute().await?;
+        Commands::Login { url, auth, hub } => {
+            commands::login_cmd::execute(url, auth, hub).await?;
         }
         Commands::Exec(args) => {
             commands::exec_cmd::exec_cmd(args).await?;
         }
+        Commands::Auth { command } => match command {
+            AuthCommands::ApiKeys { action } => match action {
+                ApiKeyActions::List => {
+                    commands::auth_cmd::list_api_keys().await?;
+                }
+                ApiKeyActions::Get { id } => {
+                    commands::auth_cmd::get_api_key(&id).await?;
+                }
+                ApiKeyActions::Generate => {
+                    commands::auth_cmd::generate_api_key().await?;
+                }
+                ApiKeyActions::Revoke { id } => {
+                    commands::auth_cmd::revoke_api_key(&id).await?;
+                }
+            },
+        },
     }
 
     Ok(())

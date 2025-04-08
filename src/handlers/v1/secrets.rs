@@ -1,4 +1,4 @@
-use crate::auth::ns::auth_ns;
+use crate::agent::ns::auth_ns;
 use crate::models::V1ResourceMeta;
 use crate::resources::v1::secrets::models::{V1Secret, V1SecretRequest};
 use crate::{

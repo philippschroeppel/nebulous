@@ -48,8 +48,16 @@ pub enum Commands {
         host: String,
 
         /// The port to bind to.
-        #[arg(short, long, default_value_t = 3000)]
+        #[arg(long, default_value_t = 3000)]
         port: u16,
+
+        /// Disable internal auth server
+        #[arg(long, default_value_t = true)]
+        internal_auth: bool,
+
+        /// The port to bind the internal auth server to.
+        #[arg(long, default_value_t = 8080)]
+        auth_port: u16,
     },
 
     /// Proxy services.
@@ -84,10 +92,28 @@ pub enum Commands {
     },
 
     /// Login to a Nebulous API server.
-    Login,
+    Login {
+        /// Address of the API server
+        #[arg(default_value = "http://127.0.0.1")]
+        url: String,
+
+        /// Address of the Auth server
+        #[arg(long, default_value = None)]
+        auth: Option<String>,
+
+        /// Address of the Hub
+        #[arg(long, default_value = None)]
+        hub: Option<String>,
+    },
 
     /// Execute a command inside a container.
     Exec(ExecArgs),
+
+    /// Manage authentication
+    Auth {
+        #[command(subcommand)]
+        command: AuthCommands,
+    },
 }
 
 /// Select a checkpoint.
@@ -398,3 +424,36 @@ pub enum DeleteCommands {
 /// Subcommands for the "work" command
 #[derive(Subcommand)]
 pub enum WorkCommands {}
+
+/// Subcommands for the "auth" command
+#[derive(Subcommand)]
+pub enum AuthCommands {
+    /// Manage API keys for authentication with the Nebulous API server.
+    #[command(aliases = ["api-key"])]
+    ApiKeys {
+        #[command(subcommand)]
+        action: ApiKeyActions,
+    },
+    // TODO: Add auth for tailnet
+}
+
+#[derive(Subcommand)]
+pub enum ApiKeyActions {
+    /// List API keys.
+    List,
+
+    /// Get API key details.
+    Get {
+        /// The ID of the API key to get.
+        id: String,
+    },
+
+    /// Generate a new API key.
+    Generate,
+
+    /// Revoke an API key.
+    Revoke {
+        /// The ID of the API key to delete.
+        id: String,
+    },
+}

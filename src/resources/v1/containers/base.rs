@@ -1,5 +1,5 @@
-use crate::auth::agent::create_agent_key;
-use crate::auth::aws::create_s3_scoped_user;
+use crate::agent::agent::create_agent_key;
+use crate::agent::aws::create_s3_scoped_user;
 use crate::config::GlobalConfig;
 use crate::config::CONFIG;
 use crate::entities::containers;

@@ -1,4 +1,4 @@
-use crate::auth::ns::auth_ns;
+use crate::agent::ns::auth_ns;
 use crate::entities::processors;
 use crate::models::{V1ResourceMetaRequest, V1StreamData, V1StreamMessage, V1UserProfile};
 use crate::query::Query;
