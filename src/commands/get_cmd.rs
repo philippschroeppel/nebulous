@@ -261,6 +261,183 @@ pub async fn get_accelerators(platform: Option<String>) -> Result<(), Box<dyn Er
     Ok(())
 }
 
+pub async fn get_processors(
+    name: Option<String>,
+    namespace: Option<String>,
+) -> Result<(), Box<dyn Error>> {
+    let config = GlobalConfig::read()?;
+    debug!("Config: {:?}", config);
+    let current_server = config.get_current_server_config().unwrap();
+    let server = current_server.server.as_ref().unwrap();
+    let api_key = current_server.api_key.as_ref().unwrap();
+
+    let bearer_token = format!("Bearer {}", api_key);
+    let client = reqwest::Client::new();
+
+    // If name and namespace are provided, fetch a single processor
+    if let (Some(proc_name), Some(proc_namespace)) = (name, namespace) {
+        let url = format!("{}/v1/processors/{}/{}", server, proc_namespace, proc_name);
+
+        // Build the request
+        let request = client.get(&url).header("Authorization", &bearer_token);
+
+        // Execute the request
+        let response = request.send().await?;
+
+        // Check if the request was successful
+        if !response.status().is_success() {
+            return Err(format!("Failed to get processor: {}", response.status()).into());
+        }
+
+        // Parse the response
+        let mut processor: Value = response.json().await?;
+
+        // Remove null values for cleaner output
+        remove_null_values(&mut processor);
+
+        // Convert to YAML output
+        let mut buf = Vec::new();
+        {
+            let mut serializer = serde_yaml::Serializer::new(&mut buf);
+            processor.serialize(&mut serializer)?;
+        }
+        let yaml = String::from_utf8(buf)?;
+        println!("{}", yaml);
+        return Ok(());
+    }
+
+    // Otherwise, list all processors
+    let url = format!("{}/v1/processors", server);
+
+    // Build the request
+    let request = client.get(&url).header("Authorization", &bearer_token);
+
+    // Execute the request
+    let response = request.send().await?;
+
+    // Check if the request was successful
+    if !response.status().is_success() {
+        return Err(format!("Failed to get processors: {}", response.status()).into());
+    }
+
+    // Parse the response
+    let mut processors_response: Value = response.json().await?;
+
+    // Remove null values for cleaner output
+    remove_null_values(&mut processors_response);
+
+    // Create a table to display the processors
+    let mut table = prettytable::Table::new();
+
+    // Add table headers
+    table.add_row(prettytable::Row::new(vec![
+        prettytable::Cell::new("ID"),
+        prettytable::Cell::new("NAME"),
+        prettytable::Cell::new("NAMESPACE"),
+        prettytable::Cell::new("STREAM"),
+        prettytable::Cell::new("REPLICAS (MIN/MAX)"),
+        prettytable::Cell::new("STATUS"),
+        prettytable::Cell::new("PRESSURE"),
+        prettytable::Cell::new("CREATED"),
+        prettytable::Cell::new("UPDATED"),
+    ]));
+
+    let empty_vec = Vec::new();
+    let processor_list = processors_response
+        .get("processors")
+        .and_then(Value::as_array)
+        .unwrap_or(&empty_vec);
+
+    // Process processors data
+    for processor in processor_list {
+        if let Value::Object(proc_obj) = processor {
+            debug!("Processor: {:?}", proc_obj);
+
+            let metadata = proc_obj.get("metadata").and_then(Value::as_object);
+            let status_obj = proc_obj.get("status").and_then(Value::as_object);
+
+            let id = metadata
+                .and_then(|m| m.get("id"))
+                .and_then(Value::as_str)
+                .unwrap_or("N/A");
+            let name = metadata
+                .and_then(|m| m.get("name"))
+                .and_then(Value::as_str)
+                .unwrap_or("N/A");
+            let namespace = metadata
+                .and_then(|m| m.get("namespace"))
+                .and_then(Value::as_str)
+                .unwrap_or("N/A");
+            let stream = proc_obj
+                .get("stream")
+                .and_then(Value::as_str)
+                .unwrap_or("N/A");
+
+            let min_replicas_val = proc_obj.get("min_replicas").and_then(Value::as_i64);
+            let max_replicas_val = proc_obj.get("max_replicas").and_then(Value::as_i64);
+
+            let replicas_str = match (min_replicas_val, max_replicas_val) {
+                (Some(min), Some(max)) => format!("{}/{}", min, max),
+                (Some(min), None) => format!("{}/N/A", min),
+                (None, Some(max)) => format!("N/A/{}", max),
+                (None, None) => "N/A".to_string(),
+            };
+
+            let status = status_obj
+                .and_then(|s| s.get("status"))
+                .and_then(Value::as_str)
+                .unwrap_or("N/A");
+
+            let pressure = status_obj
+                .and_then(|s| s.get("pressure"))
+                .and_then(Value::as_i64)
+                .map(|p| p.to_string())
+                .unwrap_or_else(|| "N/A".to_string());
+
+            let created = metadata
+                .and_then(|m| m.get("created_at"))
+                .and_then(Value::as_i64)
+                .map(|timestamp| {
+                    DateTime::<Utc>::from_timestamp(timestamp, 0)
+                        .unwrap_or_default()
+                        .format("%Y-%m-%d %H:%M:%S")
+                        .to_string()
+                })
+                .unwrap_or_else(|| "N/A".to_string());
+
+            let updated = metadata
+                .and_then(|m| m.get("updated_at"))
+                .and_then(Value::as_i64)
+                .map(|timestamp| {
+                    DateTime::<Utc>::from_timestamp(timestamp, 0)
+                        .unwrap_or_default()
+                        .format("%Y-%m-%d %H:%M:%S")
+                        .to_string()
+                })
+                .unwrap_or_else(|| "N/A".to_string());
+
+            // Add row to table
+            table.add_row(prettytable::Row::new(vec![
+                prettytable::Cell::new(id),
+                prettytable::Cell::new(name),
+                prettytable::Cell::new(namespace),
+                prettytable::Cell::new(stream),
+                prettytable::Cell::new(&replicas_str),
+                prettytable::Cell::new(status),
+                prettytable::Cell::new(&pressure),
+                prettytable::Cell::new(&created),
+                prettytable::Cell::new(&updated),
+            ]));
+        }
+    }
+
+    // Set table format and print
+    table.set_format(*prettytable::format::consts::FORMAT_CLEAN);
+    table.printstd();
+
+    Ok(())
+}
+
 // Function to recursively remove null values from serde_json::Value
 fn remove_null_values(value: &mut Value) {
     match value {

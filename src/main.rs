@@ -5,10 +5,9 @@ use std::path::Path;
 
 use crate::cli::{
     ApiKeyActions, AuthCommands, Cli, Commands, CreateCommands, DeleteCommands, GetCommands,
-    ProxyCommands, SelectCommands,
+    ProxyCommands, SelectCommands, SendCommands, SyncCommands,
 };
 use clap::Parser;
-use cli::SyncCommands;
 use nebulous::select::checkpoint::select_checkpoint;
 use std::error::Error;
 use tracing_subscriber;
@@ -93,10 +92,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
             GetCommands::Secrets { id } => {
                 commands::get_cmd::get_secrets(id).await?;
             }
+            GetCommands::Processors { name, namespace } => {
+                commands::get_cmd::get_processors(name, namespace).await?;
+            }
         },
         Commands::Delete { command } => match command {
             DeleteCommands::Containers { id } => {
                 commands::delete_cmd::delete_container(id).await?;
+            }
+            DeleteCommands::Processors { namespace, name } => {
+                commands::delete_cmd::delete_processor(namespace, name).await?;
             }
         },
         Commands::Proxy { command } => match command {
@@ -113,6 +118,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         eprintln!("Error selecting checkpoint: {:?}", e);
                     }
                 }
+            }
+        },
+        Commands::Send { command } => match command {
+            SendCommands::Messages { command } => {
+                commands::send_cmd::send_messages(&command).await?;
             }
         },
         Commands::Daemon {

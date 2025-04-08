@@ -74,7 +74,10 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
                 .delete(delete_processor)
                 .patch(update_processor),
         )
-        .route("/v1/processors/:namespace/:name/send", get(send_processor))
+        .route(
+            "/v1/processors/:namespace/:name/messages",
+            post(send_processor),
+        )
         .route(
             "/v1/processors/:namespace/:name/scale",
             post(scale_processor),

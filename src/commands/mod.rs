@@ -10,6 +10,7 @@ pub mod login_cmd;
 pub mod proxy_cmd;
 mod request;
 pub mod select_cmd;
+pub mod send_cmd;
 pub mod serve_cmd;
 pub mod sync_cmd;
 pub mod work_cmd;

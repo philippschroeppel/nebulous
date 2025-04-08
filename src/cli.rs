@@ -106,14 +106,14 @@ pub enum Commands {
         hub: Option<String>,
     },
 
-    /// Execute a command inside a container.
-    Exec(ExecArgs),
-
-    /// Manage authentication
+    /// Auth commands.
     Auth {
         #[command(subcommand)]
         command: AuthCommands,
     },
+
+    /// Execute a command inside a container.
+    Exec(ExecArgs),
 }
 
 /// Select a checkpoint.
@@ -398,6 +398,18 @@ pub enum GetCommands {
         id: Option<String>,
     },
 
+    /// Get processors.
+    #[command(aliases = ["processor", "proc"])]
+    Processors {
+        /// Optional processor name.
+        #[arg(long)]
+        name: Option<String>,
+
+        /// Optional processor namespace.
+        #[arg(long)]
+        namespace: Option<String>,
+    },
+
     /// Get platforms.
     #[command(aliases = ["platform", "plat"])]
     Platforms,
@@ -415,10 +427,42 @@ pub enum GetCommands {
 pub enum DeleteCommands {
     /// Delete a container.
     #[command(aliases = ["container", "co"])]
-    Containers {
-        /// ID.
-        id: String,
+    Containers { id: String },
+
+    /// Delete a processor
+    #[command(aliases = ["processor", "proc"])]
+    Processors { namespace: String, name: String },
+}
+
+/// Send resources.
+#[derive(Subcommand)]
+pub enum SendCommands {
+    /// Send a message to a stream.
+    #[command(aliases = ["message", "msg"])]
+    Messages {
+        #[command(flatten)]
+        command: SendMessageCommands,
     },
+}
+
+/// Parameters for sending a message to a stream
+#[derive(Args)]
+pub struct SendMessageCommands {
+    /// Processor name
+    #[arg(long)]
+    pub name: String,
+
+    /// Processor namespace
+    #[arg(long)]
+    pub namespace: Option<String>,
+
+    /// File input containing message content (reads from stdin if not provided)
+    #[arg(short = 'f', long)]
+    pub file: Option<String>,
+
+    /// Wait for the message to be processed before returning
+    #[arg(long, short, default_value_t = false)]
+    pub wait: bool,
 }
 
 /// Subcommands for the "work" command

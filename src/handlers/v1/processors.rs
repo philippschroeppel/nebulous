@@ -374,10 +374,11 @@ pub async fn send_processor(
 
     // Get the stream name
     let stream_name = processor.stream;
+    let id = ShortUuid::generate().to_string();
 
     // Generate a return stream name if we need to wait for a response
     let return_stream = if stream_data.wait.unwrap_or(false) {
-        let return_stream_name = format!("return-stream-{}", ShortUuid::generate());
+        let return_stream_name = format!("{}.return.{}", stream_name, id.clone());
         Some(return_stream_name)
     } else {
         None
@@ -386,7 +387,7 @@ pub async fn send_processor(
     // Create a stream message
     let message = V1StreamMessage {
         kind: "ProcessorInput".to_string(),
-        id: ShortUuid::generate().to_string(),
+        id: id.clone(),
         content: stream_data.content,
         created_at: chrono::Utc::now().timestamp(),
         return_stream: return_stream.clone(),
@@ -444,8 +445,8 @@ pub async fn send_processor(
                     .arg("true")
                     .query(&mut conn);
 
-                // Wait for response with a timeout (60 seconds)
-                const TIMEOUT_MS: u64 = 60000;
+                // Wait for response with a timeout (1 hour)
+                const TIMEOUT_MS: u64 = 3600000;
 
                 // Use the higher-level streams API to read from the stream
                 let result: redis::streams::StreamReadReply = redis::cmd("XREAD")
