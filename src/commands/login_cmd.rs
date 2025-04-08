@@ -15,11 +15,13 @@ pub async fn execute(
         return Ok(());
     }
 
+    let nebu_url = nebu_url.trim().trim_end_matches("/").to_string();
+
     let mut config = GlobalConfig::read()?;
 
     if auth.is_some() && hub.is_some() {
-        let auth_url = auth.unwrap();
-        let hub_url = hub.unwrap();
+        let auth_url = auth.unwrap().trim().trim_end_matches("/").to_string();
+        let hub_url = hub.unwrap().trim().trim_end_matches("/").to_string();
 
         let hub_api_url = format!("{}/settings/api", hub_url);
         println!("\nVisit {} to get an API key\n", hub_api_url);
@@ -42,7 +44,7 @@ pub async fn execute(
         config.current_server = Some("cloud".to_string());
     } else {
         println!(
-            r#"Running Nebulous with the integrated auth server.
+            r#"Configuring the Nebulous CLI to use the integrated auth server.
 To obtain an API key, execute the following command within the container:
 
     nebulous auth api-keys generate
@@ -70,6 +72,8 @@ When you're running nebulous on Kubernetes, use:
         config.current_server = Some("nebu".to_string());
     }
     config.write()?;
+
+    // TODO: Check that we can actually reach and authenticate with the server
 
     println!("\nLogin successful!");
     Ok(())

@@ -26,7 +26,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Serve { host, port , internal_auth, auth_port} => {
+        Commands::Serve {
+            host,
+            port,
+            internal_auth,
+            auth_port,
+        } => {
             commands::serve_cmd::execute(host, port, internal_auth, auth_port).await?;
         }
         Commands::Sync { command } => match command {
