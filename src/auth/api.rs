@@ -6,7 +6,6 @@ use argon2::{
     Argon2, PasswordHasher,
 };
 use base64::{engine::general_purpose, Engine as _};
-use hex;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use sea_orm::entity::*;

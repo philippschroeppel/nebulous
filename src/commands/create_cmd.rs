@@ -1,9 +1,8 @@
-use nebulous::config::GlobalConfig;
+use crate::commands::request::{server_request, server_request_with_payload};
 use nebulous::models::{
     RestartPolicy, V1ContainerRequest, V1ContainerResources, V1EnvVar, V1Meter,
     V1ResourceMetaRequest, V1VolumeConfig, V1VolumeDriver, V1VolumePath,
 };
-use reqwest::Client;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::error::Error;
@@ -108,19 +107,12 @@ pub async fn create_container(
         }
     };
 
-    let client = Client::new();
-    let config = GlobalConfig::read()?;
-    let current_server = config.get_current_server_config().unwrap();
-    let server = current_server.server.as_ref().unwrap();
-    let api_key = current_server.api_key.as_ref().unwrap();
-
-    let url = format!("{}/v1/containers", server);
-    let response = client
-        .post(&url)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .json(&container_request)
-        .send()
-        .await?;
+    let response = server_request_with_payload(
+        "/v1/containers",
+        reqwest::Method::POST,
+        Some(container_request),
+    )
+    .await?;
 
     if response.status().is_success() {
         let container: Value = response.json().await?;
@@ -173,23 +165,10 @@ pub async fn create_secret(
         }
     };
 
-    // Issue the request to your server
-    let client = reqwest::Client::new();
-    let config = nebulous::config::GlobalConfig::read()?;
-    let current_server = config.get_current_server_config().unwrap();
-    let server = current_server.server.as_ref().unwrap();
-    let api_key = current_server.api_key.as_ref().unwrap();
+    let response =
+        server_request_with_payload("/v1/secrets", reqwest::Method::POST, Some(secret_request))
+            .await?;
 
-    // POST /v1/secrets with Authorization header
-    let url = format!("{}/v1/secrets", server);
-    let response = client
-        .post(&url)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .json(&secret_request)
-        .send()
-        .await?;
-
-    // Check the server response
     if response.status().is_success() {
         let secret_response: serde_json::Value = response.json().await?;
         println!("Secret created successfully!");

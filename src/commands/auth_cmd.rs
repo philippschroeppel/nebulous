@@ -26,7 +26,7 @@ fn pretty_print_api_key(api_key: SanitizedApiKey) {
 }
 
 pub async fn list_api_keys() -> Result<(), Box<dyn Error>> {
-    let response = server_request("/auth/api-keys", reqwest::Method::GET, None).await?;
+    let response = server_request("/auth/api-keys", reqwest::Method::GET).await?;
     for api_key in response.json::<ApiKeyListResponse>().await?.api_keys {
         pretty_print_api_key(api_key);
     }
@@ -35,7 +35,7 @@ pub async fn list_api_keys() -> Result<(), Box<dyn Error>> {
 
 pub async fn get_api_key(id: &str) -> Result<(), Box<dyn Error>> {
     let path = format!("/api-key/{}", id);
-    let response = server_request(path.as_str(), reqwest::Method::GET, None).await?;
+    let response = server_request(path.as_str(), reqwest::Method::GET).await?;
     let api_key = response.json::<SanitizedApiKey>().await?;
     pretty_print_api_key(api_key);
     Ok(())

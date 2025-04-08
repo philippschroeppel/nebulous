@@ -29,8 +29,18 @@ fn prepare_request(
 pub async fn server_request(
     path: &str,
     method: reqwest::Method,
-    payload: Option<Value>,
 ) -> Result<reqwest::Response, Box<dyn std::error::Error>> {
+    server_request_with_payload::<()>(path, method, None).await
+}
+
+pub async fn server_request_with_payload<T>(
+    path: &str,
+    method: reqwest::Method,
+    payload: Option<T>,
+) -> Result<reqwest::Response, Box<dyn std::error::Error>>
+where
+    T: serde::Serialize,
+{
     match prepare_request(path, method) {
         Ok(req) => {
             let response = match payload {

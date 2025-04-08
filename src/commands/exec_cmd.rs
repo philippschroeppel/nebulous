@@ -1,9 +1,10 @@
 use crate::cli::ExecArgs;
+use crate::commands::request::server_request;
 use reqwest::Client;
 use serde::Deserialize;
 use std::error::Error as StdError;
 
-/// This is your main “exec” function, to be called from your CLI command.  
+/// This is your main “exec” function, to be called from your CLI command.
 /// 1) Fetch container via HTTP API to retrieve its ID.  
 /// 2) Run local SSH command using `run_ssh_command_ts`.
 pub async fn exec_cmd(args: ExecArgs) -> Result<(), Box<dyn StdError>> {
@@ -34,20 +35,8 @@ async fn fetch_container_id_from_api(
     namespace: &str,
     name: &str,
 ) -> Result<String, Box<dyn StdError>> {
-    let config = nebulous::config::GlobalConfig::read()?;
-    let current_server = config.get_current_server_config().unwrap();
-    let server = current_server.server.as_ref().unwrap();
-    let api_key = current_server.api_key.as_ref().unwrap();
-    // Adjust base URL/host as needed:
-    let url = format!("{}/v1/containers/{}/{}", server, namespace, name);
-
-    // Use reqwest to fetch container JSON
-    let client = Client::new();
-    let response = client
-        .get(&url)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .send()
-        .await?;
+    let url = format!("/v1/containers/{}/{}", namespace, name);
+    let response = server_request(&url, reqwest::Method::GET).await?;
 
     let container = response
         .error_for_status()? // Return Err if e.g. 404 or 500
