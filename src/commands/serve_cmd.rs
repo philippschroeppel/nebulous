@@ -32,6 +32,18 @@ pub async fn execute(host: String, port: u16) -> Result<(), Box<dyn Error>> {
     });
     println!("Proxy server started in background");
 
+    println!("Starting auth server");
+    tokio::spawn({
+        let auth_state = app_state.clone();
+        async move {
+            if let Err(e) = nebulous::auth::server::main::start_auth_server(auth_state, 8080).await
+            {
+                eprintln!("Error in auth server: {}", e);
+            }
+        }
+    });
+    println!("Auth server started in background");
+
     // Run it
     println!("Starting main server");
     let addr = format!("{}:{}", host, port);

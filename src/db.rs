@@ -100,7 +100,7 @@ async fn create_tables(db: &DbPool) -> Result<(), DbErr> {
                 .if_not_exists(),
         ),
     )
-        .await?;
+    .await?;
 
     Ok(())
 }

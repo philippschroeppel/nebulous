@@ -1,10 +1,8 @@
 use crate::auth;
 use crate::auth::models::SanitizedApiKey;
-use crate::models::V1UserProfile;
 use crate::state::AppState;
 use axum::extract::{Json, Path, State};
 use axum::http::StatusCode;
-use axum::Extension;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]

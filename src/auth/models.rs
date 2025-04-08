@@ -22,16 +22,6 @@ impl ApiKey {
             is_active: true,
         }
     }
-
-    pub fn access(&mut self) {
-        self.last_used_at = Some(chrono::Utc::now());
-    }
-
-    pub fn revoke(&mut self) {
-        self.revoked_at = Some(chrono::Utc::now());
-        self.hash = String::new();
-        self.is_active = false;
-    }
 }
 
 impl From<db::Model> for ApiKey {

@@ -1,4 +1,4 @@
-use crate::handlers::auth::{generate_api_key, get_api_key, list_api_keys, revoke_api_key};
+use crate::auth::server::handlers::{generate_api_key, get_api_key, list_api_keys, revoke_api_key};
 use crate::handlers::v1::{
     create_container, create_secret, delete_container, delete_container_by_id, delete_secret,
     delete_secret_by_id, fetch_container_logs, fetch_container_logs_by_id, get_container,
@@ -20,15 +20,12 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
     // Public routes that do not require authentication
     let public_routes = Router::new()
         .route("/", get(root_handler))
-        .route("/health", get(health_handler))
-        // FIXME: Move this back to the authenticated routes
-        .route("/auth/api-keys/generate", get(generate_api_key));
+        .route("/health", get(health_handler));
 
     // Private routes that require authentication
     let private_routes = Router::new()
-        .route("/auth/api-keys/:id", get(get_api_key))
+        .route("/auth/api-key/:id", get(get_api_key))
         .route("/auth/api-keys", get(list_api_keys))
-        .route("/auth/api-keys/revoke", post(revoke_api_key))
         .route(
             "/v1/containers",
             get(list_containers).post(create_container),
