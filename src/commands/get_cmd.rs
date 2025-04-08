@@ -1,9 +1,12 @@
 use chrono::{DateTime, Utc};
+use serde::Serialize;
 
 use crate::commands::request::server_request;
+use nebulous::config::GlobalConfig;
 use nebulous::resources::v1::containers::models::{V1Container, V1Containers};
 use serde_json::Value;
 use std::error::Error;
+use tracing::debug;
 
 pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
     let containers: Vec<V1Container> = match id {

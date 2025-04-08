@@ -1,4 +1,6 @@
 use crate::commands::request::server_request;
+use nebulous::config::GlobalConfig;
+use reqwest::Client;
 use std::error::Error;
 
 pub async fn delete_container(id: String) -> Result<(), Box<dyn Error>> {

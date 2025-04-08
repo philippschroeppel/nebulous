@@ -91,6 +91,12 @@ pub enum Commands {
         namespace: String,
     },
 
+    /// Send a message to a processor.
+    Send {
+        #[command(subcommand)]
+        command: SendCommands,
+    },
+
     /// Login to a Nebulous API server.
     Login {
         /// Address of the API server
