@@ -22,8 +22,8 @@ pub async fn execute(
     println!("Container controller started");
 
     println!("Starting processor controller");
-    // let processor_controller = ProcessorController::new(std::sync::Arc::new(app_state.clone()));
-    // processor_controller.spawn_reconciler();
+    let processor_controller = ProcessorController::new(std::sync::Arc::new(app_state.clone()));
+    processor_controller.spawn_reconciler();
     println!("Processor controller started");
 
     println!("Starting proxy server");

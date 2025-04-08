@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 
 use crate::commands::request::server_request;
-use crate::models::{V1Container, V1ContainerList};
+use nebulous::resources::v1::containers::models::{V1Container, V1Containers};
 use serde_json::Value;
 use std::error::Error;
 
@@ -15,7 +15,7 @@ pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
         }
         None => {
             let response = server_request("/v1/containers", reqwest::Method::GET).await?;
-            let container_list: V1ContainerList = response.json().await?;
+            let container_list: V1Containers = response.json().await?;
             container_list.containers
         }
     };

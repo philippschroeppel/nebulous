@@ -1,8 +1,10 @@
 use crate::entities::containers;
-use crate::models::{
-    V1Container, V1ContainerRequest, V1ContainerStatus, V1ResourceMeta, V1UserProfile,
-};
+use crate::models::V1ResourceMeta;
+use crate::models::V1UserProfile;
 use crate::resources::v1::containers::base::{ContainerPlatform, ContainerStatus};
+use crate::resources::v1::containers::models::{
+    V1Container, V1ContainerRequest, V1ContainerStatus,
+};
 use k8s_openapi::api::batch::v1::{Job, JobSpec};
 use k8s_openapi::api::core::v1::{
     Container as K8sContainer, ContainerPort, EnvVar, PodSpec, PodTemplateSpec,
@@ -282,6 +284,7 @@ impl ContainerPlatform for KubePlatform {
         db: &DatabaseConnection,
         _user_profile: &V1UserProfile,
         owner_id: &str,
+        namespace: &str,
     ) -> Result<V1Container, Box<dyn std::error::Error + Send + Sync>> {
         let name = config
             .metadata
@@ -496,7 +499,7 @@ impl ContainerPlatform for KubePlatform {
                                 .metadata
                                 .as_ref()
                                 .and_then(|meta| meta.namespace.clone())
-                                .unwrap_or_else(|| "default".to_string());
+                                .unwrap_or_else(|| _user_profile.email.clone());
 
                             // Create the container record in the database
                             let container = crate::entities::containers::ActiveModel {
@@ -614,11 +617,7 @@ impl ContainerPlatform for KubePlatform {
             kind: "Container".to_string(),
             metadata: V1ResourceMeta {
                 name: name.clone().unwrap(),
-                namespace: config
-                    .metadata
-                    .as_ref()
-                    .and_then(|meta| meta.namespace.clone())
-                    .unwrap_or_else(|| "default".to_string()),
+                namespace: namespace.to_string(),
                 id: id.clone(),
                 owner: owner_id.to_string(),
                 owner_ref: owner_ref.clone(),

@@ -1,8 +1,8 @@
 use crate::entities::containers;
 use crate::entities::processors;
 use crate::entities::secrets;
-use crate::models::V1ProcessorStatus;
-use crate::models::{V1Port, V1UpdateContainer};
+use crate::resources::v1::containers::models::{V1Port, V1UpdateContainer};
+use crate::resources::v1::processors::models::V1ProcessorStatus;
 use sea_orm::*;
 use serde_json::json;
 use short_uuid::ShortUuid;

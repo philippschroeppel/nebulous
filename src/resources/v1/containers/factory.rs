@@ -1,7 +1,8 @@
 use crate::entities::containers;
-use crate::models::{V1Container, V1ContainerRequest, V1UserProfile};
+use crate::models::V1UserProfile;
 use crate::resources::v1::containers::base::ContainerPlatform;
 use crate::resources::v1::containers::kube::KubePlatform;
+use crate::resources::v1::containers::models::{V1Container, V1ContainerRequest};
 use crate::resources::v1::containers::runpod::RunpodPlatform;
 use sea_orm::DatabaseConnection;
 use std::error::Error;
@@ -21,13 +22,18 @@ impl PlatformType {
         db: &DatabaseConnection,
         user_profile: &V1UserProfile,
         owner_id: &str,
+        namespace: &str,
     ) -> Result<V1Container, Box<dyn Error + Send + Sync>> {
         match self {
             PlatformType::Runpod(platform) => {
-                platform.declare(request, db, user_profile, owner_id).await
+                platform
+                    .declare(request, db, user_profile, owner_id, namespace)
+                    .await
             }
             PlatformType::Kube(platform) => {
-                platform.declare(request, db, user_profile, owner_id).await
+                platform
+                    .declare(request, db, user_profile, owner_id, namespace)
+                    .await
             }
         }
     }

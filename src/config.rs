@@ -137,6 +137,9 @@ pub struct Config {
     pub database_url: String,
     pub tailscale_api_key: Option<String>,
     pub tailscale_tailnet: Option<String>,
+    pub bucket_name: String,
+    pub bucket_region: String,
+    pub root_owner: String,
 }
 
 impl Config {
@@ -157,6 +160,12 @@ impl Config {
                 .unwrap_or_else(|_| "sqlite://.data/data.db".to_string()),
             tailscale_api_key: env::var("TAILSCALE_API_KEY").ok(),
             tailscale_tailnet: env::var("TAILSCALE_TAILNET").ok(),
+            bucket_name: env::var("NEBU_BUCKET_NAME")
+                .unwrap_or_else(|_| panic!("NEBU_BUCKET_NAME environment variable must be set")),
+            bucket_region: env::var("NEBU_BUCKET_REGION")
+                .unwrap_or_else(|_| panic!("NEBU_BUCKET_REGION environment variable must be set")),
+            root_owner: env::var("NEBU_ROOT_OWNER")
+                .unwrap_or_else(|_| panic!("NEBU_ROOT_OWNER environment variable must be set")),
         }
     }
 }

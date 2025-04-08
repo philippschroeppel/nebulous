@@ -1,5 +1,6 @@
 use crate::entities::processors;
-use crate::models::{V1Processor, V1ProcessorRequest, V1UserProfile};
+use crate::models::V1UserProfile;
+use crate::resources::v1::processors::models::{V1Processor, V1ProcessorRequest};
 use sea_orm::DatabaseConnection;
 use std::fmt;
 use std::str::FromStr;
@@ -112,12 +113,14 @@ pub trait ProcessorPlatform {
         db: &DatabaseConnection,
         user_profile: &V1UserProfile,
         owner_id: &str,
+        namespace: &str,
     ) -> Result<V1Processor, Box<dyn std::error::Error + Send + Sync>>;
 
     async fn reconcile(
         &self,
         processor: &processors::Model,
         db: &DatabaseConnection,
+        redis_client: &redis::Client,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     async fn delete(

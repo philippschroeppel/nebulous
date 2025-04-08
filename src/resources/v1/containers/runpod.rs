@@ -1,13 +1,17 @@
 use crate::accelerator::base::AcceleratorProvider;
 use crate::accelerator::runpod::RunPodProvider;
+use crate::config::CONFIG;
 use crate::entities::containers;
-use crate::models::{
-    RestartPolicy, V1Container, V1ContainerHealthCheck, V1ContainerRequest, V1ContainerResources,
-    V1ContainerStatus, V1EnvVar, V1Meter, V1Port, V1UpdateContainer, V1UserProfile, V1VolumePath,
-};
+use crate::models::{V1Meter, V1UserProfile};
 use crate::mutation::{self, Mutation};
 use crate::oci::client::pull_and_parse_config;
+use crate::query::Query;
 use crate::resources::v1::containers::base::{ContainerPlatform, ContainerStatus};
+use crate::resources::v1::containers::models::{
+    RestartPolicy, V1Container, V1ContainerHealthCheck, V1ContainerRequest, V1ContainerResources,
+    V1ContainerStatus, V1EnvVar, V1Port, V1UpdateContainer,
+};
+use crate::resources::v1::volumes::models::V1VolumePath;
 use crate::ssh::exec::run_ssh_command_ts;
 use crate::ssh::keys;
 use crate::volumes::rclone::{SymlinkConfig, VolumeConfig, VolumePath};
@@ -233,7 +237,7 @@ impl RunpodPlatform {
 
         // If the pod was found, extract its public ports as Vec<V1Port>
         if let Some(pod) = maybe_pod {
-            // The `runtime` field is optional, so check if it’s present
+            // The `runtime` field is optional, so check if it's present
             if let Some(runtime) = pod.runtime {
                 // Filter only the public ports, then map fields into our V1Port model
                 let public_ports: Vec<V1Port> = runtime
@@ -271,6 +275,31 @@ impl RunpodPlatform {
         let container_id = container.id.to_string();
         let pause_seconds = 5;
         let duration = Duration::from_secs(pause_seconds);
+
+        // Parse timeout if specified
+        let timeout_duration = if let Some(timeout_str) = &container.timeout {
+            match humantime::parse_duration(timeout_str) {
+                Ok(timeout) => {
+                    info!(
+                        "[Runpod Controller] Container {} has timeout of {:?}",
+                        container_id, timeout
+                    );
+                    Some((timeout, timeout_str.clone()))
+                }
+                Err(e) => {
+                    error!(
+                        "[Runpod Controller] Failed to parse timeout '{}' for container {}: {}",
+                        timeout_str, container_id, e
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        // Track container start time for timeout calculation
+        let mut container_start_time: Option<std::time::Instant> = None;
 
         // Get initial status from database
         let (mut last_status, resource_name) =
@@ -443,6 +472,60 @@ impl RunpodPlatform {
 
                         // Handle metering if container has meters defined and status is Running
                         if current_status == ContainerStatus::Running {
+                            // Start timing if this is the first time we've seen the container running
+                            if container_start_time.is_none() {
+                                info!("[Runpod Controller] Container {} started running, recording start time", container_id);
+                                container_start_time = Some(std::time::Instant::now());
+                            }
+
+                            // Check timeout if applicable
+                            if let (Some(start_time), Some(ref timeout_data)) =
+                                (container_start_time, &timeout_duration)
+                            {
+                                let (timeout, timeout_str) = timeout_data;
+                                let elapsed = start_time.elapsed();
+                                if elapsed >= *timeout {
+                                    info!(
+                                        "[Runpod Controller] Container {} has exceeded timeout of {:?} (elapsed: {:?}), terminating",
+                                        container_id, timeout, elapsed
+                                    );
+
+                                    // Terminate the container due to timeout
+                                    if let Err(del_err) = self.delete(&container_id, db).await {
+                                        error!(
+                                            "[Runpod Controller] Error deleting timed-out container {}: {}",
+                                            container_id, del_err
+                                        );
+                                    } else {
+                                        // Update container status to indicate timeout
+                                        if let Err(e) = Mutation::update_container_status(
+                                            db,
+                                            container_id.to_string(),
+                                            Some(ContainerStatus::Failed.to_string()),
+                                            Some(format!("Container terminated after exceeding timeout of {}", timeout_str)),
+                                            None,
+                                            None,
+                                            None,
+                                            None,
+                                            None,
+                                        )
+                                        .await
+                                        {
+                                            error!(
+                                                "[Runpod Controller] Failed to update status for timed-out container: {}",
+                                                e
+                                            );
+                                        }
+                                    }
+                                    break;
+                                } else {
+                                    debug!(
+                                        "[Runpod Controller] Container {} running for {:?} of {:?} timeout",
+                                        container_id, elapsed, timeout
+                                    );
+                                }
+                            }
+
                             // 1) Check for /done.txt in the container
                             info!("[Runpod Controller] container running...");
 
@@ -463,7 +546,7 @@ impl RunpodPlatform {
                                     }
                                 }
                                 Err(e) => {
-                                    error!(
+                                    warn!(
                                         "[Runpod Controller] Failed to get Tailscale device IP for container {}: {}",
                                         container.id, e
                                     );
@@ -656,7 +739,7 @@ impl RunpodPlatform {
                                                 );
                                             }
                                         } else {
-                                            // If we have no prior status, treat it as if it’s not terminal
+                                            // If we have no prior status, treat it as if it's not terminal
                                             if let Err(e) =
                                                 crate::mutation::Mutation::update_container_status(
                                                     db,
@@ -872,11 +955,15 @@ impl RunpodPlatform {
         .to_string()
     }
 
-    fn determine_volumes_config(
+    async fn determine_volumes_config(
         &self,
+        name: &str,
+        namespace: &str,
         model: Vec<V1VolumePath>,
         env_map: &HashMap<String, String>,
-    ) -> VolumeConfig {
+        db: &DatabaseConnection,
+        owner: &str,
+    ) -> anyhow::Result<VolumeConfig> {
         let mut volume_paths = Vec::new();
         let mut symlinks = Vec::new();
         let cache_dir = "/nebu/cache".to_string();
@@ -892,9 +979,76 @@ impl RunpodPlatform {
             // Check if destination path is local (not starting with s3:// or other remote protocol)
             let is_local_destination = !expanded_dest.starts_with("s3://")
                 && !expanded_dest.starts_with("gs://")
-                && !expanded_dest.starts_with("azure://");
+                && !expanded_dest.starts_with("azure://")
+                && !expanded_dest.starts_with("nebu://");
 
-            let final_dest = if is_local_destination {
+            let final_dest = if expanded_dest.starts_with("nebu://") {
+                // Extract the volume name and remaining path from nebu://{volume}/rest/of/path
+                let path_without_prefix = expanded_dest.strip_prefix("nebu://").unwrap_or("");
+                let mut parts = path_without_prefix.splitn(2, '/');
+
+                let volume_name = match parts.next() {
+                    Some(volume_name) => volume_name,
+                    None => {
+                        error!(
+                            "[Runpod Controller] Failed to parse nebu:// path: {}",
+                            expanded_dest
+                        );
+                        return Err(anyhow::anyhow!(
+                            "[Runpod Controller] Failed to parse nebu:// path: {}",
+                            expanded_dest
+                        ));
+                    }
+                };
+                debug!("[Runpod Controller] Volume name: {}", volume_name);
+                let remaining_path = parts.next().unwrap_or("");
+
+                debug!(
+                    "[Runpod Controller] Parsed nebu:// path - volume: {}, remaining: {} with owners: {} and namespace: {}",
+                    volume_name, remaining_path, owner, namespace
+                );
+
+                // Query for the volume
+                match Query::find_volume_by_namespace_name_and_owners(
+                    db,
+                    namespace,
+                    volume_name,
+                    &[owner], // Use the container's owner for authorization
+                )
+                .await
+                {
+                    Ok(volume) => {
+                        // Combine the volume's source with the remaining path
+                        let final_path = if remaining_path.is_empty() {
+                            volume.source
+                        } else {
+                            format!(
+                                "{}/{}",
+                                volume.source.trim_end_matches('/'),
+                                remaining_path.trim_start_matches('/')
+                            )
+                        };
+
+                        debug!(
+                            "[Runpod Controller] Resolved nebu:// path to: {}",
+                            final_path
+                        );
+                        final_path
+                    }
+                    Err(e) => {
+                        error!(
+                            "[Runpod Controller] Failed to find volume '{}' in namespace '{}' with owners '{}': {}",
+                            volume_name, namespace, owner, e
+                        );
+                        return Err(anyhow::anyhow!(
+                            "[Runpod Controller] Failed to find volume '{}' in namespace '{}': {}",
+                            volume_name,
+                            namespace,
+                            e
+                        ));
+                    }
+                }
+            } else if is_local_destination {
                 // For local paths, we'll sync to cache directory instead
                 let path_without_leading_slash = expanded_dest.trim_start_matches('/');
                 let cache_path = format!("{}/{}", cache_dir, path_without_leading_slash);
@@ -926,7 +1080,7 @@ impl RunpodPlatform {
             symlinks,
         };
         debug!("[Runpod Controller] Volume config: {:?}", volume_config);
-        volume_config
+        Ok(volume_config)
     }
 
     async fn create(
@@ -1142,42 +1296,6 @@ impl RunpodPlatform {
         };
         Mutation::update_container_user(db, model.id.clone(), Some(final_user)).await?;
 
-        // Add NEBU_SYNC_CONFIG environment variable with serialized volumes configuration
-        match model.parse_volumes() {
-            Ok(Some(volumes)) => {
-                // We got a valid Vec of V1VolumePath. Proceed as before.
-                let volume_config = self.determine_volumes_config(volumes, &common_env);
-                info!("[Runpod Controller] Volume config: {:?}", volume_config);
-
-                match serde_yaml::to_string(&volume_config) {
-                    Ok(serialized_volumes) => {
-                        env_vec.push(runpod::EnvVar {
-                            key: "NEBU_SYNC_CONFIG".to_string(),
-                            value: serialized_volumes,
-                        });
-                        info!("[Runpod Controller] Added NEBU_SYNC_CONFIG environment variable");
-                    }
-                    Err(e) => {
-                        error!(
-                            "[Runpod Controller] Failed to serialize volumes configuration: {}",
-                            e
-                        );
-                        // Continue without this env var rather than failing the whole operation
-                    }
-                }
-            }
-            Ok(None) => {
-                // parse_volumes() returned Ok, but no volumes were present
-                info!("[Runpod Controller] No volumes configured, skipping NEBU_SYNC_CONFIG");
-            }
-            Err(e) => {
-                // A serialization error occurred, so handle it (log, return, etc.)
-                error!("[Runpod Controller] Failed to parse volumes: {}", e);
-                // If you’d prefer to ignore the parse failure and still run, you could do so here
-            }
-        }
-        info!("[Runpod Controller] Environment variables: {:?}", env_vec);
-
         match model.parse_env() {
             Ok(Some(env)) => {
                 // We have a valid, non-empty list of environment variables.
@@ -1231,6 +1349,71 @@ impl RunpodPlatform {
                     e
                 );
                 // Decide how you want to handle the error (return early, ignore, etc.)
+            }
+        }
+        info!("[Runpod Controller] Environment variables: {:?}", env_vec);
+
+        let env_map: HashMap<String, String> = env_vec
+            .iter()
+            .map(|env| (env.key.clone(), env.value.clone()))
+            .collect();
+
+        // Add NEBU_SYNC_CONFIG environment variable with serialized volumes configuration
+        match model.parse_volumes() {
+            Ok(Some(volumes)) => {
+                // We got a valid Vec of V1VolumePath. Proceed as before.
+                debug!("[Runpod Controller] Parsing volumes: {:?}", volumes);
+                debug!("[Runpod Controller] Environment map: {:?}", env_map);
+                debug!("[Runpod Controller] Namespace: {}", model.namespace);
+                debug!("[Runpod Controller] Name: {}", model.name);
+                debug!("[Runpod Controller] Owner: {}", model.owner);
+                let volume_config = match self
+                    .determine_volumes_config(
+                        &model.name,
+                        &model.namespace,
+                        volumes,
+                        &env_map, // Now passing the HashMap instead of Vec<EnvVar>
+                        db,
+                        &model.owner,
+                    )
+                    .await
+                {
+                    Ok(volume_config) => volume_config,
+                    Err(e) => {
+                        error!(
+                            "[Runpod Controller] Failed to determine volumes config: {}",
+                            e
+                        );
+                        return Err(e.into());
+                    }
+                };
+                info!("[Runpod Controller] Volume config: {:?}", volume_config);
+
+                match serde_yaml::to_string(&volume_config) {
+                    Ok(serialized_volumes) => {
+                        env_vec.push(runpod::EnvVar {
+                            key: "NEBU_SYNC_CONFIG".to_string(),
+                            value: serialized_volumes,
+                        });
+                        info!("[Runpod Controller] Added NEBU_SYNC_CONFIG environment variable");
+                    }
+                    Err(e) => {
+                        error!(
+                            "[Runpod Controller] Failed to serialize volumes configuration: {}",
+                            e
+                        );
+                        // Continue without this env var rather than failing the whole operation
+                    }
+                }
+            }
+            Ok(None) => {
+                // parse_volumes() returned Ok, but no volumes were present
+                info!("[Runpod Controller] No volumes configured, skipping NEBU_SYNC_CONFIG");
+            }
+            Err(e) => {
+                // A serialization error occurred, so handle it (log, return, etc.)
+                error!("[Runpod Controller] Failed to parse volumes: {}", e);
+                // If you'd prefer to ignore the parse failure and still run, you could do so here
             }
         }
         info!("[Runpod Controller] Environment variables: {:?}", env_vec);
@@ -1419,7 +1602,7 @@ impl RunpodPlatform {
             fi
         "#;
 
-        // Here’s the new portion for checking tailscale before installing
+        // Here's the new portion for checking tailscale before installing
         let tailscale_install = r#"
     echo "[DEBUG] Installing tailscale (if not present)..."
     if ! command -v tailscale &> /dev/null; then
@@ -1728,6 +1911,7 @@ impl ContainerPlatform for RunpodPlatform {
         db: &DatabaseConnection,
         user_profile: &V1UserProfile,
         owner_id: &str,
+        namespace: &str,
     ) -> Result<V1Container, Box<dyn std::error::Error + Send + Sync>> {
         let name = config
             .metadata
@@ -1852,21 +2036,51 @@ impl ContainerPlatform for RunpodPlatform {
         let id = ShortUuid::generate().to_string();
         info!("[Runpod Controller] ID: {}", id);
 
-        self.store_agent_key_secret(db, user_profile, &id, owner_id)
-            .await?;
+        debug!("[Runpod Controller] About to store agent key secret");
+        // Restore user profile check (using the now-available full profile)
+        debug!("[Runpod Controller] user_profile = {:?}", user_profile);
+        if user_profile.token.is_none() {
+            error!("[Runpod Controller] user_profile.token is None, cannot get agent key for container");
+            return Err(Box::<dyn std::error::Error + Send + Sync>::from(
+                "Cannot create container: user profile is missing authentication token".to_string(),
+            ));
+        }
 
-        let namespace = config
-            .metadata
-            .as_ref()
-            .and_then(|meta| meta.namespace.clone())
-            .unwrap_or_else(|| "default".to_string());
+        // Removed user_profile check as it's no longer passed.
+        // The store_agent_key_secret function now needs to fetch the token itself if required.
+        debug!(
+            "[Runpod Controller] Storing agent key secret: id={}, owner_id={}",
+            id, owner_id
+        );
+        match self
+            .store_agent_key_secret(db, user_profile, &id, owner_id)
+            .await
+        {
+            Ok(_) => debug!("[Runpod Controller] Successfully stored agent key secret"),
+            Err(e) => {
+                error!(
+                    "[Runpod Controller] Failed to store agent key secret: {}",
+                    e
+                );
+                return Err(Box::<dyn std::error::Error + Send + Sync>::from(format!(
+                    "Failed to store agent key secret: {}",
+                    e
+                )));
+            }
+        }
 
         let owner_ref: Option<String> = config
             .metadata
             .as_ref()
             .and_then(|meta| meta.owner_ref.clone());
 
-        let name = name.unwrap_or(petname::petname(3, "-").unwrap());
+        // Fix the unwrap that's causing the panic
+        let name = name.unwrap_or_else(|| {
+            petname::petname(3, "-").unwrap_or_else(|| {
+                // Fallback to a simple default name if petname fails
+                format!("container-{}", ShortUuid::generate())
+            })
+        });
 
         debug!(
             "[Runpod Controller] Creating container record in database with GPU type ID: {}",
@@ -1876,7 +2090,7 @@ impl ContainerPlatform for RunpodPlatform {
         // Create the container record in the database
         let container = crate::entities::containers::ActiveModel {
             id: Set(id.clone()),
-            namespace: Set(namespace.clone()),
+            namespace: Set(namespace.to_string()),
             name: Set(name.clone()),
             full_name: Set(format!("{}/{}", namespace, name)),
             owner: Set(owner_id.to_string()),
@@ -1951,7 +2165,7 @@ impl ContainerPlatform for RunpodPlatform {
             kind: "Container".to_string(),
             metadata: crate::models::V1ResourceMeta {
                 name: name.clone(),
-                namespace: namespace.clone(),
+                namespace: namespace.to_string(),
                 id: id.clone(),
                 owner: owner_id.to_string(),
                 owner_ref: owner_ref.clone(),
@@ -2010,14 +2224,12 @@ impl ContainerPlatform for RunpodPlatform {
                 crate::query::Query::is_queue_free(db, queue_name, &container.id).await?;
             if !queue_is_free {
                 // The queue is blocked by another container.
-                // Optionally move this container to "Queued" status, or just do nothing.
+                // Set this container to "Queued" status if it's not already in a terminal state.
                 info!(
-                    "[Runpod Controller] Container {} is blocked by an active container in queue '{}'; skipping start.",
+                    "[Runpod Controller] Container {} is blocked by another container in queue '{}'; setting to Queued.",
                     container.id, queue_name
                 );
 
-                // If you'd like to explicitly set the container status to Queued in DB:
-                // (Only do this if not already in some other terminal or running state.)
                 if let Ok(Some(parsed_status)) = container.parse_status() {
                     let current_status = parsed_status.status.unwrap_or_default();
                     // If it's not already queued (or in a terminal state), set to queued:
@@ -2030,7 +2242,7 @@ impl ContainerPlatform for RunpodPlatform {
                             db,
                             container.id.clone(),
                             Some(ContainerStatus::Queued.to_string()),
-                            Some("Blocked by another running container in queue".to_string()),
+                            Some("Waiting in queue".to_string()),
                             None,
                             None,
                             None,
@@ -2043,6 +2255,12 @@ impl ContainerPlatform for RunpodPlatform {
                 }
 
                 return Ok(()); // do not proceed to create or watch
+            } else {
+                // Queue is free and this is the next container in line
+                info!(
+                    "[Runpod Controller] Container {} is next in queue '{}'; proceeding with start.",
+                    container.id, queue_name
+                );
             }
         }
 

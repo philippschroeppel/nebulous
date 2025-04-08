@@ -49,6 +49,7 @@ nebu get platforms
 
 > [!TIP]
 > Prefer a pythonic interface? Try [nebulous-py](https://github.com/agentsea/nebulous-py)   
+>     
 > Prefer a higher level LLM interface? Try [orign](https://github.com/agentsea/orign)
 
 ### Containers
@@ -81,14 +82,14 @@ env:
     value: trl-lib/Capybara 
 volumes:  
   - source: /output
-    dest: s3://<my-bucket>/training-output
+    dest: nebu://training-output
     driver: RCLONE_COPY
     continuous: true
 accelerators:
   - "2:A100_SXM"
 restart: Never
 ```
-Replace `<my-bucket>` with a bucket name your aws credentials have access to, and edit any other fields as needed.
+Now to create the container
 
 ```sh
 nebu create container -f mycontainer.yaml
@@ -133,39 +134,51 @@ queue: actor-critic-training
 
 #### Volumes
 
-Volumes provide a means to persist and sync data accross clouds. Nebulous uses [rclone](https://rclone.org/) to sync data between clouds backed by an object storage provider.
-
+Volumes provide a means to persist and sync data accross clouds. Nebulous uses [rclone](https://rclone.org/) to sync data between clouds backed by an object storage provider.   
+   
 ```yaml
+kind: Volume
+metadata:
+  name: shared-datasets
+  namespace: my-app
+source: s3://foo/bar
+```
+
+This volume could then be used in a container like
+```yaml
+kind: Container
 volumes:
-  - source: s3://nebulous-rs/test
-    dest: /test
+  - source: /output
+    dest: nebu://shared-datasets/my-dataset
     driver: RCLONE_SYNC
     continuous: true
 ```
+
+The dest path `nebu://shared-datasets/my-dataset` would translate to `s3://foo/bar/my-dataset`. Nebulous will take care of configuring the container with the needed credentials to access shared namespace volumes.
+> [!TIP]
+> By default, Nebulous provisions every namespace with a volume with the same name as the namespace
+   
+Optionally users can define volumes directly in the container
+
+```yaml
+kind: Container
+volumes:
+  - source: s3://my-other-bucket/foo/bar
+    dest: /datasets
+    driver: RCLONE_SYNC
+env:
+  - key: AWS_ACCESS_KEY_ID
+    secret_name: my-aws-access-key-secret
+  - key: AWS_SECRET_ACCESS_KEY
+    secret_name: my-aws-secret-access-key
+```
+> [!NOTE]
+> Note that you will need to provide the necessary credentials for the container to access that s3 path.
 
 Supported drivers are:
 - `RCLONE_SYNC`
 - `RCLONE_COPY`
 - `RCLONE_BISYNC`
-
-#### Organizations
-
-Nebulous is multi-tenant from the ground up. Here is an example of creating a container under the `agentsea` organization.
-
-```sh
-nebu create container \
-    --name "foo" \
-    --owner "agentsea" \
-    --image tensorflow/tensorflow:latest \
-    --cmd "echo hello" \
-    --platform ec2 \
-    --accelerators "1:L40s"
-```
-
-The authorization heirarchy is
-```
-orgs -> namespaces -> resources
-```
 
 #### Meters
 
@@ -277,6 +290,24 @@ metadata:
 Resources within a given namespace are network isolated using [Tailnet](https://tailscale.com/kb/1136/tailnet), and can be accessed by simply using `http://{kind}-{id}` e.g. `http://container-12345:8000`.
     
 Nebulous cloud provides a free hosted [HeadScale](https://github.com/juanfont/headscale) instance to connect your resources, or you can bring your own by simply setting the `TAILSCALE_URL` environment variable.   
+
+#### Tenancy
+
+Nebulous is multi-tenant from the ground up. Tenancy happens at the namespace level, when creating a namespace a user can set the owner to their user or an organization they are a member of.
+
+```sh
+kind: Namespace
+metadata:
+  namespace: my-app
+  owner: acme
+```
+
+Now all resources created in that namespace will be owned by `acme`.   
+   
+The authorization heirarchy is
+```
+owners -> namespaces -> resources
+```
 
 ### Services [in progress]
 

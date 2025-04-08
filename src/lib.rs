@@ -29,12 +29,15 @@ pub mod validate;
 pub mod volumes;
 
 use crate::config::CONFIG;
+use crate::handlers::v1::namespaces::ensure_namespace;
+use crate::handlers::v1::volumes::ensure_volume;
 use axum::Router;
 use db::init_db;
 use rdkafka::admin::AdminClient;
 use rdkafka::producer::FutureProducer;
 use rdkafka::ClientConfig;
 use routes::create_routes;
+use sea_orm::DatabaseConnection;
 use state::AppState;
 use state::MessageQueue;
 use std::env;
@@ -114,6 +117,8 @@ pub async fn create_app_state() -> Result<AppState, Box<dyn std::error::Error>> 
         }
     };
 
+    ensure_base_resources(&db_pool).await?;
+
     let app_state = AppState {
         db_pool,
         message_queue,
@@ -138,4 +143,38 @@ pub async fn create_app(app_state: AppState) -> Router {
         .with_state(app_state);
 
     app
+}
+
+pub async fn ensure_base_resources(
+    db_pool: &DatabaseConnection,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match ensure_namespace(
+        db_pool,
+        "root",
+        &CONFIG.root_owner,
+        &CONFIG.root_owner,
+        None,
+    )
+    .await
+    {
+        Ok(_) => (),
+        Err(e) => return Err(Box::new(e)),
+    }
+
+    match ensure_volume(
+        db_pool,
+        "root",
+        "root",
+        &CONFIG.root_owner,
+        format!("s3://{}", &CONFIG.bucket_name).as_str(),
+        "root",
+        None,
+    )
+    .await
+    {
+        Ok(_) => (),
+        Err(e) => return Err(Box::new(e)),
+    }
+
+    Ok(())
 }

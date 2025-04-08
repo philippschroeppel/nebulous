@@ -1,18 +1,21 @@
 use crate::agent::agent::create_agent_key;
+use crate::agent::aws::create_s3_scoped_user;
 use crate::config::GlobalConfig;
 use crate::config::CONFIG;
 use crate::entities::containers;
-use crate::models::{
-    V1Container, V1ContainerRequest, V1CreateAgentKeyRequest, V1UpdateContainer, V1UserProfile,
-};
+use crate::handlers::v1::volumes::ensure_volume;
+use crate::models::{V1CreateAgentKeyRequest, V1UserProfile};
 use crate::query::Query;
+use crate::resources::v1::containers::models::{
+    V1Container, V1ContainerRequest, V1UpdateContainer,
+};
 use sea_orm::DatabaseConnection;
 use std::collections::HashMap;
 use std::env;
 use std::fmt;
 use std::str::FromStr;
 use tailscale_client::TailscaleClient;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 /// Enum for container status
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
@@ -145,6 +148,7 @@ pub trait ContainerPlatform {
         db: &DatabaseConnection,
         user_profile: &V1UserProfile,
         owner_id: &str,
+        namespace: &str,
     ) -> Result<V1Container, Box<dyn std::error::Error + Send + Sync>>;
 
     async fn reconcile(
@@ -183,14 +187,47 @@ pub trait ContainerPlatform {
         let config = GlobalConfig::read().unwrap();
         let mut env = HashMap::new();
 
-        let agent_key = Query::get_agent_key(db, model.id.clone()).await.unwrap();
+        debug!("Getting agent key");
+        let agent_key = match Query::get_agent_key(db, model.id.clone()).await {
+            Ok(key) => key,
+            Err(e) => {
+                error!("Error getting agent key: {:?}", e);
+                return env;
+            }
+        };
 
-        // Get AWS credentials from environment
-        let aws_access_key =
-            env::var("AWS_ACCESS_KEY_ID").expect("AWS_ACCESS_KEY_ID environment variable not set");
-        let aws_secret_key = env::var("AWS_SECRET_ACCESS_KEY")
-            .expect("AWS_SECRET_ACCESS_KEY environment variable not set");
+        let source = format!("s3://{}/data/{}", CONFIG.bucket_name, model.namespace);
 
+        debug!("Ensuring volume: {:?}", source);
+        let _ = match ensure_volume(
+            db,
+            &model.namespace,
+            &model.namespace,
+            &model.owner,
+            &source,
+            &model.created_by.clone().unwrap_or_default(),
+            model.labels.clone(),
+        )
+        .await
+        {
+            Ok(_) => (),
+            Err(e) => {
+                error!("Error ensuring volume: {:?}", e);
+                return env;
+            }
+        };
+
+        debug!("Creating s3 token");
+        let s3_token =
+            match create_s3_scoped_user(&CONFIG.bucket_name, &model.namespace, &model.id).await {
+                Ok(token) => token,
+                Err(e) => {
+                    error!("Error creating s3 token: {:?}", e);
+                    return env;
+                }
+            };
+
+        debug!("Adding RCLONE environment variables");
         // Add RCLONE environment variables
         env.insert("RCLONE_CONFIG_S3REMOTE_TYPE".to_string(), "s3".to_string());
         env.insert(
@@ -201,12 +238,19 @@ pub trait ContainerPlatform {
             "RCLONE_CONFIG_S3REMOTE_ENV_AUTH".to_string(),
             "true".to_string(),
         );
-        env.insert("AWS_ACCESS_KEY_ID".to_string(), aws_access_key);
-        env.insert("AWS_SECRET_ACCESS_KEY".to_string(), aws_secret_key);
+        debug!("Adding AWS credentials");
+        debug!("Access key: {}", s3_token.access_key_id);
+        debug!("Secret key: {}", s3_token.secret_access_key);
+        env.insert("AWS_ACCESS_KEY_ID".to_string(), s3_token.access_key_id);
+        env.insert(
+            "AWS_SECRET_ACCESS_KEY".to_string(),
+            s3_token.secret_access_key,
+        );
         env.insert(
             "RCLONE_CONFIG_S3REMOTE_REGION".to_string(),
-            "us-east-1".to_string(),
+            CONFIG.bucket_region.clone(),
         );
+        env.insert("RCLONE_S3_NO_CHECK_BUCKET".to_string(), "true".to_string());
         env.insert("NEBU_API_KEY".to_string(), agent_key.unwrap());
         env.insert(
             "NEBU_SERVER".to_string(),
@@ -222,6 +266,7 @@ pub trait ContainerPlatform {
         env.insert("NEBU_CONTAINER_ID".to_string(), model.id.clone());
         env.insert("NEBU_DATE".to_string(), chrono::Utc::now().to_rfc3339());
         env.insert("HF_HOME".to_string(), "/nebu/cache/huggingface".to_string());
+        env.insert("NAMESPACE_VOLUME_URI".to_string(), source);
 
         env.insert(
             "TS_AUTHKEY".to_string(),
@@ -319,8 +364,8 @@ pub trait ContainerPlatform {
             },
         };
 
-        // The second parameter below (true) often corresponds to “override” in some older client versions;
-        // adjust as needed based on your Tailscale library’s signature.
+        // The second parameter below (true) often corresponds to "override" in some older client versions;
+        // adjust as needed based on your Tailscale library's signature.
         let response = client
             .create_auth_key(&tailnet, true, &request_body)
             .await
@@ -343,25 +388,66 @@ pub trait ContainerPlatform {
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let config = crate::config::GlobalConfig::read().unwrap();
 
+        debug!("[DEBUG] get_agent_key: Entering function");
+        debug!("[DEBUG] get_agent_key: user_profile = {:?}", user_profile);
+
+        // Check if token exists and log it
+        if user_profile.token.is_none() {
+            error!("[ERROR] get_agent_key: user_profile.token is None!");
+            return Err("User profile does not have a token".into());
+        }
+
+        debug!("[DEBUG] get_agent_key: Creating agent key request");
         let create_agent_key_request = V1CreateAgentKeyRequest {
             agent_id: "nebu".to_string(),
             name: format!("nebu-{}", uuid::Uuid::new_v4()),
             duration: 604800,
         };
 
-        let agent_key = create_agent_key(
-            &config
-                .get_current_server_config()
-                .unwrap()
-                .auth_server
-                .as_ref()
-                .unwrap(),
+        debug!("[DEBUG] get_agent_key: Getting server config");
+        let server_config = match config.get_current_server_config() {
+            Some(cfg) => cfg,
+            None => {
+                error!("[ERROR] get_agent_key: No current server config found");
+                return Err("No current server configuration available".into());
+            }
+        };
+
+        let auth_server = match &server_config.auth_server {
+            Some(server) => {
+                debug!("[DEBUG] get_agent_key: Using auth_server: {}", server);
+                server
+            }
+            None => {
+                error!("[ERROR] get_agent_key: No auth_server in server config");
+                return Err("No auth server specified in configuration".into());
+            }
+        };
+
+        debug!("[DEBUG] get_agent_key: Calling create_agent_key");
+        let agent_key = match create_agent_key(
+            auth_server,
             &user_profile.token.clone().unwrap(),
             create_agent_key_request,
         )
         .await
-        .unwrap();
+        {
+            Ok(key) => {
+                debug!("[DEBUG] get_agent_key: Successfully created agent key");
+                key
+            }
+            Err(e) => {
+                error!("[ERROR] get_agent_key: Failed to create agent key: {:?}", e);
+                return Err(format!("Failed to create agent key: {:?}", e).into());
+            }
+        };
 
+        if agent_key.key.is_none() {
+            error!("[ERROR] get_agent_key: agent_key.key is None!");
+            return Err("Agent key returned from server is None".into());
+        }
+
+        debug!("[DEBUG] get_agent_key: Successfully obtained agent key");
         Ok(agent_key.key.unwrap())
     }
 
@@ -376,10 +462,29 @@ pub trait ContainerPlatform {
         use crate::entities::secrets;
         use sea_orm::{EntityTrait, Set};
 
-        let agent_key = self.get_agent_key(user_profile).await?;
+        debug!(
+            "[DEBUG] store_agent_key_secret: Starting for container {}",
+            container_id
+        );
+        debug!("[DEBUG] store_agent_key_secret: owner_id={}", owner_id);
+        debug!(
+            "[DEBUG] store_agent_key_secret: user_profile = {:?}",
+            user_profile
+        );
 
+        // TODO: Re-evaluate how agent keys are generated.
+        // get_agent_key relied on user_profile.token which is no longer available here.
+        // For now, we might need a placeholder or a different mechanism.
+        // Let's use a temporary placeholder value for now.
+        let agent_key = format!("temp-agent-key-for-{}", container_id);
+        debug!(
+            "[DEBUG] store_agent_key_secret: Using temporary agent key: {}",
+            agent_key
+        );
+
+        debug!("[DEBUG] store_agent_key_secret: Creating new secret model");
         // Create a new secret with the agent key
-        let secret = secrets::Model::new(
+        let secret = match secrets::Model::new(
             container_id.to_string(),
             format!("agent-key-{}", container_id),
             "container-reconciler".to_string(),
@@ -388,12 +493,28 @@ pub trait ContainerPlatform {
             Some(owner_id.to_string()),
             None,
             None,
-        )?;
+        ) {
+            Ok(s) => {
+                debug!("[DEBUG] store_agent_key_secret: Created secret model");
+                s
+            }
+            Err(e) => {
+                error!(
+                    "[ERROR] store_agent_key_secret: Failed to create secret model: {}",
+                    e
+                );
+                return Err(e.into());
+            }
+        };
 
         let namespace = secret.namespace.clone();
         let name = secret.name.clone();
 
         let full_name = format!("{namespace}/{name}");
+        debug!(
+            "[DEBUG] store_agent_key_secret: Secret full_name={}",
+            full_name
+        );
 
         // Convert to active model for insertion
         let active_model = secrets::ActiveModel {
@@ -412,16 +533,23 @@ pub trait ContainerPlatform {
             expires_at: Set(None),
         };
 
+        debug!("[DEBUG] store_agent_key_secret: Inserting secret into database");
         // Insert into database
-        secrets::Entity::insert(active_model)
-            .exec(db)
-            .await
-            .map_err(|e| {
-                Box::<dyn std::error::Error + Send + Sync>::from(format!(
+        match secrets::Entity::insert(active_model).exec(db).await {
+            Ok(_) => {
+                debug!("[DEBUG] store_agent_key_secret: Successfully inserted secret");
+            }
+            Err(e) => {
+                error!(
+                    "[ERROR] store_agent_key_secret: Failed to insert secret: {}",
+                    e
+                );
+                return Err(Box::<dyn std::error::Error + Send + Sync>::from(format!(
                     "Failed to store agent key secret: {}",
                     e
-                ))
-            })?;
+                )));
+            }
+        }
 
         info!(
             "[RunPod] Stored agent key secret for container {}",

@@ -1,11 +1,12 @@
-// src/entities/training_job.rs
+// src/entities/processors.rs
 
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
 use std::collections::HashMap;
 
-use crate::models::{V1Container, V1Processor, V1ProcessorStatus, V1Scale};
+use crate::resources::v1::containers::models::V1ContainerRequest;
+use crate::resources::v1::processors::models::{V1Processor, V1ProcessorStatus, V1Scale};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "processors")]
@@ -20,11 +21,11 @@ pub struct Model {
     pub owner: String,
     pub container: Option<Json>,
     pub cluster: Option<Json>,
-    pub scale: Option<Json>,
+    pub scale: Json,
     pub min_replicas: Option<i32>,
     pub max_replicas: Option<i32>,
     pub desired_replicas: Option<i32>,
-    pub stream: Option<String>,
+    pub stream: String,
     pub schema: Option<Json>,
     pub common_schema: Option<String>,
     pub status: Option<Json>,
@@ -48,6 +49,17 @@ impl Model {
     /// Attempt to parse `status` into a `V1ProcessorStatus`.
     pub fn parse_status(&self) -> Result<Option<V1ProcessorStatus>, serde_json::Error> {
         if let Some(json_value) = &self.status {
+            // Try to parse as a string first
+            if let Ok(status_str) = serde_json::from_value::<String>(json_value.clone()) {
+                // If it's a string, convert it to a V1ProcessorStatus with just the status field
+                return Ok(Some(V1ProcessorStatus {
+                    status: Some(status_str),
+                    message: None,
+                    pressure: None,
+                }));
+            }
+
+            // Otherwise try to parse as a full V1ProcessorStatus object
             serde_json::from_value(json_value.clone()).map(Some)
         } else {
             Ok(None)
@@ -55,14 +67,14 @@ impl Model {
     }
 
     pub fn parse_scale(&self) -> Result<Option<V1Scale>, serde_json::Error> {
-        if let Some(json_value) = &self.scale {
-            serde_json::from_value(json_value.clone()).map(Some)
-        } else {
+        if self.scale.is_null() {
             Ok(None)
+        } else {
+            serde_json::from_value(self.scale.clone()).map(Some)
         }
     }
 
-    pub fn parse_container(&self) -> Result<Option<V1Container>, serde_json::Error> {
+    pub fn parse_container(&self) -> Result<Option<V1ContainerRequest>, serde_json::Error> {
         if let Some(json_value) = &self.container {
             serde_json::from_value(json_value.clone()).map(Some)
         } else {
@@ -113,7 +125,7 @@ impl Model {
         };
 
         // Construct final V1Container
-        let processor = crate::models::V1Processor {
+        let processor = V1Processor {
             kind: "Processor".to_owned(), // or use default_container_kind() if needed
             metadata,
             stream: self.stream.clone(),

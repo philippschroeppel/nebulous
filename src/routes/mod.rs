@@ -1,9 +1,11 @@
 use crate::auth::server::handlers::{get_api_key, list_api_keys};
 use crate::handlers::v1::{
-    create_container, create_secret, delete_container, delete_container_by_id, delete_secret,
-    delete_secret_by_id, fetch_container_logs, fetch_container_logs_by_id, get_container,
-    get_container_by_id, get_secret, get_secret_by_id, list_containers, list_secrets,
-    patch_container, search_containers, update_secret, update_secret_by_id,
+    create_container, create_processor, create_secret, create_volume, delete_container,
+    delete_container_by_id, delete_processor, delete_secret, delete_secret_by_id, delete_volume,
+    fetch_container_logs, fetch_container_logs_by_id, get_container, get_container_by_id,
+    get_processor, get_secret, get_secret_by_id, get_user_profile, get_volume, list_containers,
+    list_processors, list_secrets, list_volumes, patch_container, scale_processor,
+    search_containers, send_processor, update_processor, update_secret, update_secret_by_id,
 };
 use crate::handlers::{health_handler, root_handler};
 use crate::middleware::auth_middleware;
@@ -57,6 +59,27 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
             "/v1/secrets/:namespace/:name",
             get(get_secret).delete(delete_secret).put(update_secret),
         )
+        .route("/v1/volumes", get(list_volumes).post(create_volume))
+        .route(
+            "/v1/volumes/:namespace/:name",
+            get(get_volume).delete(delete_volume),
+        )
+        .route(
+            "/v1/processors",
+            get(list_processors).post(create_processor),
+        )
+        .route(
+            "/v1/processors/:namespace/:name",
+            get(get_processor)
+                .delete(delete_processor)
+                .patch(update_processor),
+        )
+        .route("/v1/processors/:namespace/:name/send", get(send_processor))
+        .route(
+            "/v1/processors/:namespace/:name/scale",
+            post(scale_processor),
+        )
+        .route("/v1/users/me", get(get_user_profile))
         // Apply the authentication middleware to private routes
         .layer(middleware::from_fn_with_state(
             app_state.clone(),

@@ -1,14 +1,16 @@
-// src/entities/training_job.rs
+// src/entities/containers.rs
 
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
 use std::collections::HashMap;
 
-use crate::models::{
-    V1AuthzConfig, V1Container, V1ContainerHealthCheck, V1ContainerResources, V1ContainerStatus,
-    V1EnvVar, V1Meter, V1PortRequest, V1SSHKey, V1VolumePath,
+use crate::models::{V1AuthzConfig, V1Meter};
+use crate::resources::v1::containers::models::{
+    V1Container, V1ContainerHealthCheck, V1ContainerResources, V1ContainerStatus, V1EnvVar,
+    V1PortRequest, V1SSHKey,
 };
+use crate::resources::v1::volumes::models::V1VolumePath;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "containers")]
@@ -195,7 +197,7 @@ impl Model {
         };
 
         // Construct final V1Container
-        let container = crate::models::V1Container {
+        let container = V1Container {
             kind: "Container".to_owned(), // or use default_container_kind() if needed
             platform: self.platform.clone().unwrap_or_default(),
             metadata,

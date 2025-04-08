@@ -1,8 +1,8 @@
 use crate::config::GlobalConfig;
-use crate::models::{
-    V1Container, V1ContainerRequest, V1ContainerSearch, V1Containers, V1Secret, V1SecretRequest,
-    V1Secrets, V1UpdateContainer,
+use crate::resources::v1::containers::models::{
+    V1Container, V1ContainerRequest, V1ContainerSearch, V1Containers, V1UpdateContainer,
 };
+use crate::resources::v1::secrets::models::{V1Secret, V1SecretRequest, V1Secrets};
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -132,7 +132,7 @@ impl NebulousClient {
     // ─────────────────────────────────────────────────────────────────────────────
 
     /// Gets a specific container by namespace and name, returning a typed `V1Container`.
-    /// `namespace` cannot be empty (e.g. "default", "staging", etc.).
+    /// `namespace` cannot be empty
     /// `name` cannot be empty.
     pub async fn get_container(
         &self,
@@ -180,7 +180,6 @@ impl NebulousClient {
     }
 
     /// Gets a specific secret by namespace and name, returning a typed `V1Secret`.
-    /// `namespace` cannot be empty (e.g. "default", "staging", etc.).
     /// `name` cannot be empty.
     pub async fn get_secret(
         &self,
@@ -232,14 +231,12 @@ impl NebulousClient {
     // ─────────────────────────────────────────────────────────────────────────────
 
     /// Deletes a container by `/:namespace/:name`.  
-    /// Defaults to `"default"` namespace if none is provided.
     pub async fn delete_container(
         &self,
         name: &str,
-        namespace: Option<&str>,
+        namespace: &str,
     ) -> Result<(), Box<dyn Error>> {
-        let ns = namespace.unwrap_or("default");
-        let url = format!("{}/v1/containers/{}/{}", self.base_url, ns, name);
+        let url = format!("{}/v1/containers/{}/{}", self.base_url, namespace, name);
 
         let response = self
             .http_client
@@ -249,27 +246,21 @@ impl NebulousClient {
             .await?;
 
         if response.status().is_success() {
-            println!("Container '{}/{}' successfully deleted", ns, name);
+            println!("Container '{}/{}' successfully deleted", namespace, name);
             Ok(())
         } else {
             let error_text = response.text().await?;
             Err(format!(
                 "Failed to delete container '{}/{}': {}",
-                ns, name, error_text
+                namespace, name, error_text
             )
             .into())
         }
     }
 
     /// Deletes a secret by `/:namespace/:name`.  
-    /// Defaults to `"default"` namespace if none is provided.
-    pub async fn delete_secret(
-        &self,
-        name: &str,
-        namespace: Option<&str>,
-    ) -> Result<(), Box<dyn Error>> {
-        let ns = namespace.unwrap_or("default");
-        let url = format!("{}/v1/secrets/{}/{}", self.base_url, ns, name);
+    pub async fn delete_secret(&self, name: &str, namespace: &str) -> Result<(), Box<dyn Error>> {
+        let url = format!("{}/v1/secrets/{}/{}", self.base_url, namespace, name);
 
         let response = self
             .http_client
@@ -279,11 +270,15 @@ impl NebulousClient {
             .await?;
 
         if response.status().is_success() {
-            println!("Secret '{}/{}' successfully deleted", ns, name);
+            println!("Secret '{}/{}' successfully deleted", namespace, name);
             Ok(())
         } else {
             let error_text = response.text().await?;
-            Err(format!("Failed to delete secret '{}/{}': {}", ns, name, error_text).into())
+            Err(format!(
+                "Failed to delete secret '{}/{}': {}",
+                namespace, name, error_text
+            )
+            .into())
         }
     }
 
@@ -292,15 +287,13 @@ impl NebulousClient {
     // ─────────────────────────────────────────────────────────────────────────────
 
     /// PATCH a container by `/:namespace/:name`.  
-    /// Defaults to `"default"` namespace if none is provided.
     pub async fn patch_container(
         &self,
         name: &str,
-        namespace: Option<&str>,
+        namespace: &str,
         update_request: &V1UpdateContainer,
     ) -> Result<V1Container, Box<dyn Error>> {
-        let ns = namespace.unwrap_or("default");
-        let url = format!("{}/v1/containers/{}/{}", self.base_url, ns, name);
+        let url = format!("{}/v1/containers/{}/{}", self.base_url, namespace, name);
 
         let response = self
             .http_client
@@ -317,7 +310,7 @@ impl NebulousClient {
             let error_text = response.text().await?;
             Err(format!(
                 "Failed to patch container '{}/{}': {}",
-                ns, name, error_text
+                namespace, name, error_text
             )
             .into())
         }

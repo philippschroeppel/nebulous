@@ -2,8 +2,8 @@
 use crate::entities::containers;
 use crate::entities::processors;
 use crate::entities::secrets;
-use crate::models::V1ContainerStatus;
 use crate::resources::v1::containers::base::ContainerStatus;
+use crate::resources::v1::containers::models::V1ContainerStatus;
 use sea_orm::sea_query::Expr;
 use sea_orm::Value;
 use sea_orm::*;
@@ -198,9 +198,7 @@ impl Query {
             ));
         }
 
-        // We'll find if there's any other record in the same queue
-        // that is in an active/running state
-        // (i.e., ignoring this_container_id in case it's already in that queue).
+        // First check if there's any active container in the queue
         let another_active_container = containers::Entity::find()
             .filter(containers::Column::Queue.eq(queue_name))
             .filter(containers::Column::Id.ne(this_container_id))
@@ -208,7 +206,36 @@ impl Query {
             .one(db)
             .await?;
 
-        Ok(another_active_container.is_none())
+        if another_active_container.is_some() {
+            return Ok(false);
+        }
+
+        // If no active containers, check if this is the next container in line
+        let next_container = containers::Entity::find()
+            .filter(containers::Column::Queue.eq(queue_name))
+            .filter(containers::Column::Id.ne(this_container_id))
+            .filter(Expr::cust_with_values(
+                "status->>'status' = $1",
+                [Value::from(ContainerStatus::Queued.to_string())],
+            ))
+            .order_by_asc(containers::Column::CreatedAt)
+            .one(db)
+            .await?;
+
+        // If there's a queued container with an earlier creation time, this container should wait
+        if let Some(earlier_container) = next_container {
+            let this_container = containers::Entity::find_by_id(this_container_id)
+                .one(db)
+                .await?;
+
+            if let Some(this_container) = this_container {
+                if earlier_container.created_at < this_container.created_at {
+                    return Ok(false);
+                }
+            }
+        }
+
+        Ok(true)
     }
 
     /// Fetch and decrypt `(private_key, public_key)` for a container by ID.
@@ -304,6 +331,54 @@ impl Query {
             .await
     }
 
+    /// Fetch all processors for a given list of owners
+    pub async fn find_processors_by_owners(
+        db: &DatabaseConnection,
+        owners: &[&str],
+    ) -> Result<Vec<processors::Model>, DbErr> {
+        processors::Entity::find()
+            .filter(processors::Column::Owner.is_in(owners.iter().copied()))
+            .all(db)
+            .await
+    }
+
+    /// Finds a processor by namespace, name and owners
+    pub async fn find_processor_by_namespace_name_and_owners(
+        db: &DatabaseConnection,
+        namespace: &str,
+        name: &str,
+        owners: &[&str],
+    ) -> Result<processors::Model, DbErr> {
+        let result = processors::Entity::find()
+            .filter(processors::Column::Namespace.eq(namespace))
+            .filter(processors::Column::Name.eq(name))
+            .filter(processors::Column::Owner.is_in(owners.iter().copied()))
+            .one(db)
+            .await?;
+
+        result.ok_or(DbErr::RecordNotFound(format!(
+            "Processor with namespace '{namespace}' and name '{name}' not found for the specified owners"
+        )))
+    }
+
+    /// Finds a processor by ID and owners
+    pub async fn find_processor_by_id_and_owners(
+        db: &DatabaseConnection,
+        id: &str,
+        owners: &[&str],
+    ) -> Result<processors::Model, DbErr> {
+        let result = processors::Entity::find()
+            .filter(processors::Column::Id.eq(id))
+            .filter(processors::Column::Owner.is_in(owners.iter().copied()))
+            .one(db)
+            .await?;
+
+        result.ok_or(DbErr::RecordNotFound(format!(
+            "Processor with id '{}' not found for the specified owners",
+            id
+        )))
+    }
+
     /// Fetches all active processors from the database by inspecting the "status" key in the status JSON.
     pub async fn find_all_active_processors(
         db: &DatabaseConnection,
@@ -340,15 +415,81 @@ impl Query {
         db: &DatabaseConnection,
         owner_ref_value: &str,
     ) -> Result<Vec<containers::Model>, DbErr> {
-        use sea_orm::{sea_query::Expr, QueryFilter, Value};
-
         containers::Entity::find()
-            // SQL:  metadata->>'owner_ref' = $1
-            .filter(Expr::cust_with_values(
-                "metadata->>'owner_ref' = $1",
-                [Value::from(owner_ref_value)],
-            ))
+            .filter(containers::Column::OwnerRef.eq(owner_ref_value))
             .all(db)
             .await
+    }
+
+    /// Find a volume by namespace, name, and owners
+    pub async fn find_volume_by_namespace_name_and_owners(
+        db: &DatabaseConnection,
+        namespace: &str,
+        name: &str,
+        owners: &[&str],
+    ) -> Result<crate::entities::volumes::Model, DbErr> {
+        use crate::entities::volumes;
+
+        let result = volumes::Entity::find()
+            .filter(volumes::Column::Namespace.eq(namespace))
+            .filter(volumes::Column::Name.eq(name))
+            .filter(volumes::Column::Owner.is_in(owners.iter().copied()))
+            .one(db)
+            .await?;
+
+        result.ok_or(DbErr::RecordNotFound(format!(
+            "Volume with namespace '{namespace}' and name '{name}' not found for the specified owners"
+        )))
+    }
+
+    /// Counts the number of active containers for a processor
+    pub async fn count_active_containers_for_processor(
+        db: &DatabaseConnection,
+        processor_id: &str,
+    ) -> Result<u64, DbErr> {
+        use crate::resources::v1::containers::base::ContainerStatus;
+        use sea_orm::{Condition, Value};
+
+        // Retrieve the processor to build the owner_ref format
+        let processor = processors::Entity::find_by_id(processor_id)
+            .one(db)
+            .await?
+            .ok_or(DbErr::RecordNotFound(format!(
+                "Processor with id {} not found",
+                processor_id
+            )))?;
+
+        // Build the owner_ref in the format "name.namespace.Processor"
+        let owner_ref = format!("{}.{}.Processor", processor.name, processor.namespace);
+
+        // Define active statuses
+        let active_statuses = vec![
+            ContainerStatus::Defined.to_string(),
+            ContainerStatus::Creating.to_string(),
+            ContainerStatus::Created.to_string(),
+            ContainerStatus::Queued.to_string(),
+            ContainerStatus::Pending.to_string(),
+            ContainerStatus::Running.to_string(),
+            ContainerStatus::Restarting.to_string(),
+            ContainerStatus::Paused.to_string(),
+        ];
+
+        // Build status condition
+        let mut status_condition = Condition::any();
+        for status in active_statuses {
+            status_condition = status_condition.add(Expr::cust_with_values(
+                "status->>'status' = $1",
+                [Value::from(status)],
+            ));
+        }
+
+        // Find containers with this processor as owner_ref and with active status
+        let count = containers::Entity::find()
+            .filter(containers::Column::OwnerRef.eq(owner_ref))
+            .filter(status_condition)
+            .count(db)
+            .await?;
+
+        Ok(count)
     }
 }
