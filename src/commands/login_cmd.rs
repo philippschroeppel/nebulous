@@ -41,15 +41,31 @@ pub async fn execute(
         });
         config.current_server = Some("cloud".to_string());
     } else {
-        let auth_url = format!("{}/auth", nebu_url);
+        println!(
+            r#"Running Nebulous with the integrated auth server.
+To obtain an API key, execute the following command within the container:
 
-        // TODO: Get an API key
+    nebulous auth api-keys generate
+
+When you're running nebulous on Docker, use:
+
+    docker exec -it <container_id> nebulous auth api-keys generate
+
+When you're running nebulous on Kubernetes, use:
+
+    kubectl exec -it <pod_name> -- nebulous auth api-keys generate
+"#
+        );
+
+        print!("Enter your API key: ");
+        io::stdout().flush()?;
+        let api_key = rpassword::read_password()?;
 
         config.servers.push(ServerConfig {
             name: Some("nebu".to_string()),
             server: Some(nebu_url),
-            api_key: None,
-            auth_server: Some(auth_url),
+            api_key: Some(api_key),
+            auth_server: None,
         });
         config.current_server = Some("nebu".to_string());
     }

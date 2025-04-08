@@ -1,4 +1,4 @@
-use crate::auth::server::handlers::{generate_api_key, get_api_key, list_api_keys, revoke_api_key};
+use crate::auth::server::handlers::{get_api_key, list_api_keys};
 use crate::handlers::v1::{
     create_container, create_secret, delete_container, delete_container_by_id, delete_secret,
     delete_secret_by_id, fetch_container_logs, fetch_container_logs_by_id, get_container,
