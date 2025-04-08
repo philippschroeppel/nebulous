@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 pub struct ApiKey {
     pub id: String,
     pub hash: String,
-    created_at: chrono::DateTime<chrono::Utc>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
     pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
     pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
     pub is_active: bool,
@@ -52,7 +52,7 @@ impl From<ApiKey> for db::Model {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct SanitizedApiKey {
     pub id: String,
-    created_at: chrono::DateTime<chrono::Utc>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
     pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
     pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
     pub is_active: bool,

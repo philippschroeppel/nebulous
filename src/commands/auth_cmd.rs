@@ -1,14 +1,34 @@
-use nebulous::auth::server::handlers::{ApiKeyRequest, RawApiKeyResponse};
+use nebulous::auth::server::handlers::{ApiKeyRequest, RawApiKeyResponse, ApiKeyListResponse};
 use std::error::Error;
+use nebulous::auth::models::SanitizedApiKey;
+use crate::commands::request::{server_request};
 
 // TODO: Make the auth server's port configurable
 const SERVER: &str = "http://localhost:8080";
 
+
+fn pretty_print_api_key(api_key: SanitizedApiKey) {
+    println!("ID: {}", api_key.id);
+    println!("Active: {}", api_key.is_active);
+    println!("Created at: {}", api_key.created_at.to_string());
+    println!("Last used at: {}", api_key.last_used_at.map_or("N/A".to_string(), |dt| dt.to_string()));
+    println!("Revoked at: {}", api_key.revoked_at.map_or("N/A".to_string(), |dt| dt.to_string()));
+    println!();
+}
+
 pub async fn list_api_keys() -> Result<(), Box<dyn Error>> {
+    let response = server_request("/auth/api-keys", reqwest::Method::GET, None).await?;
+    for api_key in response.json::<ApiKeyListResponse>().await?.api_keys {
+        pretty_print_api_key(api_key);
+    };
     Ok(())
 }
 
 pub async fn get_api_key(id: &str) -> Result<(), Box<dyn Error>> {
+    let path = format!("/api-key/{}", id);
+    let response= server_request(path.as_str(), reqwest::Method::GET, None).await?;
+    let api_key = response.json::<SanitizedApiKey>().await?;
+    pretty_print_api_key(api_key);
     Ok(())
 }
 

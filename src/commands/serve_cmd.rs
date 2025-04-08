@@ -7,7 +7,7 @@ use nebulous::resources::v1::containers::controller::ContainerController;
 use nebulous::resources::v1::processors::controller::ProcessorController;
 use std::error::Error;
 
-pub async fn execute(host: String, port: u16) -> Result<(), Box<dyn Error>> {
+pub async fn execute(host: String, port: u16, internal_auth: bool, auth_port: u16) -> Result<(), Box<dyn Error>> {
     let app_state = create_app_state().await?;
     let app = create_app(app_state.clone()).await;
 
@@ -32,17 +32,22 @@ pub async fn execute(host: String, port: u16) -> Result<(), Box<dyn Error>> {
     });
     println!("Proxy server started in background");
 
-    println!("Starting auth server");
-    tokio::spawn({
-        let auth_state = app_state.clone();
-        async move {
-            if let Err(e) = nebulous::auth::server::main::start_auth_server(auth_state, 8080).await
-            {
-                eprintln!("Error in auth server: {}", e);
+
+    if internal_auth {
+        println!("Starting auth server");
+        tokio::spawn({
+            let auth_state = app_state.clone();
+            async move {
+                if let Err(e) = nebulous::auth::server::main::start_auth_server(auth_state, auth_port).await
+                {
+                    eprintln!("Error in auth server: {}", e);
+                }
             }
-        }
-    });
-    println!("Auth server started in background");
+        });
+        println!("Auth server started in background");
+    } else {
+        println!("Launching without internal auth server.");
+    }
 
     // Run it
     println!("Starting main server");

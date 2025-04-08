@@ -48,8 +48,16 @@ pub enum Commands {
         host: String,
 
         /// The port to bind to.
-        #[arg(short, long, default_value_t = 3000)]
+        #[arg(long, default_value_t = 3000)]
         port: u16,
+
+        /// Disable internal auth server
+        #[arg(long, default_value_t = true)]
+        internal_auth: bool,
+
+        /// The port to bind the internal auth server to.
+        #[arg(long, default_value_t = 8080)]
+        auth_port: u16,
     },
 
     /// Proxy services.
@@ -86,7 +94,7 @@ pub enum Commands {
     /// Login to a Nebulous API server.
     Login {
         /// Address of the API server
-        #[arg(default_value = "https://api.nebulous.sh")]
+        #[arg(default_value = "http://127.0.0.1")]
         url: String,
 
         /// Address of the Auth server
