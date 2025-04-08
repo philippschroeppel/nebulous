@@ -48,7 +48,7 @@ pub async fn auth_middleware(
 async fn internal_auth(
     db_conn: &DatabaseConnection,
     token: &str,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     let is_valid = auth::api::validate_api_key(db_conn, token).await;
@@ -56,7 +56,22 @@ async fn internal_auth(
         Ok(is_valid) => {
             if is_valid {
                 println!("✅ Token is valid");
-                // TODO: Insert user details
+
+                let user_profile: V1UserProfile = V1UserProfile {
+                    email: "dummy@example.com".to_string(),
+                    display_name: None,
+                    handle: None,
+                    picture: None,
+                    organization: None,
+                    role: None,
+                    external_id: None,
+                    actor: None,
+                    organizations: None,
+                    created: None,
+                    updated: None,
+                    token: None,
+                };
+                request.extensions_mut().insert(user_profile);
                 next.run(request).await
             } else {
                 println!("❌ Token is invalid");
