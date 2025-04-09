@@ -383,6 +383,8 @@ pub async fn send_processor(
     } else {
         None
     };
+    debug!("Sending message to processor: {}", stream_name);
+    debug!("content: {:?}", stream_data.content);
 
     // Create a stream message
     let message = V1StreamMessage {
@@ -561,12 +563,25 @@ pub async fn delete_processor(
     });
     let platform = StandardProcessor::new(app_state);
 
-    platform.delete(&processor.id, db_pool).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Failed to delete processor: {}", e)})),
-        )
-    })?;
+    let redis = match &state.message_queue {
+        crate::state::MessageQueue::Redis { client } => client,
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Kafka streams are not currently supported"})),
+            ))
+        }
+    };
+
+    platform
+        .delete(&processor.id, db_pool, redis)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Failed to delete processor: {}", e)})),
+            )
+        })?;
 
     debug!("Deleted processor: {}", processor.id);
 
@@ -697,12 +712,25 @@ pub async fn update_processor(
         });
         let platform = StandardProcessor::new(app_state);
 
-        platform.delete(&processor.id, db_pool).await.map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": format!("Failed to delete processor: {}", e)})),
-            )
-        })?;
+        let redis = match &state.message_queue {
+            crate::state::MessageQueue::Redis { client } => client,
+            _ => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Kafka streams are not currently supported"})),
+                ))
+            }
+        };
+
+        platform
+            .delete(&processor.id, db_pool, redis)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("Failed to delete processor: {}", e)})),
+                )
+            })?;
 
         // Create the new processor with merged values
         debug!("Creating new processor with updated fields");

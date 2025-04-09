@@ -1,4 +1,5 @@
 use nebulous::config::GlobalConfig;
+use nebulous::models::V1StreamData;
 use serde_json::Value;
 use std::error::Error;
 use std::fs;
@@ -22,15 +23,10 @@ pub async fn send_messages(args: &crate::cli::SendMessageCommands) -> Result<(),
     let bearer_token = format!("Bearer {}", api_key);
 
     // Construct stream message URL
-    let mut url = format!(
+    let url = format!(
         "{}/v1/processors/{}/{}/messages",
         server, namespace, stream_name
     );
-
-    // Add wait query parameter if specified
-    if args.wait {
-        url.push_str("?wait=true");
-    }
 
     // Read message content (from file or stdin)
     let content_str = if let Some(file_path) = &args.file {
@@ -44,7 +40,6 @@ pub async fn send_messages(args: &crate::cli::SendMessageCommands) -> Result<(),
     };
 
     // Deserialize message content into a generic JSON Value
-    // We assume the server will wrap this content into a V1StreamMessage
     let message_content: Value = serde_yaml::from_str(&content_str).map_err(|e| {
         format!(
             "Failed to parse YAML/JSON input into message content: {}",
@@ -52,17 +47,24 @@ pub async fn send_messages(args: &crate::cli::SendMessageCommands) -> Result<(),
         )
     })?;
 
+    // Create the payload using V1StreamData
+    let payload = V1StreamData {
+        content: message_content,
+        wait: if args.wait { Some(true) } else { None },
+    };
+    debug!("Payload: {:?}", payload);
+
     // --- API Call ---
     let client = reqwest::Client::new();
     debug!(
-        "Sending message to URL: {} with content: {:?}",
-        url, message_content
+        "Sending message to URL: {} with payload: {:?}",
+        url, payload
     );
     let response = client
         .post(&url)
         .header("Authorization", &bearer_token)
         .header("Content-Type", "application/json")
-        .json(&message_content) // Send the message content
+        .json(&payload)
         .send()
         .await?;
 

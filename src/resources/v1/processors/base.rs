@@ -127,6 +127,7 @@ pub trait ProcessorPlatform {
         &self,
         id: &str,
         db: &DatabaseConnection,
+        redis_client: &redis::Client,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }
 

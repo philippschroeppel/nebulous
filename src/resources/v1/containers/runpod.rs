@@ -379,6 +379,9 @@ impl RunpodPlatform {
                     if let Some(pod_info) = pod_response.data {
                         debug!("[Runpod Controller] response data present");
 
+                        let mut is_ready = false; // Default readiness to false
+                        let mut status_message: Option<String> = None;
+
                         match Mutation::update_container_status(
                             db,
                             container_id.to_string(),
@@ -404,7 +407,7 @@ impl RunpodPlatform {
                         }
 
                         let ports = match self.get_public_ports_for_pod(&pod_id_to_watch).await {
-                            Ok(ports) => ports,
+                            Ok(p) => p,
                             Err(e) => {
                                 error!(
                                     "[Runpod Controller] Error fetching ports for my pods: {}",
@@ -414,7 +417,7 @@ impl RunpodPlatform {
                             }
                         };
                         // Extract status information using desired_status field
-                        let mut current_status = match pod_info.desired_status.as_str() {
+                        let runpod_status = match pod_info.desired_status.as_str() {
                             "RUNNING" => ContainerStatus::Running,
                             "EXITED" => ContainerStatus::Completed,
                             "TERMINATED" => ContainerStatus::Stopped,
@@ -430,48 +433,68 @@ impl RunpodPlatform {
                                 ContainerStatus::Pending
                             }
                         };
-                        debug!("[Runpod Controller] current_status: {:?}", current_status);
+                        debug!("[Runpod Controller] runpod_status: {:?}", runpod_status);
 
+                        // --- SSH Accessibility Check ---
                         let is_ssh_accessible = match self.is_ssh_accessible(&container).await {
-                            Ok(is_accessible) => is_accessible,
+                            Ok(accessible) => accessible,
                             Err(e) => {
-                                error!(
-                                    "[Runpod Controller] Error checking SSH accessibility: {}",
-                                    e
-                                );
+                                warn!("[Runpod Controller] Error checking SSH accessibility, assuming false: {}", e);
                                 false
                             }
                         };
-                        if !is_ssh_accessible {
-                            info!("[Runpod Controller] SSH is not accessible, setting status to Creating");
-                            current_status = ContainerStatus::Creating;
-                        }
 
-                        match container.parse_health_check() {
-                            Ok(Some(health_check)) => {
-                                info!("[Runpod Controller] Health check: {:?}", health_check);
-                                if let Err(e) = self
-                                    .perform_health_check(
-                                        &container,
-                                        &health_check,
-                                        &current_status,
-                                        db,
-                                    )
-                                    .await
-                                {
-                                    error!("[Runpod Controller] Health check error: {}", e);
+                        let final_status: ContainerStatus;
+
+                        if !is_ssh_accessible {
+                            info!("[Runpod Controller] SSH is not accessible.");
+                            // If SSH isn't working, override Runpod status - it's not truly running/ready.
+                            // Keep the original runpod status if it's terminal, otherwise set to Creating.
+                            if runpod_status.is_inactive() {
+                                final_status = runpod_status;
+                            } else {
+                                final_status = ContainerStatus::Creating;
+                                status_message =
+                                    Some("SSH connection not yet available".to_string());
+                            }
+                            is_ready = false;
+                        } else {
+                            // SSH is accessible, use the status reported by Runpod
+                            info!("[Runpod Controller] SSH is accessible.");
+                            final_status = runpod_status;
+
+                            if final_status == ContainerStatus::Running {
+                                // If Runpod says Running AND SSH is ok, check application health (if defined)
+                                match container.parse_health_check() {
+                                    Ok(Some(health_check)) => {
+                                        info!("[Runpod Controller] Performing application health check: {:?}", health_check);
+                                        // perform_health_check updates 'ready' status directly in DB
+                                        if let Err(e) = self
+                                            .perform_health_check(&container, &health_check, db)
+                                            .await
+                                        {
+                                            error!("[Runpod Controller] Health check execution error: {}", e);
+                                        }
+                                        // Don't set is_ready here, let perform_health_check handle it via DB update.
+                                    }
+                                    Ok(None) => {
+                                        info!("[Runpod Controller] No application health check defined, marking as ready since SSH is accessible and Runpod status is Running.");
+                                        is_ready = true; // SSH ok, Runpod Running, no app health check = Ready
+                                    }
+                                    Err(e) => {
+                                        error!("[Runpod Controller] Failed to parse health check config: {}", e);
+                                        is_ready = false; // Error parsing, assume not ready
+                                    }
                                 }
-                            }
-                            Ok(None) => {
-                                info!("[Runpod Controller] No health check defined, using default status");
-                            }
-                            Err(e) => {
-                                error!("[Runpod Controller] Failed to parse health check: {}", e);
+                            } else {
+                                // If Runpod status is not Running (e.g., Created, Pending), it's not ready yet.
+                                is_ready = false;
                             }
                         }
 
                         // Handle metering if container has meters defined and status is Running
-                        if current_status == ContainerStatus::Running {
+                        // Use final_status which incorporates the SSH check
+                        if final_status == ContainerStatus::Running && is_ready {
                             // Start timing if this is the first time we've seen the container running
                             if container_start_time.is_none() {
                                 info!("[Runpod Controller] Container {} started running, recording start time", container_id);
@@ -500,7 +523,7 @@ impl RunpodPlatform {
                                         // Update container status to indicate timeout
                                         if let Err(e) = Mutation::update_container_status(
                                             db,
-                                            container_id.to_string(),
+                                            container_id.clone(),
                                             Some(ContainerStatus::Failed.to_string()),
                                             Some(format!("Container terminated after exceeding timeout of {}", timeout_str)),
                                             None,
@@ -624,28 +647,28 @@ impl RunpodPlatform {
                             }
                         }
 
-                        info!(
-                            "[Runpod Controller] Current RunPod status: {}",
-                            current_status
-                        );
+                        info!("[Runpod Controller] Final derived status: {}", final_status);
                         info!(
                             "[Runpod Controller] Last database status: {:?}",
                             last_status
                         );
+                        info!("[Runpod Controller] Calculated readiness: {}", is_ready);
 
                         // If status changed, update the database
-                        if last_status.as_ref() != Some(&current_status) {
+                        // Also update if readiness changed but status didn't (edge case?)
+                        // TODO: Check if readiness needs its own tracking like last_status
+                        if last_status.as_ref() != Some(&final_status) {
                             if let Some(last) = &last_status {
                                 info!(
                                     "[Runpod Controller] Pod {:?} status changed: {} -> {}",
                                     resource_name.clone(),
                                     last,
-                                    current_status
+                                    final_status
                                 );
                             } else {
                                 info!(
                                     "[Runpod Controller] Pod {:?} initial status: {}",
-                                    resource_name, current_status
+                                    resource_name, final_status
                                 );
                             }
 
@@ -653,23 +676,23 @@ impl RunpodPlatform {
                             match crate::mutation::Mutation::update_container_status(
                                 db,
                                 container_id.to_string(),
-                                Some(current_status.to_string()),
-                                None,
+                                Some(final_status.to_string()),
+                                status_message, // Use the message determined earlier
                                 None,
                                 Some(ports),
                                 None,
                                 None,
-                                None,
+                                Some(is_ready), // Pass calculated readiness
                             )
                             .await
                             {
                                 Ok(_) => {
                                     info!(
-                                        "[Runpod Controller] Updated container {:?} status to {}",
-                                        container_id, current_status
+                                        "[Runpod Controller] Updated container {:?} status to {} (ready={})",
+                                        container_id, final_status, is_ready
                                     );
                                     // Update last_status after successful database update
-                                    last_status = Some(current_status.clone());
+                                    last_status = Some(final_status.clone());
                                 }
                                 Err(e) => {
                                     error!(
@@ -680,10 +703,10 @@ impl RunpodPlatform {
                             }
 
                             // If the pod is in a terminal state, exit the loop
-                            if current_status.is_inactive() {
+                            if final_status.is_inactive() {
                                 info!(
                                     "[Runpod Controller] Pod {:?} reached terminal state: {}",
-                                    resource_name, current_status
+                                    resource_name, final_status
                                 );
                                 break;
                             }
@@ -1801,7 +1824,6 @@ done
         &self,
         container: &containers::Model,
         health_check: &V1ContainerHealthCheck,
-        current_status: &ContainerStatus,
         db: &DatabaseConnection,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Get the container's tailnet IP or hostname
@@ -1838,64 +1860,61 @@ done
             Ok(response) => {
                 if response.status().is_success() {
                     info!(
-                        "[Runpod Controller] Health check passed for {}",
+                        "[Runpod Controller] HTTP health check passed for {}",
                         container.id
                     );
-                    if *current_status != ContainerStatus::Running {
-                        Mutation::update_container_status(
-                            db,
-                            container.id.clone(),
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            Some(true),
-                        )
-                        .await?;
-                    }
+                    // Update DB to mark as ready
+                    Mutation::update_container_status(
+                        db,
+                        container.id.clone(),
+                        None,       // Don't change status
+                        None,       // Don't change message
+                        None,       // Don't change accelerator
+                        None,       // Don't change ports
+                        None,       // Don't change URL
+                        None,       // Don't change cost
+                        Some(true), // Set ready to true
+                    )
+                    .await?;
                 } else {
                     warn!(
-                        "[Runpod Controller] Health check failed for {} with status: {}",
+                        "[Runpod Controller] HTTP health check failed for {} with status: {}",
                         container.id,
                         response.status()
                     );
-                    if *current_status == ContainerStatus::Running {
-                        Mutation::update_container_status(
-                            db,
-                            container.id.clone(),
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            Some(false),
-                        )
-                        .await?;
-                    }
+                    // Update DB to mark as not ready
+                    Mutation::update_container_status(
+                        db,
+                        container.id.clone(),
+                        None,        // Don't change status
+                        None,        // Don't change message
+                        None,        // Don't change accelerator
+                        None,        // Don't change ports
+                        None,        // Don't change URL
+                        None,        // Don't change cost
+                        Some(false), // Set ready to false
+                    )
+                    .await?;
                 }
             }
             Err(e) => {
                 warn!(
-                    "[Runpod Controller] Health check request failed for {}: {}",
+                    "[Runpod Controller] HTTP health check request failed for {}: {}",
                     container.id, e
                 );
-                if *current_status == ContainerStatus::Running {
-                    Mutation::update_container_status(
-                        db,
-                        container.id.clone(),
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        Some(false),
-                    )
-                    .await?;
-                }
+                // If the HTTP request failed, mark as not ready
+                Mutation::update_container_status(
+                    db,
+                    container.id.clone(),
+                    None,        // Don't change status
+                    None,        // Don't change message
+                    None,        // Don't change accelerator
+                    None,        // Don't change ports
+                    None,        // Don't change URL
+                    None,        // Don't change cost
+                    Some(false), // Set ready to false
+                )
+                .await?;
             }
         }
 

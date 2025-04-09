@@ -1112,6 +1112,7 @@ impl ProcessorPlatform for StandardProcessor {
         &self,
         id: &str,
         db: &DatabaseConnection,
+        redis_client: &redis::Client,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         debug!("Deleting processor: {}", id);
         use crate::entities::processors;
@@ -1129,6 +1130,38 @@ impl ProcessorPlatform for StandardProcessor {
         };
 
         tracing::info!("Deleting processor '{}'...", processor.id);
+
+        // --- BEGIN: Delete Redis Stream ---
+        let stream_name = processor.stream.clone();
+        debug!(
+            "Attempting to delete Redis stream '{}' for processor {}",
+            stream_name, processor.id
+        );
+        match redis_client.get_connection() {
+            Ok(mut conn) => {
+                match redis::cmd("DEL").arg(&stream_name).query::<()>(&mut conn) {
+                    Ok(_) => info!(
+                        "Successfully deleted Redis stream '{}' for processor {}",
+                        stream_name, processor.id
+                    ),
+                    Err(e) => error!(
+                        "Failed to delete Redis stream '{}' for processor {}: {}",
+                        stream_name,
+                        processor.id,
+                        e // Decide if this should be a hard error or just logged
+                    ),
+                }
+            }
+            Err(e) => {
+                error!(
+                    "Failed to get Redis connection to delete stream '{}' for processor {}: {}",
+                    stream_name,
+                    processor.id,
+                    e // Decide if this should be a hard error or just logged
+                );
+            }
+        }
+        // --- END: Delete Redis Stream ---
 
         // 2) Query containers using the correct owner_ref format
         let owner_ref_string = format!("{}.{}.Processor", processor.name, processor.namespace);
