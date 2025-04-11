@@ -16,7 +16,7 @@ pub async fn delete_container(id: String) -> Result<(), Box<dyn Error>> {
     }
 }
 
-pub async fn delete_processor(namespace: String, name: String) -> Result<(), Box<dyn Error>> {
+pub async fn delete_processor(name: String, namespace: String) -> Result<(), Box<dyn Error>> {
     let client = Client::new();
     let config = GlobalConfig::read()?;
     let current_server = config.get_current_server_config().unwrap();

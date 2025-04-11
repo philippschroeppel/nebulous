@@ -132,23 +132,24 @@ impl Query {
         use crate::resources::v1::containers::base::ContainerStatus;
         use sea_orm::{Condition, Value};
 
-        // Convert your set of active statuses to strings
+        // Convert your set of active statuses to lowercase strings
         let active_statuses = vec![
-            ContainerStatus::Defined.to_string(),
-            ContainerStatus::Creating.to_string(),
-            ContainerStatus::Paused.to_string(),
-            ContainerStatus::Queued.to_string(),
-            ContainerStatus::Running.to_string(),
-            ContainerStatus::Pending.to_string(),
-            ContainerStatus::Restarting.to_string(),
-            ContainerStatus::Created.to_string(),
+            ContainerStatus::Defined.to_string().to_lowercase(),
+            ContainerStatus::Creating.to_string().to_lowercase(),
+            ContainerStatus::Paused.to_string().to_lowercase(),
+            ContainerStatus::Queued.to_string().to_lowercase(),
+            ContainerStatus::Running.to_string().to_lowercase(),
+            ContainerStatus::Pending.to_string().to_lowercase(),
+            ContainerStatus::Restarting.to_string().to_lowercase(),
+            ContainerStatus::Created.to_string().to_lowercase(),
         ];
 
         // Build a condition for each status and combine them with OR
         let mut status_condition = Condition::any();
         for status in active_statuses {
+            // Use lower() in SQL for case-insensitive comparison
             status_condition = status_condition.add(Expr::cust_with_values(
-                "status->>'status' = $1",
+                "lower(status->>'status') = $1",
                 [Value::from(status)],
             ));
         }
@@ -159,13 +160,17 @@ impl Query {
             .await
     }
 
-    /// Fetches all containers with a specific status
+    /// Fetches all containers with a specific status (case-insensitive)
     pub async fn find_containers_by_status(
         db: &DatabaseConnection,
         status: crate::resources::v1::containers::base::ContainerStatus,
     ) -> Result<Vec<containers::Model>, DbErr> {
+        let lowercase_status = status.to_string().to_lowercase();
         containers::Entity::find()
-            .filter(containers::Column::Status.eq(status.to_string()))
+            .filter(Expr::cust_with_values(
+                "lower(status->>'status') = $1",
+                [Value::from(lowercase_status)],
+            ))
             .all(db)
             .await
     }
@@ -180,20 +185,20 @@ impl Query {
         // Define which statuses qualify as "active/running"
         // i.e., statuses that imply the container is still going or starting
         let active_like_statuses = vec![
-            ContainerStatus::Defined.to_string(),
-            ContainerStatus::Creating.to_string(),
-            ContainerStatus::Created.to_string(),
-            ContainerStatus::Queued.to_string(),
-            ContainerStatus::Pending.to_string(),
-            ContainerStatus::Running.to_string(),
-            ContainerStatus::Restarting.to_string(),
+            ContainerStatus::Defined.to_string().to_lowercase(),
+            ContainerStatus::Creating.to_string().to_lowercase(),
+            ContainerStatus::Created.to_string().to_lowercase(),
+            ContainerStatus::Queued.to_string().to_lowercase(),
+            ContainerStatus::Pending.to_string().to_lowercase(),
+            ContainerStatus::Running.to_string().to_lowercase(),
+            ContainerStatus::Restarting.to_string().to_lowercase(),
         ];
 
-        // Build a condition that checks if (status->>'status') is in one of these
+        // Build a condition that checks if lower(status->>'status') is in one of these
         let mut active_condition = Condition::any();
         for status_str in active_like_statuses {
             active_condition = active_condition.add(Expr::cust_with_values(
-                "status->>'status' = $1",
+                "lower(status->>'status') = $1",
                 [Value::from(status_str)],
             ));
         }
@@ -211,12 +216,14 @@ impl Query {
         }
 
         // If no active containers, check if this is the next container in line
+        // Compare against lowercase 'queued'
+        let queued_status_lower = ContainerStatus::Queued.to_string().to_lowercase();
         let next_container = containers::Entity::find()
             .filter(containers::Column::Queue.eq(queue_name))
             .filter(containers::Column::Id.ne(this_container_id))
             .filter(Expr::cust_with_values(
-                "status->>'status' = $1",
-                [Value::from(ContainerStatus::Queued.to_string())],
+                "lower(status->>'status') = $1",
+                [Value::from(queued_status_lower)],
             ))
             .order_by_asc(containers::Column::CreatedAt)
             .one(db)
@@ -386,20 +393,21 @@ impl Query {
         use crate::resources::v1::processors::base::ProcessorStatus;
         use sea_orm::{Condition, Value};
 
-        // Convert your set of active statuses to strings
+        // Convert your set of active statuses to lowercase strings
         let active_statuses = vec![
-            ProcessorStatus::Defined.to_string(),
-            ProcessorStatus::Creating.to_string(),
-            ProcessorStatus::Pending.to_string(),
-            ProcessorStatus::Running.to_string(),
-            ProcessorStatus::Scaling.to_string(),
+            ProcessorStatus::Defined.to_string().to_lowercase(),
+            ProcessorStatus::Creating.to_string().to_lowercase(),
+            ProcessorStatus::Pending.to_string().to_lowercase(),
+            ProcessorStatus::Running.to_string().to_lowercase(),
+            ProcessorStatus::Scaling.to_string().to_lowercase(),
         ];
 
         // Build a condition for each status and combine them with OR
         let mut status_condition = Condition::any();
         for status in active_statuses {
+            // Use lower() in SQL for case-insensitive comparison
             status_condition = status_condition.add(Expr::cust_with_values(
-                "status->>'status' = $1",
+                "lower(status->>'status') = $1",
                 [Value::from(status)],
             ));
         }
@@ -462,23 +470,23 @@ impl Query {
         // Build the owner_ref in the format "name.namespace.Processor"
         let owner_ref = format!("{}.{}.Processor", processor.name, processor.namespace);
 
-        // Define active statuses
+        // Define active statuses (lowercase)
         let active_statuses = vec![
-            ContainerStatus::Defined.to_string(),
-            ContainerStatus::Creating.to_string(),
-            ContainerStatus::Created.to_string(),
-            ContainerStatus::Queued.to_string(),
-            ContainerStatus::Pending.to_string(),
-            ContainerStatus::Running.to_string(),
-            ContainerStatus::Restarting.to_string(),
-            ContainerStatus::Paused.to_string(),
+            ContainerStatus::Defined.to_string().to_lowercase(),
+            ContainerStatus::Creating.to_string().to_lowercase(),
+            ContainerStatus::Created.to_string().to_lowercase(),
+            ContainerStatus::Queued.to_string().to_lowercase(),
+            ContainerStatus::Pending.to_string().to_lowercase(),
+            ContainerStatus::Running.to_string().to_lowercase(),
+            ContainerStatus::Restarting.to_string().to_lowercase(),
+            ContainerStatus::Paused.to_string().to_lowercase(),
         ];
 
-        // Build status condition
+        // Build status condition using lower() in SQL
         let mut status_condition = Condition::any();
         for status in active_statuses {
             status_condition = status_condition.add(Expr::cust_with_values(
-                "status->>'status' = $1",
+                "lower(status->>'status') = $1",
                 [Value::from(status)],
             ));
         }

@@ -370,6 +370,7 @@ impl StandardProcessor {
         redis_client: &redis::Client,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use tracing::info;
+        info!("[Processor Controller] Watching processor {}", processor.id);
 
         // 2) Attempt to parse container config from JSON in `processor.container`.
         //    If none is stored, fall back to some defaults.
@@ -385,6 +386,10 @@ impl StandardProcessor {
             }
             Err(e) => {
                 // If there's invalid JSON in the DB, handle or return error
+                error!(
+                    "[Processor Controller] Failed to parse container JSON for processor {}: {}",
+                    processor.id, e
+                );
                 return Err(format!(
                     "Failed to parse container JSON for processor {}: {}",
                     processor.id, e

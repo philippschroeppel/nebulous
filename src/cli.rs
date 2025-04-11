@@ -408,7 +408,6 @@ pub enum GetCommands {
     #[command(aliases = ["processor", "proc"])]
     Processors {
         /// Optional processor name.
-        #[arg(long)]
         name: Option<String>,
 
         /// Optional processor namespace.
@@ -437,7 +436,20 @@ pub enum DeleteCommands {
 
     /// Delete a processor
     #[command(aliases = ["processor", "proc"])]
-    Processors { namespace: String, name: String },
+    Processors {
+        #[command(flatten)]
+        command: DeleteProcessorCommands,
+    },
+}
+
+#[derive(Args)]
+pub struct DeleteProcessorCommands {
+    /// Processor name
+    pub name: String,
+
+    /// Processor namespace
+    #[arg(short = 'n', long)]
+    pub namespace: String,
 }
 
 /// Send resources.

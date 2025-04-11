@@ -2468,67 +2468,82 @@ impl ContainerPlatform for RunpodPlatform {
                             Ok(_) => {
                                 info!("[Runpod Controller] Successfully stopped pod: {}", pod.id);
 
+                                match Mutation::delete_container(db, id.to_string()).await {
+                                    Ok(_) => {
+                                        info!("[Runpod Controller] Successfully deleted container: {}", id);
+                                    }
+                                    Err(e) => {
+                                        error!(
+                                            "[Runpod Controller] Failed to delete container: {}",
+                                            e
+                                        );
+                                        return Err(e.into());
+                                    }
+                                };
+                                // TODO: soft delete
                                 // Update container status in database
-                                if let Err(e) = crate::mutation::Mutation::update_container_status(
-                                    &db,
-                                    id.to_string(),
-                                    Some(ContainerStatus::Stopped.to_string()),
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
+                                // if let Err(e) = crate::mutation::Mutation::update_container_status(
+                                //     &db,
+                                //     id.to_string(),
+                                //     Some(ContainerStatus::Stopped.to_string()),
+                                //     None,
+                                //     None,
+                                //     None,
+                                //     None,
+                                //     None,
+                                //     None,
+                                // )
+                                // .await
+                                // {
+                                //     error!("[Runpod Controller] Failed to update container status in database: {}", e);
+                                //     return Err(e.into());
+                                // } else {
+                                info!(
+                                    "[Runpod Controller] Updated container {} status to stopped",
+                                    id
+                                );
+                                // Also remove the SSH key secrets
+                                let private_key_secret_id = format!("ssh-private-key-{}", id);
+                                let full_private_key_secret_id = format!(
+                                    "{}/{}",
+                                    container_model.namespace.clone(),
+                                    private_key_secret_id
+                                );
+
+                                let public_key_secret_id = format!("ssh-public-key-{}", id);
+                                let full_public_key_secret_id = format!(
+                                    "{}/{}",
+                                    container_model.namespace.clone(),
+                                    public_key_secret_id
+                                );
+                                match crate::mutation::Mutation::delete_secret_by_fullname(
+                                    db,
+                                    full_private_key_secret_id,
                                 )
                                 .await
                                 {
-                                    error!("[Runpod Controller] Failed to update container status in database: {}", e);
-                                    return Err(e.into());
-                                } else {
-                                    info!("[Runpod Controller] Updated container {} status to stopped", id);
-                                    // Also remove the SSH key secrets
-                                    let private_key_secret_id = format!("ssh-private-key-{}", id);
-                                    let full_private_key_secret_id = format!(
-                                        "{}/{}",
-                                        container_model.namespace.clone(),
-                                        private_key_secret_id
-                                    );
-
-                                    let public_key_secret_id = format!("ssh-public-key-{}", id);
-                                    let full_public_key_secret_id = format!(
-                                        "{}/{}",
-                                        container_model.namespace.clone(),
-                                        public_key_secret_id
-                                    );
-                                    match crate::mutation::Mutation::delete_secret_by_fullname(
-                                        db,
-                                        full_private_key_secret_id,
-                                    )
-                                    .await
-                                    {
-                                        Ok(delete_result) => {
-                                            // Here, `delete_result` is the actual DeleteResult (e.g., rows_affected).
-                                            info!("Deleted secret: {:?}", delete_result);
-                                        }
-                                        Err(err) => {
-                                            // Handle or log the error
-                                            error!("Failed to delete secret: {err}");
-                                        }
+                                    Ok(delete_result) => {
+                                        // Here, `delete_result` is the actual DeleteResult (e.g., rows_affected).
+                                        info!("Deleted secret: {:?}", delete_result);
                                     }
-                                    match crate::mutation::Mutation::delete_secret_by_fullname(
-                                        db,
-                                        full_public_key_secret_id,
-                                    )
-                                    .await
-                                    {
-                                        Ok(delete_result) => {
-                                            // Here, `delete_result` is the actual DeleteResult (e.g., rows_affected).
-                                            info!("Deleted secret: {:?}", delete_result);
-                                        }
-                                        Err(err) => {
-                                            // Handle or log the error
-                                            error!("Failed to delete secret: {err}");
-                                        }
+                                    Err(err) => {
+                                        // Handle or log the error
+                                        error!("Failed to delete secret: {err}");
+                                    }
+                                }
+                                match crate::mutation::Mutation::delete_secret_by_fullname(
+                                    db,
+                                    full_public_key_secret_id,
+                                )
+                                .await
+                                {
+                                    Ok(delete_result) => {
+                                        // Here, `delete_result` is the actual DeleteResult (e.g., rows_affected).
+                                        info!("Deleted secret: {:?}", delete_result);
+                                    }
+                                    Err(err) => {
+                                        // Handle or log the error
+                                        error!("Failed to delete secret: {err}");
                                     }
                                 }
                             }

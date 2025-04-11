@@ -100,8 +100,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             DeleteCommands::Containers { id } => {
                 commands::delete_cmd::delete_container(id).await?;
             }
-            DeleteCommands::Processors { namespace, name } => {
-                commands::delete_cmd::delete_processor(namespace, name).await?;
+            DeleteCommands::Processors { command } => {
+                commands::delete_cmd::delete_processor(command.name, command.namespace).await?;
             }
         },
         Commands::Proxy { command } => match command {
