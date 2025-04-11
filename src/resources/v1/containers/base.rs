@@ -196,15 +196,16 @@ pub trait ContainerPlatform {
             }
         };
 
-        let source = format!("s3://{}/data/{}", CONFIG.bucket_name, model.namespace);
+        let root_volume_uri = format!("s3://{}/data", CONFIG.bucket_name);
+        let source = format!("{}/{}", root_volume_uri, model.namespace);
 
-        debug!("Ensuring volume: {:?}", source);
+        debug!("Ensuring volume: {:?}", source.clone());
         let _ = match ensure_volume(
             db,
             &model.namespace,
             &model.namespace,
             &model.owner,
-            &source,
+            &source.clone(),
             &model.created_by.clone().unwrap_or_default(),
             model.labels.clone(),
         )
@@ -263,10 +264,16 @@ pub trait ContainerPlatform {
                 .clone(),
         );
         env.insert("NEBU_NAMESPACE".to_string(), model.namespace.clone());
+        env.insert("NEBU_NAME".to_string(), model.name.clone());
         env.insert("NEBU_CONTAINER_ID".to_string(), model.id.clone());
         env.insert("NEBU_DATE".to_string(), chrono::Utc::now().to_rfc3339());
         env.insert("HF_HOME".to_string(), "/nebu/cache/huggingface".to_string());
-        env.insert("NAMESPACE_VOLUME_URI".to_string(), source);
+        env.insert("NAMESPACE_VOLUME_URI".to_string(), source.clone());
+        env.insert(
+            "NAME_VOLUME_URI".to_string(),
+            format!("{}/{}", source.clone(), model.name),
+        );
+        env.insert("ROOT_VOLUME_URI".to_string(), root_volume_uri);
 
         env.insert(
             "TS_AUTHKEY".to_string(),

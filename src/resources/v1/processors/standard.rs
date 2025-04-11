@@ -92,18 +92,24 @@ impl StandardProcessor {
 
         // Only create the user if it doesn't exist
         if !user_exists {
-            // Create ACL user with permissions only for specific stream pattern
+            // Define the KV pattern (e.g., using namespace and processor name)
+            let kv_pattern = format!("cache:{}:*", processor.namespace);
+
+            // Create ACL user with permissions for streams and KV prefix
             let acl_result: redis::RedisResult<String> = redis::cmd("ACL")
                 .arg("SETUSER")
                 .arg(&username)
                 .arg("on")
                 .arg(format!(">{}", &password))
-                .arg(format!("~{}", &stream_pattern)) // Key pattern restriction
-                .arg("+xread") // Allow stream reading
-                .arg("+xadd") // Allow adding to streams
-                .arg("+xgroup") // Allow consumer group operations
-                .arg("+xreadgroup") // Allow reading as consumer group
-                .arg("+ping") // Basic connection check
+                // Stream access
+                .arg(format!("~{}", &stream_pattern)) // Key pattern restriction for streams
+                .arg("+@stream") // Grant all stream commands (simpler than listing individuals)
+                // KV access
+                .arg(format!("~{}", &kv_pattern)) // Key pattern restriction for KV
+                .arg("+@string") // Grant string commands (GET, SET, etc.)
+                .arg("+del") // Grant DEL command specifically
+                // Basic connection check
+                .arg("+ping")
                 .query(&mut conn);
 
             match acl_result {
@@ -226,9 +232,14 @@ impl StandardProcessor {
             let mut request_for_replica = container.clone();
             if let Some(mut meta) = request_for_replica.metadata.take() {
                 meta.name = Some(format!(
-                    "{}-replica-{}",
+                    "{}-replica-{}-{}",
                     meta.name.unwrap_or_default(),
-                    replica_index
+                    replica_index,
+                    ShortUuid::generate()
+                        .to_string()
+                        .chars()
+                        .take(5)
+                        .collect::<String>()
                 ));
                 request_for_replica.metadata = Some(meta);
             }
@@ -420,15 +431,12 @@ impl StandardProcessor {
             match get_consumer_group_progress(&mut con, &stream_name, consumer_group) {
                 Ok(progress) => progress.remaining_entries(),
                 Err(err) => {
-                    error!(
+                    warn!(
                     "[Processor Controller] Error getting pending count for processor {:?}: {:?}",
                     processor.id, err
                 );
-                    return Err(format!(
-                        "Error getting pending count for processor {:?}: {:?}",
-                        processor.id, err
-                    )
-                    .into());
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    return Ok(());
                 }
             };
 
@@ -654,9 +662,14 @@ impl StandardProcessor {
                 let mut request_for_replica = container.clone();
                 if let Some(mut meta) = request_for_replica.metadata.take() {
                     meta.name = Some(format!(
-                        "{}-replica-{}",
+                        "{}-replica-{}-{}",
                         meta.name.unwrap_or_default(),
-                        replica_index
+                        replica_index,
+                        ShortUuid::generate()
+                            .to_string()
+                            .chars()
+                            .take(5)
+                            .collect::<String>()
                     ));
                     request_for_replica.metadata = Some(meta);
                 }

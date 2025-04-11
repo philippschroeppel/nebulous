@@ -455,18 +455,17 @@ pub enum SendCommands {
 #[derive(Args)]
 pub struct SendMessageCommands {
     /// Processor name
-    #[arg(long)]
     pub name: String,
 
     /// Processor namespace
-    #[arg(long)]
+    #[arg(long, short)]
     pub namespace: Option<String>,
 
     /// File input containing message content (reads from stdin if not provided)
     #[arg(short = 'f', long)]
     pub file: Option<String>,
 
-    /// Wait for the message to be processed before returning
+    /// Wait for the message to be processed and return the result
     #[arg(long, short, default_value_t = false)]
     pub wait: bool,
 }

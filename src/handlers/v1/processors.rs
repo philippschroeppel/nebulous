@@ -2,6 +2,7 @@ use crate::agent::ns::auth_ns;
 use crate::entities::processors;
 use crate::models::{V1ResourceMetaRequest, V1StreamData, V1StreamMessage, V1UserProfile};
 use crate::query::Query;
+use crate::resources::v1::containers::models::{V1Container, V1ContainerRequest};
 use crate::resources::v1::processors::base::ProcessorPlatform;
 use crate::resources::v1::processors::models::{
     V1Processor, V1ProcessorRequest, V1ProcessorScaleRequest, V1Processors, V1UpdateProcessor,
@@ -388,7 +389,7 @@ pub async fn send_processor(
 
     // Create a stream message
     let message = V1StreamMessage {
-        kind: "ProcessorInput".to_string(),
+        kind: "StreamMessage".to_string(),
         id: id.clone(),
         content: stream_data.content,
         created_at: chrono::Utc::now().timestamp(),
@@ -622,7 +623,7 @@ pub async fn update_processor(
 
     let no_delete = update_request.no_delete.unwrap_or(false);
 
-    // Create a deep clone of processor for comparison later
+    // Convert processor model to V1Processor for comparison and potential return value
     let processor_v1 = processor.to_v1_processor().map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -630,72 +631,91 @@ pub async fn update_processor(
         )
     })?;
 
-    // Clone all fields we'll need to check later
-    let container_is_none = update_request.container.is_none();
-    let stream_is_none = update_request.stream.is_none();
-    let schema_is_none = update_request.schema.is_none();
-    let common_schema_is_none = update_request.common_schema.is_none();
-    let scale_is_none = update_request.scale.is_none();
-    let max_replicas_is_none = update_request.max_replicas.is_none();
-    let min_replicas_is_some = update_request.min_replicas.is_some();
+    // --- Start: Determine if recreation is required ---
+    let mut requires_recreation = false;
 
-    // Create a new processor request with all updated fields
-    let updated_processor = V1ProcessorRequest {
-        kind: update_request
-            .kind
-            .unwrap_or_else(|| "Processor".to_string()),
-        metadata: V1ResourceMetaRequest {
-            name: Some(processor.name.clone()),
-            namespace: Some(processor.namespace.clone()),
-            labels: update_request
-                .metadata
-                .as_ref()
-                .and_then(|m| m.labels.clone()),
-            owner: None,
-            owner_ref: None,
-        },
-        container: update_request.container,
-        schema: update_request.schema,
-        common_schema: update_request.common_schema,
-        min_replicas: update_request.min_replicas.or(processor.min_replicas),
-        max_replicas: update_request.max_replicas.or(processor.max_replicas),
-        scale: update_request.scale,
-    };
-
-    // Check if only min_replicas changed (or nothing changed)
-    let min_replicas_only_changed = container_is_none
-        && stream_is_none
-        && schema_is_none
-        && common_schema_is_none
-        && scale_is_none
-        && max_replicas_is_none
-        && min_replicas_is_some;
-
-    // If only min_replicas is provided, use the scale operation instead
-    if min_replicas_only_changed {
-        debug!("Only min_replicas changed, using scale operation");
-        let scale_request = V1ProcessorScaleRequest {
-            min_replicas: updated_processor.min_replicas,
-            replicas: None,
-        };
-
-        // Call the internal scale function directly
-        return Ok(Json(
-            _scale_processor(db_pool, &namespace, &name, &user_profile, scale_request).await?,
-        ));
+    // Check stream (Assuming processor_v1 has stream: String)
+    // Note: processor_v1 doesn't directly expose stream, it's part of the DB model 'processor'
+    if let Some(update_stream) = &update_request.stream {
+        if *update_stream != processor.stream {
+            // Compare with the original db model field
+            requires_recreation = true;
+            debug!(
+                "Stream changed ('{}' vs '{}'), requires recreation",
+                update_stream, processor.stream
+            );
+        }
     }
 
-    // Check if any fields changed that would require recreation
-    let changed_outside_metadata = !container_is_none
-        || !stream_is_none
-        || !schema_is_none
-        || !common_schema_is_none
-        || !scale_is_none
-        || !max_replicas_is_none;
+    // Check schema
+    if !requires_recreation
+        && update_request.schema.is_some()
+        && update_request.schema != processor_v1.schema
+    {
+        debug!("Schema changed, does not require recreation");
+    }
+
+    // Check common_schema
+    if !requires_recreation
+        && update_request.common_schema.is_some()
+        && update_request.common_schema != processor_v1.common_schema
+    {
+        debug!("Common schema changed, does not require recreation");
+    }
+
+    // Check scale
+    if !requires_recreation
+        && update_request.scale.is_some()
+        && update_request.scale != processor_v1.scale
+    {
+        debug!("Scale changed, does not require recreation");
+    }
+
+    // Check max_replicas
+    if !requires_recreation
+        && update_request.max_replicas.is_some()
+        && update_request.max_replicas != processor_v1.max_replicas
+    {
+        debug!("Max replicas changed, does not require recreation");
+    }
+
+    // Check container (ignoring status)
+    if !requires_recreation {
+        match (&update_request.container, &processor_v1.container) {
+            (Some(update_req), Some(existing_container)) => {
+                // Compare V1ContainerRequest fields against V1Container fields
+                if update_req != existing_container {
+                    requires_recreation = true;
+                    debug!("Container config changed, requires recreation");
+                }
+            }
+            (Some(_), None) => {
+                // Adding a container where none existed
+                requires_recreation = true;
+                debug!("Container added, requires recreation");
+            }
+            (None, Some(_)) => {
+                // Removing a container. Decide if this needs recreation.
+                // For now, let's assume removing requires recreation if not handled by scaling/stopping.
+                // If update_request.container is None, it implies the user wants it removed or managed by another field.
+                // Consider if scale to 0 or a dedicated 'stop' action should handle this instead of implicit removal via update.
+                // For safety, let's trigger recreation if container exists but is not in the update request.
+                // requires_recreation = true;
+                // debug!("Container removed (implicitly), requires recreation");
+                // --- OR --- Treat as no-change if only removal is implied?
+                debug!("Container exists but not specified in update. No change triggered.");
+            }
+            (None, None) => {
+                // No container before or after
+                debug!("No container specified in update or existing. No change.");
+            }
+        }
+    }
+    // --- End: Determine if recreation is required ---
 
     // If changes require recreation
-    if changed_outside_metadata {
-        debug!("Processor changed outside metadata");
+    if requires_recreation {
+        debug!("Processor configuration changed, recreation required.");
         if no_delete {
             return Err((
                 StatusCode::BAD_REQUEST,
@@ -732,6 +752,42 @@ pub async fn update_processor(
                 )
             })?;
 
+        // --- Start: Create the potential final processor state by merging updates ---
+        // This is needed for the declare call if recreation happens.
+        let merged_processor_request = V1ProcessorRequest {
+            kind: update_request
+                .kind
+                .clone()
+                .unwrap_or_else(|| processor_v1.kind.clone()), // Use existing if not provided
+            metadata: V1ResourceMetaRequest {
+                name: Some(processor.name.clone()), // Name doesn't change on update
+                namespace: Some(processor.namespace.clone()), // Namespace doesn't change on update
+                labels: update_request
+                    .metadata
+                    .as_ref()
+                    .and_then(|m| m.labels.clone())
+                    .or_else(|| processor_v1.metadata.labels.clone()), // processor_v1.metadata is V1ResourceMeta
+                owner: None,     // Usually set during creation/retrieval, not update
+                owner_ref: None, // Usually set during creation/retrieval, not update
+            },
+            container: update_request
+                .container
+                .clone()
+                .or(processor_v1.container.clone()), // Merge container
+            schema: update_request
+                .schema
+                .clone()
+                .or(processor_v1.schema.clone()), // Merge schema
+            common_schema: update_request
+                .common_schema
+                .clone()
+                .or(processor_v1.common_schema.clone()), // Merge common schema
+            min_replicas: update_request.min_replicas.or(processor_v1.min_replicas), // Merge min_replicas
+            max_replicas: update_request.max_replicas.or(processor_v1.max_replicas), // Merge max_replicas
+            scale: update_request.scale.clone().or(processor_v1.scale.clone()),      // Merge scale
+        };
+        // --- End: Create the potential final processor state ---
+
         // Create the new processor with merged values
         debug!("Creating new processor with updated fields");
         let app_state = Arc::new(AppState {
@@ -742,7 +798,7 @@ pub async fn update_processor(
 
         let created = platform
             .declare(
-                &updated_processor,
+                &merged_processor_request, // Use the merged request
                 db_pool,
                 &user_profile,
                 &user_profile.email,
@@ -759,9 +815,134 @@ pub async fn update_processor(
 
         return Ok(Json(created));
     } else {
-        debug!("No changes to processor, skipping update");
-    }
+        debug!("No changes requiring processor recreation detected. Checking for other updatable fields.");
+        // --- Start: Handle updates if no recreation needed ---
+        let mut processor_active_model = processors::ActiveModel::from(processor.clone()); // Use clone as processor is used later
+        let mut model_updated = false;
 
-    // Return the original processor if no changes were made
-    Ok(Json(processor_v1))
+        // Check metadata labels
+        if let Some(metadata_req) = &update_request.metadata {
+            if let Some(labels) = &metadata_req.labels {
+                let current_labels_json = processor_active_model
+                    .labels
+                    .as_ref()
+                    .clone()
+                    .unwrap_or(serde_json::Value::Null);
+                let new_labels_json = serde_json::to_value(labels).map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"error": format!("Failed to serialize labels: {}", e)})),
+                    )
+                })?;
+
+                if current_labels_json != new_labels_json {
+                    processor_active_model.labels = ActiveValue::Set(Some(new_labels_json));
+                    model_updated = true;
+                    debug!("Processor labels updated.");
+                }
+            }
+            // Add checks for other metadata fields here if they become updatable without recreation
+        }
+
+        // Check min_replicas
+        if let Some(new_min_replicas) = update_request.min_replicas {
+            if new_min_replicas <= 0 {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "min_replicas must be a positive integer"})),
+                ));
+            }
+            let current_min_replicas = processor.min_replicas;
+            if current_min_replicas != Some(new_min_replicas) {
+                processor_active_model.min_replicas = ActiveValue::Set(Some(new_min_replicas));
+                model_updated = true;
+                debug!("Processor min_replicas updated to {}.", new_min_replicas);
+
+                // Ensure desired_replicas is at least min_replicas
+                let current_desired = processor.desired_replicas.unwrap_or(0);
+                if current_desired < new_min_replicas {
+                    debug!(
+                        "Adjusting desired_replicas from {} to match new min_replicas {}",
+                        current_desired, new_min_replicas
+                    );
+                    processor_active_model.desired_replicas =
+                        ActiveValue::Set(Some(new_min_replicas));
+                    // model_updated is already true
+                }
+            }
+        }
+
+        // Check max_replicas
+        if let Some(new_max_replicas) = update_request.max_replicas {
+            if new_max_replicas <= 0 {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "max_replicas must be a positive integer"})),
+                ));
+            }
+            let current_max_replicas = processor.max_replicas;
+            if current_max_replicas != Some(new_max_replicas) {
+                processor_active_model.max_replicas = ActiveValue::Set(Some(new_max_replicas));
+                model_updated = true;
+                debug!("Processor max_replicas updated to {}.", new_max_replicas);
+            }
+        }
+
+        // Check schema
+        if let Some(new_schema) = &update_request.schema {
+            if processor_v1.schema != Some(new_schema.clone()) {
+                processor_active_model.schema = ActiveValue::Set(Some(new_schema.clone()));
+                model_updated = true;
+                debug!("Processor schema updated.");
+            }
+        }
+
+        // Check common_schema
+        if let Some(new_common_schema) = &update_request.common_schema {
+            if processor_v1.common_schema != Some(new_common_schema.clone()) {
+                processor_active_model.common_schema =
+                    ActiveValue::Set(Some(new_common_schema.clone()));
+                model_updated = true;
+                debug!("Processor common_schema updated.");
+            }
+        }
+
+        // Check scale
+        if let Some(new_scale) = &update_request.scale {
+            if processor_v1.scale.as_ref() != Some(new_scale) {
+                let new_scale_json = serde_json::to_value(new_scale).map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"error": format!("Failed to serialize scale: {}", e)})),
+                    )
+                })?;
+                processor_active_model.scale = ActiveValue::Set(new_scale_json);
+                model_updated = true;
+                debug!("Processor scale updated.");
+            }
+        }
+
+        if model_updated {
+            debug!("Applying updates to processor.");
+            let updated_processor_model =
+                processor_active_model.update(db_pool).await.map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"error": format!("Failed to update processor: {}", e)})),
+                    )
+                })?;
+            let updated_processor_v1 = updated_processor_model.to_v1_processor().map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("Failed to convert updated processor: {}", e)})),
+                )
+            })?;
+            return Ok(Json(updated_processor_v1));
+        } else {
+            debug!("No recreation required and no other updates detected. Returning original processor state.");
+            // If no recreation and no other changes, return the original state
+            Ok(Json(processor_v1))
+        }
+        // --- End: Handle updates ---
+    }
 }

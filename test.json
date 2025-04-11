@@ -1,7 +1,3 @@
 {
-    "my": "test",
-    "data": {
-        "name": "test",
-        "namespace": "test"
-    }
+    "dataset": "123abc"
 }

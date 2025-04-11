@@ -42,20 +42,22 @@ pub fn get_consumer_group_progress(
     // 3. Get consumer group info to find last-delivered-id
     let groups_info: StreamInfoGroupsReply = con.xinfo_groups(stream_key)?;
     let mut last_delivered_id = "0-0".to_string();
+    let mut undelivered_entries: u64 = 0; // Initialize lag
 
     for group in &groups_info.groups {
         if group.name == group_name {
             last_delivered_id = group.last_delivered_id.clone();
+            undelivered_entries = group.lag.unwrap_or(0) as u64; // Extract lag and cast to u64
             break;
         }
     }
 
-    // 4. Get count of entries after last-delivered-id (undelivered) using generic command
-    let undelivered_entries: u64 = redis::cmd("XCOUNT")
-        .arg(stream_key)
-        .arg(format!("({}", last_delivered_id))
-        .arg("+")
-        .query(con)?;
+    // 4. Get count of entries after last-delivered-id (undelivered) using generic command - REMOVED XCOUNT
+    // let undelivered_entries: u64 = redis::cmd("XCOUNT")
+    //     .arg(stream_key)
+    //     .arg(format!("({}", last_delivered_id))
+    //     .arg("+")
+    //     .query(con)?;
 
     Ok(StreamProgress {
         total_entries,
