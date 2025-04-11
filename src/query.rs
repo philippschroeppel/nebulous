@@ -397,6 +397,7 @@ impl Query {
         let active_statuses = vec![
             ProcessorStatus::Defined.to_string().to_lowercase(),
             ProcessorStatus::Creating.to_string().to_lowercase(),
+            ProcessorStatus::Created.to_string().to_lowercase(),
             ProcessorStatus::Pending.to_string().to_lowercase(),
             ProcessorStatus::Running.to_string().to_lowercase(),
             ProcessorStatus::Scaling.to_string().to_lowercase(),
