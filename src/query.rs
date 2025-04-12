@@ -1,5 +1,6 @@
 // src/query.rs
 use crate::entities::containers;
+use crate::entities::namespaces;
 use crate::entities::processors;
 use crate::entities::secrets;
 use crate::resources::v1::containers::base::ContainerStatus;
@@ -500,5 +501,16 @@ impl Query {
             .await?;
 
         Ok(count)
+    }
+
+    /// Fetch all namespaces for a given list of owners
+    pub async fn find_namespaces_by_owners(
+        db: &DatabaseConnection,
+        owners: &[&str],
+    ) -> Result<Vec<namespaces::Model>, DbErr> {
+        namespaces::Entity::find()
+            .filter(namespaces::Column::Owner.is_in(owners.iter().copied()))
+            .all(db)
+            .await
     }
 }

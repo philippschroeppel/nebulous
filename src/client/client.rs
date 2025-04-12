@@ -1,6 +1,10 @@
 use crate::config::GlobalConfig;
+use crate::models::V1StreamData;
 use crate::resources::v1::containers::models::{
     V1Container, V1ContainerRequest, V1ContainerSearch, V1Containers, V1UpdateContainer,
+};
+use crate::resources::v1::processors::models::{
+    V1Processor, V1ProcessorRequest, V1ProcessorScaleRequest, V1Processors, V1UpdateProcessor,
 };
 use crate::resources::v1::secrets::models::{V1Secret, V1SecretRequest, V1Secrets};
 use reqwest::Client as HttpClient;
@@ -339,6 +343,207 @@ impl NebulousClient {
         } else {
             let error_text = response.text().await?;
             Err(format!("Failed to search containers: {}", error_text).into())
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // PROCESSOR METHODS
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /// Creates a processor using the Nebulous API.
+    pub async fn create_processor(
+        &self,
+        processor_request: &V1ProcessorRequest,
+    ) -> Result<V1Processor, Box<dyn Error>> {
+        let url = format!("{}/v1/processors", self.base_url);
+
+        let response = self
+            .http_client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(processor_request)
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            let raw = response.json::<Value>().await?;
+            let typed: V1Processor = serde_json::from_value(raw)?;
+            Ok(typed)
+        } else {
+            let error_text = response.text().await?;
+            Err(format!("Failed to create processor: {}", error_text).into())
+        }
+    }
+
+    /// Lists all processors, returning a typed `V1Processors`.
+    pub async fn list_processors(&self) -> Result<V1Processors, Box<dyn std::error::Error>> {
+        let url = format!("{}/v1/processors", self.base_url);
+        let response = self
+            .http_client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            let processors = response.json::<V1Processors>().await?;
+            Ok(processors)
+        } else {
+            let error_text = response.text().await?;
+            Err(format!("Failed to list processors: {}", error_text).into())
+        }
+    }
+
+    /// Gets a specific processor by namespace and name, returning a typed `V1Processor`.
+    /// `name` cannot be empty.
+    pub async fn get_processor(
+        &self,
+        name: &str,
+        namespace: &str,
+    ) -> Result<V1Processor, Box<dyn std::error::Error>> {
+        let url = format!("{}/v1/processors/{}/{}", self.base_url, namespace, name);
+        let response = self
+            .http_client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            let processor = response.json::<V1Processor>().await?;
+            Ok(processor)
+        } else {
+            let error_text = response.text().await?;
+            Err(format!(
+                "Failed to get processor {}/{}: {}",
+                namespace, name, error_text
+            )
+            .into())
+        }
+    }
+
+    /// Deletes a processor by `/:namespace/:name`.
+    pub async fn delete_processor(
+        &self,
+        name: &str,
+        namespace: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        let url = format!("{}/v1/processors/{}/{}", self.base_url, namespace, name);
+
+        let response = self
+            .http_client
+            .delete(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            println!("Processor '{}/{}' successfully deleted", namespace, name);
+            Ok(())
+        } else {
+            let error_text = response.text().await?;
+            Err(format!(
+                "Failed to delete processor '{}/{}': {}",
+                namespace, name, error_text
+            )
+            .into())
+        }
+    }
+
+    /// Updates (PATCH) a processor by `/:namespace/:name`.
+    pub async fn update_processor(
+        &self,
+        name: &str,
+        namespace: &str,
+        update_request: &V1UpdateProcessor,
+    ) -> Result<V1Processor, Box<dyn Error>> {
+        let url = format!("{}/v1/processors/{}/{}", self.base_url, namespace, name);
+
+        let response = self
+            .http_client
+            .patch(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(update_request)
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            let processor = response.json::<V1Processor>().await?;
+            Ok(processor)
+        } else {
+            let error_text = response.text().await?;
+            Err(format!(
+                "Failed to patch processor '{}/{}': {}",
+                namespace, name, error_text
+            )
+            .into())
+        }
+    }
+
+    /// Scales a processor by `/:namespace/:name`.
+    pub async fn scale_processor(
+        &self,
+        name: &str,
+        namespace: &str,
+        scale_request: &V1ProcessorScaleRequest,
+    ) -> Result<V1Processor, Box<dyn Error>> {
+        let url = format!(
+            "{}/v1/processors/{}/{}/scale",
+            self.base_url, namespace, name
+        );
+
+        let response = self
+            .http_client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(scale_request)
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            let processor = response.json::<V1Processor>().await?;
+            Ok(processor)
+        } else {
+            let error_text = response.text().await?;
+            Err(format!(
+                "Failed to scale processor '{}/{}': {}",
+                namespace, name, error_text
+            )
+            .into())
+        }
+    }
+
+    /// Sends a message to a processor's stream. Returns the raw response Value.
+    /// If `stream_data.wait` is true, it will block until a response is received or timeout.
+    pub async fn send_processor_message(
+        &self,
+        name: &str,
+        namespace: &str,
+        stream_data: &V1StreamData,
+    ) -> Result<Value, Box<dyn Error>> {
+        let url = format!(
+            "{}/v1/processors/{}/{}/messages",
+            self.base_url, namespace, name
+        );
+
+        let response = self
+            .http_client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(stream_data)
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            let response_json = response.json::<Value>().await?;
+            Ok(response_json)
+        } else {
+            let error_text = response.text().await?;
+            Err(format!(
+                "Failed to send message to processor '{}/{}': {}",
+                namespace, name, error_text
+            )
+            .into())
         }
     }
 }

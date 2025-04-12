@@ -2,7 +2,6 @@ use crate::agent::ns::auth_ns;
 use crate::entities::processors;
 use crate::models::{V1ResourceMetaRequest, V1StreamData, V1StreamMessage, V1UserProfile};
 use crate::query::Query;
-use crate::resources::v1::containers::models::{V1Container, V1ContainerRequest};
 use crate::resources::v1::processors::base::ProcessorPlatform;
 use crate::resources::v1::processors::models::{
     V1Processor, V1ProcessorRequest, V1ProcessorScaleRequest, V1Processors, V1UpdateProcessor,
@@ -17,7 +16,7 @@ use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection};
 use serde_json::json;
 use short_uuid::ShortUuid;
 use std::sync::Arc;
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 pub async fn create_processor(
     State(state): State<AppState>,
@@ -404,34 +403,51 @@ pub async fn send_processor(
     match &state.message_queue {
         crate::state::MessageQueue::Redis { client } => {
             // Get a Redis connection
-            let mut conn = client.get_connection().map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": format!("Redis connection error: {}", e)})),
-                )
-            })?;
+            let mut conn = match client.get_connection() {
+                Ok(conn) => {
+                    debug!("Successfully obtained Redis connection.");
+                    conn
+                }
+                Err(e) => {
+                    error!("Redis connection error: {}", e);
+                    return Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"error": format!("Redis connection error: {}", e)})),
+                    ));
+                }
+            };
 
             // Serialize the message to JSON
             let message_json = serde_json::to_string(&message).map_err(|e| {
+                error!("Failed to serialize message: {}", e);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(json!({"error": format!("Failed to serialize message: {}", e)})),
                 )
             })?;
+            debug!("Message serialized successfully: {}", message_json);
 
             // Add the message to the stream using higher-level xadd
-            let stream_id: String = redis::cmd("XADD")
-                .arg(stream_name)
+            let stream_id_result: Result<String, redis::RedisError> = redis::cmd("XADD")
+                .arg(stream_name.clone())
                 .arg("*") // Auto-generate ID
                 .arg("data")
                 .arg(&message_json)
-                .query(&mut conn)
-                .map_err(|e| {
-                    (
+                .query(&mut conn);
+
+            let stream_id = match stream_id_result {
+                Ok(id) => {
+                    debug!("Message added to stream '{}' with ID: {}", stream_name, id);
+                    id
+                }
+                Err(e) => {
+                    error!("Failed to send message to stream '{}': {}", stream_name, e);
+                    return Err((
                         StatusCode::INTERNAL_SERVER_ERROR,
                         Json(json!({"error": format!("Failed to send message to stream: {}", e)})),
-                    )
-                })?;
+                    ));
+                }
+            };
 
             // If we need to wait for a response
             if let Some(return_stream_name) = return_stream {
@@ -440,77 +456,210 @@ pub async fn send_processor(
                     return_stream_name
                 );
 
-                // Create the return stream with a dummy message to ensure it exists
-                let _: Result<String, redis::RedisError> = redis::cmd("XADD")
+                // Create the return stream with a dummy message to ensure it exists, and capture its ID
+                let init_message_id: String = match redis::cmd("XADD")
                     .arg(&return_stream_name)
                     .arg("*")
                     .arg("init")
                     .arg("true")
-                    .query(&mut conn);
+                    .query(&mut conn)
+                {
+                    Ok(id) => {
+                        debug!(
+                            "Added init message to return stream '{}' with ID: {}",
+                            return_stream_name, id
+                        );
+                        id // This value will be assigned to init_message_id
+                    }
+                    Err(e) => {
+                        error!(
+                            "Failed to add init message to return stream '{}': {}. Cannot proceed.",
+                            return_stream_name, e
+                        );
+                        // If we can't even add the init message, waiting is unlikely to work
+                        return Err((
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(
+                                json!({"error": format!("Failed to initialize return stream: {}", e)}),
+                            ),
+                        ));
+                    }
+                };
 
                 // Wait for response with a timeout (1 hour)
                 const TIMEOUT_MS: u64 = 3600000;
 
-                // Use the higher-level streams API to read from the stream
-                let result: redis::streams::StreamReadReply = redis::cmd("XREAD")
-                    .arg("BLOCK")
-                    .arg(TIMEOUT_MS)
-                    .arg("STREAMS")
-                    .arg(&return_stream_name)
-                    .arg("0") // Read from the beginning
-                    .query(&mut conn)
-                    .map_err(|e| {
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(json!({"error": format!("Error reading from response stream: {}", e)})),
-                        )
+                // --- Prepare for spawn_blocking ---
+                let return_stream_name_clone = return_stream_name.clone();
+                let client_clone = client.clone(); // Clone the client Arc for the blocking task
+                                                   // --- Move blocking call to spawn_blocking ---
+                let read_result = tokio::task::spawn_blocking(move || {
+                    // Get a new connection from the pool inside the blocking task
+                    let mut conn = client_clone.get_connection().map_err(|e| {
+                        redis::RedisError::from((
+                            redis::ErrorKind::IoError,
+                            "Failed to get connection in spawn_blocking",
+                            e.to_string(),
+                        ))
                     })?;
 
-                // Clean up the return stream
-                let _: Result<(), redis::RedisError> =
-                    redis::cmd("DEL").arg(&return_stream_name).query(&mut conn);
+                    debug!(
+                        "Attempting blocking XREAD on stream '{}' with timeout {}ms",
+                        return_stream_name_clone, TIMEOUT_MS
+                    );
+
+                    redis::cmd("XREAD")
+                        .arg("BLOCK")
+                        .arg(TIMEOUT_MS)
+                        .arg("STREAMS")
+                        .arg(&return_stream_name_clone) // Use the clone
+                        .arg(&init_message_id)
+                        .query::<redis::streams::StreamReadReply>(&mut conn)
+                })
+                .await;
+                // --- End spawn_blocking ---
+
+                // Handle the result from spawn_blocking (which itself returns a Result)
+                let result = match read_result {
+                    Ok(Ok(reply)) => {
+                        // Outer Ok is from spawn_blocking, inner Ok is from redis::cmd
+                        debug!("XREAD successful. Raw reply: {:?}", reply);
+                        reply
+                    }
+                    Ok(Err(e)) => {
+                        // Outer Ok, inner Err (Redis error)
+                        error!(
+                            "Error reading from response stream '{}' inside spawn_blocking: {}",
+                            return_stream_name, // Use original name for logging
+                            e
+                        );
+                        return Err((
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(
+                                json!({"error": format!("Error reading from response stream: {}", e)}),
+                            ),
+                        ));
+                    }
+                    Err(e) => {
+                        // Outer Err (spawn_blocking join error)
+                        error!(
+                            "Spawn_blocking task failed for stream '{}': {}",
+                            return_stream_name, // Use original name for logging
+                            e
+                        );
+                        return Err((
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(json!({"error": format!("Task execution error: {}", e)})),
+                        ));
+                    }
+                };
+
+                // Clean up the return stream - Requires getting a connection again
+                let mut conn = match client.get_connection() {
+                    Ok(c) => c,
+                    Err(e) => {
+                        error!("Failed to get connection for DEL command: {}", e);
+                        // Log and continue with processing if response was received.
+                        // If DEL must succeed, return an error here.
+                        return Err((
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(
+                                json!({"error": format!("Failed get Redis conn for cleanup: {}", e)}),
+                            ),
+                        ));
+                    }
+                };
+                debug!(
+                    "Attempting to delete return stream '{}'",
+                    return_stream_name // Use original name
+                );
+                let del_result: Result<(), redis::RedisError> =
+                    redis::cmd("DEL").arg(&return_stream_name).query(&mut conn); // Use original name
+                if let Err(e) = del_result {
+                    // Log error but continue processing the response if we got one
+                    error!(
+                        "Failed to delete return stream '{}': {}. Processing response anyway.",
+                        return_stream_name, // Use original name
+                        e
+                    );
+                } else {
+                    debug!(
+                        "Successfully deleted return stream '{}'",
+                        return_stream_name // Use original name
+                    );
+                }
 
                 // Check if we got a response
                 if result.keys.is_empty() {
+                    error!(
+                        "Timed out or received empty response from return stream '{}'",
+                        return_stream_name // Use original name
+                    );
                     return Err((
                         StatusCode::REQUEST_TIMEOUT,
                         Json(json!({"error": "Timed out waiting for processor response"})),
                     ));
                 }
+                debug!(
+                    "Received {} keys in response from stream '{}'",
+                    result.keys.len(),
+                    return_stream_name // Use original name
+                );
 
                 // Process the response
                 for key in result.keys {
+                    debug!("Processing key (stream): {:?}", key.key);
                     for id in key.ids {
+                        debug!("Processing message ID: {:?}, Map: {:?}", id.id, id.map);
                         if let Some(data_value) = id.map.get("data") {
+                            debug!("Found 'data' field: {:?}", data_value);
                             // Convert the Redis value to a string
                             let data_str = match data_value {
                                 redis::Value::BulkString(bytes) => {
+                                    let s = String::from_utf8_lossy(bytes).to_string();
+                                    debug!("Converted BulkString to string: '{}'", s);
                                     String::from_utf8_lossy(bytes).to_string()
                                 }
                                 redis::Value::SimpleString(s) => s.clone(),
                                 _ => format!("{:?}", data_value),
                             };
+                            debug!("Final data_str: '{}'", data_str);
 
                             // Try to parse the data as JSON
-                            if let Ok(json_data) =
-                                serde_json::from_str::<serde_json::Value>(&data_str)
-                            {
-                                return Ok(Json(json_data).into_response());
-                            } else {
-                                // Return raw data if JSON parsing fails
-                                return Ok(Json(json!({"raw": data_str})).into_response());
+                            match serde_json::from_str::<serde_json::Value>(&data_str) {
+                                Ok(json_data) => {
+                                    debug!("Successfully parsed data as JSON: {:?}", json_data);
+                                    return Ok(Json(json_data).into_response());
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        "Failed to parse response data as JSON: {}. Returning raw string.",
+                                        e
+                                    );
+                                    return Ok(Json(json!({"raw": data_str})).into_response());
+                                }
                             }
+                        } else {
+                            debug!("'data' field not found in message map for ID: {:?}", id.id);
                         }
                     }
                 }
 
                 // If we couldn't find data in the response
+                error!(
+                    "Processed all messages in response stream '{}', but none contained a 'data' field.",
+                    return_stream_name // Use original name
+                );
                 return Err((
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(json!({"error": "Received response without data field"})),
                 ));
             } else {
                 // If not waiting, just return success
+                debug!(
+                    "Not waiting for response. Returning success for message ID {}",
+                    message.id
+                );
                 Ok(Json(json!({
                     "success": true,
                     "stream_id": stream_id,
