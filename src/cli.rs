@@ -89,6 +89,10 @@ pub enum Commands {
         /// Container namespace.
         #[arg(long, short)]
         namespace: String,
+
+        /// Follow the logs
+        #[arg(long, short, default_value_t = false)]
+        follow: bool,
     },
 
     /// Send a message to a processor.

@@ -1,19 +1,20 @@
 use crate::auth::server::handlers::{get_api_key, list_api_keys};
 use crate::handlers::v1::{
-    create_container, create_processor, create_secret, create_volume, delete_cache_key,
-    delete_container, delete_container_by_id, delete_processor, delete_secret, delete_secret_by_id,
-    delete_volume, fetch_container_logs, fetch_container_logs_by_id, get_cache_key, get_container,
-    get_container_by_id, get_processor, get_secret, get_secret_by_id, get_user_profile, get_volume,
-    list_cache_keys, list_containers, list_processors, list_secrets, list_volumes, patch_container,
-    scale_processor, search_containers, send_processor, update_processor, update_secret,
-    update_secret_by_id,
+    create_container, create_processor, create_scoped_s3_token, create_secret, create_volume,
+    delete_cache_key, delete_container, delete_container_by_id, delete_processor,
+    delete_scoped_s3_token, delete_secret, delete_secret_by_id, delete_volume,
+    fetch_container_logs, fetch_container_logs_by_id, get_cache_key, get_container,
+    get_container_by_id, get_processor, get_processor_logs, get_secret, get_secret_by_id,
+    get_user_profile, get_volume, list_cache_keys, list_containers, list_processors, list_secrets,
+    list_volumes, patch_container, scale_processor, search_containers, send_processor,
+    stream_logs_ws, stream_logs_ws_by_id, update_processor, update_secret, update_secret_by_id,
 };
 use crate::handlers::{health_handler, root_handler};
 use crate::middleware::auth_middleware;
 use crate::state::AppState;
 use axum::{
     middleware,
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
 use tower_http::trace::{self, TraceLayer};
@@ -29,6 +30,11 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
     let private_routes = Router::new()
         .route("/auth/api-key/:id", get(get_api_key))
         .route("/auth/api-keys", get(list_api_keys))
+        .route("/v1/auth/s3-tokens", post(create_scoped_s3_token))
+        .route(
+            "/v1/auth/s3-tokens/:namespace/:name",
+            delete(delete_scoped_s3_token),
+        )
         .route(
             "/v1/containers",
             get(list_containers).post(create_container),
@@ -39,6 +45,7 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
             get(get_container_by_id).delete(delete_container_by_id),
         )
         .route("/v1/containers/:id/logs", get(fetch_container_logs_by_id))
+        .route("/v1/containers/:id/logs/stream", get(stream_logs_ws_by_id))
         .route(
             "/v1/containers/:namespace/:name",
             get(get_container)
@@ -48,6 +55,10 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
         .route(
             "/v1/containers/:namespace/:name/logs",
             get(fetch_container_logs),
+        )
+        .route(
+            "/v1/containers/:namespace/:name/logs/stream",
+            get(stream_logs_ws),
         )
         .route("/v1/secrets", get(list_secrets).post(create_secret))
         .route(
@@ -82,6 +93,10 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
         .route(
             "/v1/processors/:namespace/:name/scale",
             post(scale_processor),
+        )
+        .route(
+            "/v1/processors/:namespace/:name/logs",
+            get(get_processor_logs),
         )
         .route("/v1/cache", get(list_cache_keys))
         .route(

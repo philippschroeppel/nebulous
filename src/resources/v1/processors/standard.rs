@@ -701,11 +701,12 @@ impl StandardProcessor {
             }
         } else if new_replica_count < current_replicas {
             // Sort containers by replica number (extracted from name)
+            let owner_ref_string = format!("{}.{}.Processor", processor.name, processor.namespace);
             let associated_containers_result =
-                Query::find_containers_by_owner_ref(db, &processor.id).await;
+                Query::find_containers_by_owner_ref(db, &owner_ref_string).await;
             debug!(
-                "Container query result for processor {}: {:?}",
-                processor.id, associated_containers_result
+                "Container query result for processor {} using owner_ref '{}': {:?}",
+                processor.id, owner_ref_string, associated_containers_result
             );
             let associated_containers = associated_containers_result?;
 

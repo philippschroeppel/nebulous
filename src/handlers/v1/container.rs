@@ -13,14 +13,20 @@ use crate::entities::containers;
 use crate::mutation::Mutation;
 use crate::query::Query;
 use crate::state::AppState;
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::{
     extract::Extension, extract::Json, extract::Path, extract::State, http::StatusCode,
     response::IntoResponse,
 };
+use futures::{SinkExt, StreamExt};
 use sea_orm::sea_query::extension::postgres::PgExpr;
 use sea_orm::sea_query::{Alias, Expr};
 use sea_orm::{ColumnTrait, Condition, DatabaseConnection, EntityTrait, QueryFilter};
 use serde_json::json;
+use std::process::Stdio;
+use std::sync::Arc;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::sync::Mutex;
 use tracing::{debug, error};
 
 pub async fn get_container(
@@ -1158,4 +1164,202 @@ pub async fn search_containers(
     let containers = _search_containers(db_pool, &search, &user_profile).await?;
 
     Ok(Json(V1Containers { containers }))
+}
+
+// At the end of the file, add WebSocket support for streaming logs
+pub async fn stream_logs_ws(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+    Extension(user_profile): Extension<V1UserProfile>,
+    Path((namespace, name)): Path<(String, String)>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_socket(socket, state, user_profile, namespace, name))
+}
+
+pub async fn stream_logs_ws_by_id(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+    Extension(user_profile): Extension<V1UserProfile>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_socket_by_id(socket, state, user_profile, id))
+}
+
+async fn handle_socket_by_id(
+    socket: WebSocket,
+    state: AppState,
+    user_profile: V1UserProfile,
+    id: String,
+) {
+    debug!(
+        "WebSocket upgrade request received for container ID: {}",
+        id
+    );
+    // Middleware already handled auth. User profile is passed via Extension.
+    let db_pool = &state.db_pool;
+    let (sender, _receiver) = socket.split(); // Receiver is not used anymore
+
+    // Fetch container info
+    let mut owner_ids: Vec<String> = user_profile
+        .organizations
+        .as_ref()
+        .map(|orgs| orgs.keys().cloned().collect())
+        .unwrap_or_default();
+    owner_ids.push(user_profile.email.clone());
+    let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
+
+    match Query::find_container_by_id_and_owners(db_pool, &id, &owner_id_refs).await {
+        Ok(container) => {
+            // Start streaming logs (passing only the sender)
+            stream_container_logs(sender, container.id.to_string()).await;
+        }
+        Err(e) => {
+            // If container fetch fails AFTER successful auth/upgrade, send error on socket
+            let mut sender_locked = sender;
+            let _ = sender_locked
+                .send(Message::Text(format!(
+                    "Error fetching container data: {}",
+                    e
+                )))
+                .await;
+            let _ = sender_locked.close().await;
+        }
+    }
+}
+
+async fn handle_socket(
+    socket: WebSocket,
+    state: AppState,
+    user_profile: V1UserProfile,
+    namespace: String,
+    name: String,
+) {
+    debug!(
+        "WebSocket upgrade request received for container: {}/{}",
+        namespace, name
+    );
+    // Middleware already handled auth. User profile is passed via Extension.
+    let db_pool = &state.db_pool;
+    let (sender, _receiver) = socket.split(); // Receiver is not used anymore
+
+    // Fetch container info
+    let mut owner_ids: Vec<String> = user_profile
+        .organizations
+        .as_ref()
+        .map(|orgs| orgs.keys().cloned().collect())
+        .unwrap_or_default();
+    owner_ids.push(user_profile.email.clone());
+    let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
+
+    match Query::find_container_by_namespace_name_and_owners(
+        db_pool,
+        &namespace,
+        &name,
+        &owner_id_refs,
+    )
+    .await
+    {
+        Ok(container) => {
+            // Start streaming logs
+            stream_container_logs(sender, container.id.to_string()).await;
+        }
+        Err(e) => {
+            // If container fetch fails AFTER successful auth/upgrade, send error on socket
+            let mut sender_locked = sender;
+            let _ = sender_locked
+                .send(Message::Text(format!(
+                    "Error fetching container data: {}",
+                    e
+                )))
+                .await;
+            let _ = sender_locked.close().await;
+        }
+    }
+}
+
+async fn stream_container_logs<S>(sender: S, container_id: String)
+where
+    S: SinkExt<Message> + Unpin + Send + 'static,
+    <S as futures::Sink<Message>>::Error: std::fmt::Debug + Send,
+{
+    let ssh_host = format!("container-{}", container_id);
+
+    // Use tokio::process to spawn an async process
+    let mut cmd = tokio::process::Command::new("ssh");
+    cmd.arg("-o")
+        .arg("StrictHostKeyChecking=no")
+        .arg("-l")
+        .arg("root") // TODO: get user from API
+        .arg(ssh_host)
+        .arg("tail")
+        .arg("-f")
+        .arg("$HOME/.logs/nebu_container.log")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped()); // Capture stderr too
+
+    // Wrap the sender in Arc<Mutex> *before* the match
+    let sender = Arc::new(Mutex::new(sender));
+
+    // Execute command
+    match cmd.spawn() {
+        Ok(mut child) => {
+            let stdout = child.stdout.take().expect("Failed to capture stdout");
+            let stderr = child.stderr.take().expect("Failed to capture stderr");
+
+            let mut stdout_reader = BufReader::new(stdout).lines();
+            let mut stderr_reader = BufReader::new(stderr).lines();
+
+            // Clone the Arc for the tasks
+            let stdout_sender = Arc::clone(&sender);
+            let stdout_handle = tokio::spawn(async move {
+                while let Ok(Some(line)) = stdout_reader.next_line().await {
+                    let mut sender_lock = stdout_sender.lock().await;
+                    if sender_lock.send(Message::Text(line)).await.is_err() {
+                        break; // Client disconnected
+                    }
+                }
+            });
+
+            let stderr_sender = Arc::clone(&sender);
+            let stderr_handle = tokio::spawn(async move {
+                while let Ok(Some(line)) = stderr_reader.next_line().await {
+                    let err_line = format!("STDERR: {}", line); // Prefix stderr lines
+                    let mut sender_lock = stderr_sender.lock().await;
+                    if sender_lock.send(Message::Text(err_line)).await.is_err() {
+                        break; // Client disconnected
+                    }
+                }
+            });
+
+            // Wait for child process to exit or for streams to end
+            let status = child.wait().await;
+            debug!("SSH command finished with status: {:?}", status);
+
+            // Wait for reader tasks to finish
+            let _ = tokio::join!(stdout_handle, stderr_handle);
+
+            // Send final message indicating process exit
+            {
+                let mut sender_lock = sender.lock().await; // Use the Arc<Mutex> sender
+                let final_message = format!(
+                    "Log stream ended (SSH process exited with status: {:?})",
+                    status
+                );
+                let _ = sender_lock.send(Message::Text(final_message)).await;
+            }
+        }
+        Err(e) => {
+            let mut sender_lock = sender.lock().await; // Now this works
+            let _ = sender_lock
+                .send(Message::Text(format!("Error starting log stream: {}", e)))
+                .await;
+        }
+    }
+
+    // Close the WebSocket connection from the server side
+    {
+        let mut sender_lock = sender.lock().await;
+        let _ = sender_lock.close().await;
+        debug!("WebSocket connection closed by server.");
+    }
 }

@@ -15,6 +15,7 @@ use axum::{
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection};
 use serde_json::json;
 use short_uuid::ShortUuid;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, warn};
 
@@ -832,10 +833,89 @@ pub async fn update_processor(
     if !requires_recreation {
         match (&update_request.container, &processor_v1.container) {
             (Some(update_req), Some(existing_container)) => {
-                // Compare V1ContainerRequest fields against V1Container fields
-                if update_req != existing_container {
+                let mut container_changed = false;
+
+                // Explicitly compare fields relevant to recreation
+                if update_req.platform.as_deref().unwrap_or_default()
+                    != existing_container.platform.as_deref().unwrap_or_default()
+                {
+                    container_changed = true;
+                    debug!("Container platform changed");
+                }
+                if update_req.image != existing_container.image {
+                    container_changed = true;
+                    debug!("Container image changed");
+                }
+                // Compare effective env vars (request is Option<Vec>, existing is Vec)
+                if update_req.env.as_deref().unwrap_or_default()
+                    != existing_container.env.as_deref().unwrap_or_default()
+                {
+                    container_changed = true;
+                    debug!("Container env changed");
+                }
+                if update_req.command != existing_container.command {
+                    container_changed = true;
+                    debug!("Container command changed");
+                }
+                if update_req.args != existing_container.args {
+                    container_changed = true;
+                    debug!("Container args changed");
+                }
+                if update_req.volumes != existing_container.volumes {
+                    container_changed = true;
+                    debug!("Container volumes changed");
+                }
+                if update_req.accelerators != existing_container.accelerators {
+                    container_changed = true;
+                    debug!("Container accelerators changed");
+                }
+                if update_req.resources != existing_container.resources {
+                    container_changed = true;
+                    debug!("Container resources changed");
+                }
+                if update_req.meters != existing_container.meters {
+                    container_changed = true;
+                    debug!("Container meters changed");
+                }
+                if update_req.restart != existing_container.restart {
+                    container_changed = true;
+                    debug!("Container restart policy changed");
+                }
+                if update_req.queue != existing_container.queue {
+                    container_changed = true;
+                    debug!("Container queue changed");
+                }
+                if update_req.timeout != existing_container.timeout {
+                    container_changed = true;
+                    debug!("Container timeout changed");
+                }
+                if update_req.proxy_port != existing_container.proxy_port {
+                    container_changed = true;
+                    debug!("Container proxy_port changed");
+                }
+                if update_req.health_check != existing_container.health_check {
+                    container_changed = true;
+                    debug!("Container health_check changed");
+                }
+                if update_req.authz != existing_container.authz {
+                    container_changed = true;
+                    debug!("Container authz changed");
+                }
+                if update_req.ssh_keys != existing_container.ssh_keys {
+                    container_changed = true;
+                    debug!("Container ssh_keys changed");
+                }
+                // Assuming update_req.ports exists and is comparable to existing_container.ports
+                if update_req.ports != existing_container.ports {
+                    container_changed = true;
+                    debug!("Container ports changed");
+                }
+
+                if container_changed {
                     requires_recreation = true;
                     debug!("Container config changed, requires recreation");
+                } else {
+                    debug!("Container config unchanged, no recreation needed based on container.");
                 }
             }
             (Some(_), None) => {
@@ -844,19 +924,13 @@ pub async fn update_processor(
                 debug!("Container added, requires recreation");
             }
             (None, Some(_)) => {
-                // Removing a container. Decide if this needs recreation.
-                // For now, let's assume removing requires recreation if not handled by scaling/stopping.
-                // If update_request.container is None, it implies the user wants it removed or managed by another field.
-                // Consider if scale to 0 or a dedicated 'stop' action should handle this instead of implicit removal via update.
-                // For safety, let's trigger recreation if container exists but is not in the update request.
-                // requires_recreation = true;
-                // debug!("Container removed (implicitly), requires recreation");
-                // --- OR --- Treat as no-change if only removal is implied?
-                debug!("Container exists but not specified in update. No change triggered.");
+                // Container exists but update request doesn't specify one.
+                // Current logic treats this as no-change for the container config.
+                debug!("Container exists but not specified in update. No change triggered for container.");
             }
             (None, None) => {
                 // No container before or after
-                debug!("No container specified in update or existing. No change.");
+                debug!("No container specified in update or existing. No change for container.");
             }
         }
     }
@@ -1094,4 +1168,133 @@ pub async fn update_processor(
         }
         // --- End: Handle updates ---
     }
+}
+
+pub async fn get_processor_logs(
+    State(state): State<AppState>,
+    Extension(user_profile): Extension<V1UserProfile>,
+    Path((namespace, name)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    debug!(
+        "Fetching logs for processor: {} in namespace: {}",
+        name, namespace
+    );
+    let db_pool = &state.db_pool;
+
+    // --- Authorization and Processor Fetching (similar to get_processor) ---
+    let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
+        orgs.keys().cloned().collect()
+    } else {
+        Vec::new()
+    };
+    owner_ids.push(user_profile.email.clone());
+    let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
+
+    let processor = Query::find_processor_by_namespace_name_and_owners(
+        db_pool,
+        &namespace,
+        &name,
+        &owner_id_refs,
+    )
+    .await
+    .map_err(|e| {
+        // Consider returning 404 if e indicates "not found"
+        error!(
+            "Database error finding processor {}:{} - {}",
+            namespace, name, e
+        );
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to retrieve processor: {}", e)})),
+        )
+    })?;
+    // --- End Authorization ---
+
+    // --- Find Containers using owner_ref ---
+    let owner_ref_string = format!("{}.{}.Processor", processor.name, processor.namespace);
+    debug!(
+        "Looking for containers with owner_ref: {}",
+        owner_ref_string
+    );
+
+    let associated_containers = match Query::find_containers_by_owner_ref(
+        db_pool,
+        &owner_ref_string,
+    )
+    .await
+    {
+        Ok(containers) => containers,
+        Err(e) => {
+            error!(
+                "Database error finding containers for processor {}:{} with owner_ref '{}': {}",
+                namespace, name, owner_ref_string, e
+            );
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Failed to retrieve associated containers: {}", e)})),
+            ));
+        }
+    };
+
+    if associated_containers.is_empty() {
+        debug!(
+            "No containers found associated with processor {}:{} (owner_ref: {})",
+            namespace, name, owner_ref_string
+        );
+        return Ok(Json(json!({}))); // Return empty JSON if no containers found
+    }
+    // --- End Find Containers ---
+
+    // --- Fetch Logs for Each Container ---
+    let mut all_logs: HashMap<String, serde_json::Value> = HashMap::new();
+    let mut container_errors: HashMap<String, String> = HashMap::new();
+
+    for container in associated_containers {
+        let container_id = container.id;
+        let log_key = if container.name.is_empty() {
+            container_id.clone()
+        } else {
+            container.name.clone()
+        }; // Use container name or ID as key
+
+        match crate::handlers::v1::container::_fetch_container_logs_by_id(
+            db_pool,
+            &container_id,
+            &user_profile,
+        )
+        .await
+        {
+            Ok(Json(logs)) => {
+                all_logs.insert(log_key, json!(logs));
+            }
+            Err((status, error_json)) => {
+                let error_message = error_json
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown error")
+                    .to_string();
+                error!(
+                    "Failed to fetch logs for container {}: Status {:?}, Error: {}",
+                    container_id, status, error_message
+                );
+                // Store the error to potentially include in the response
+                container_errors.insert(log_key, format!("Status {}: {}", status, error_message));
+                all_logs.insert(container_id.clone(), json!({ "error": error_message }));
+            }
+        }
+    }
+    // --- End Fetch Logs ---
+
+    // --- Prepare Response ---
+    // Optionally, include errors in the response if needed
+    // let response_json = if container_errors.is_empty() {
+    //     json!(all_logs)
+    // } else {
+    //     json!({
+    //         "logs": all_logs,
+    //         "errors": container_errors
+    //     })
+    // };
+
+    Ok(Json(json!(all_logs)))
 }

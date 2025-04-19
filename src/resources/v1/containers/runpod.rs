@@ -1,6 +1,5 @@
 use crate::accelerator::base::AcceleratorProvider;
 use crate::accelerator::runpod::RunPodProvider;
-use crate::config::CONFIG;
 use crate::entities::containers;
 use crate::models::{V1Meter, V1UserProfile};
 use crate::mutation::{self, Mutation};
@@ -8,8 +7,8 @@ use crate::oci::client::pull_and_parse_config;
 use crate::query::Query;
 use crate::resources::v1::containers::base::{ContainerPlatform, ContainerStatus};
 use crate::resources::v1::containers::models::{
-    RestartPolicy, V1Container, V1ContainerHealthCheck, V1ContainerRequest, V1ContainerResources,
-    V1ContainerStatus, V1EnvVar, V1Port, V1UpdateContainer,
+    RestartPolicy, V1Container, V1ContainerHealthCheck, V1ContainerRequest, V1ContainerStatus,
+    V1Port,
 };
 use crate::resources::v1::volumes::models::V1VolumePath;
 use crate::ssh::exec::run_ssh_command_ts;
@@ -1648,7 +1647,8 @@ impl RunpodPlatform {
     mkdir -p "$HOME/.logs"
     set -x
     exec > >(tee -a {log_file}) 2>&1
-
+    
+    nvidia-smi
     echo "[DEBUG] Starting setup..."
     {curl_install}
     echo "[DEBUG] Done installing curl..."
@@ -1675,7 +1675,8 @@ impl RunpodPlatform {
             sleep 1
         fi
     done
-
+    
+    nvidia-smi
     echo "[DEBUG] Starting tailscale up..."
     tailscale up --auth-key=$TS_AUTHKEY --hostname="{hostname}" --ssh
 
@@ -1686,7 +1687,8 @@ impl RunpodPlatform {
     echo "[DEBUG] Invoking nebu sync background..."
     nebu sync volumes --config /nebu/sync.yaml --interval-seconds 5 \
         --create-if-missing --watch --background --block-once --config-from-env
-    
+
+    nvidia-smi
     echo "[DEBUG] All done with base_command; now your user command: {cmd}"
     ({cmd}) # Wrap in parentheses and add semicolon
     "#,

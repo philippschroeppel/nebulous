@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod cache;
 pub mod container;
+pub mod iam;
 pub mod namespaces;
 pub mod processors;
 pub mod secrets;
@@ -10,14 +11,15 @@ pub use cache::{delete_cache_key, get_cache_key, list_cache_keys};
 pub use container::{
     create_container, delete_container, delete_container_by_id, fetch_container_logs,
     fetch_container_logs_by_id, get_container, get_container_by_id, list_containers,
-    patch_container, search_containers,
+    patch_container, search_containers, stream_logs_ws, stream_logs_ws_by_id,
 };
+pub use iam::{create_scoped_s3_token, delete_scoped_s3_token};
 pub use namespaces::{
     create_namespace, delete_namespace, ensure_namespace, get_namespace, list_namespaces,
 };
 pub use processors::{
-    create_processor, delete_processor, get_processor, list_processors, scale_processor,
-    send_processor, update_processor,
+    create_processor, delete_processor, get_processor, get_processor_logs, list_processors,
+    scale_processor, send_processor, update_processor,
 };
 pub use secrets::{
     create_secret, delete_secret, delete_secret_by_id, get_secret, get_secret_by_id, list_secrets,
