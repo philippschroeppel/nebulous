@@ -840,75 +840,128 @@ pub async fn update_processor(
                     != existing_container.platform.as_deref().unwrap_or_default()
                 {
                     container_changed = true;
-                    debug!("Container platform changed");
+                    debug!(
+                        "Container platform changed. Old: {:?}, New: {:?}",
+                        existing_container.platform.as_deref().unwrap_or_default(),
+                        update_req.platform.as_deref().unwrap_or_default()
+                    );
                 }
                 if update_req.image != existing_container.image {
                     container_changed = true;
-                    debug!("Container image changed");
+                    debug!(
+                        "Container image changed. Old: {:?}, New: {:?}",
+                        existing_container.image, update_req.image
+                    );
                 }
                 // Compare effective env vars (request is Option<Vec>, existing is Vec)
                 if update_req.env.as_deref().unwrap_or_default()
                     != existing_container.env.as_deref().unwrap_or_default()
                 {
                     container_changed = true;
-                    debug!("Container env changed");
+                    debug!(
+                        "Container env changed. Old: {:?}, New: {:?}",
+                        existing_container.env.as_deref().unwrap_or_default(),
+                        update_req.env.as_deref().unwrap_or_default()
+                    );
                 }
                 if update_req.command != existing_container.command {
                     container_changed = true;
-                    debug!("Container command changed");
+                    debug!(
+                        "Container command changed. Old: {:?}, New: {:?}",
+                        existing_container.command, update_req.command
+                    );
                 }
                 if update_req.args != existing_container.args {
                     container_changed = true;
-                    debug!("Container args changed");
+                    debug!(
+                        "Container args changed. Old: {:?}, New: {:?}",
+                        existing_container.args, update_req.args
+                    );
                 }
                 if update_req.volumes != existing_container.volumes {
                     container_changed = true;
-                    debug!("Container volumes changed");
+                    debug!(
+                        "Container volumes changed. Old: {:?}, New: {:?}",
+                        existing_container.volumes, update_req.volumes
+                    );
                 }
                 if update_req.accelerators != existing_container.accelerators {
                     container_changed = true;
-                    debug!("Container accelerators changed");
+                    debug!(
+                        "Container accelerators changed. Old: {:?}, New: {:?}",
+                        existing_container.accelerators, update_req.accelerators
+                    );
                 }
                 if update_req.resources != existing_container.resources {
                     container_changed = true;
-                    debug!("Container resources changed");
+                    debug!(
+                        "Container resources changed. Old: {:?}, New: {:?}",
+                        existing_container.resources, update_req.resources
+                    );
                 }
                 if update_req.meters != existing_container.meters {
                     container_changed = true;
-                    debug!("Container meters changed");
+                    debug!(
+                        "Container meters changed. Old: {:?}, New: {:?}",
+                        existing_container.meters, update_req.meters
+                    );
                 }
                 if update_req.restart != existing_container.restart {
                     container_changed = true;
-                    debug!("Container restart policy changed");
+                    debug!(
+                        "Container restart policy changed. Old: {:?}, New: {:?}",
+                        existing_container.restart, update_req.restart
+                    );
                 }
                 if update_req.queue != existing_container.queue {
                     container_changed = true;
-                    debug!("Container queue changed");
+                    debug!(
+                        "Container queue changed. Old: {:?}, New: {:?}",
+                        existing_container.queue, update_req.queue
+                    );
                 }
                 if update_req.timeout != existing_container.timeout {
                     container_changed = true;
-                    debug!("Container timeout changed");
+                    debug!(
+                        "Container timeout changed. Old: {:?}, New: {:?}",
+                        existing_container.timeout, update_req.timeout
+                    );
                 }
                 if update_req.proxy_port != existing_container.proxy_port {
                     container_changed = true;
-                    debug!("Container proxy_port changed");
+                    debug!(
+                        "Container proxy_port changed. Old: {:?}, New: {:?}",
+                        existing_container.proxy_port, update_req.proxy_port
+                    );
                 }
                 if update_req.health_check != existing_container.health_check {
                     container_changed = true;
-                    debug!("Container health_check changed");
+                    debug!(
+                        "Container health_check changed. Old: {:?}, New: {:?}",
+                        existing_container.health_check, update_req.health_check
+                    );
                 }
                 if update_req.authz != existing_container.authz {
                     container_changed = true;
-                    debug!("Container authz changed");
+                    debug!(
+                        "Container authz changed. Old: {:?}, New: {:?}",
+                        existing_container.authz, update_req.authz
+                    );
                 }
                 if update_req.ssh_keys != existing_container.ssh_keys {
                     container_changed = true;
-                    debug!("Container ssh_keys changed");
+                    debug!(
+                        "Container ssh_keys changed. Old: {:?}, New: {:?}",
+                        existing_container.ssh_keys, update_req.ssh_keys
+                    );
                 }
                 // Assuming update_req.ports exists and is comparable to existing_container.ports
                 if update_req.ports != existing_container.ports {
                     container_changed = true;
-                    debug!("Container ports changed");
+                    debug!(
+                        "Container ports changed. Old: {:?}, New: {:?}",
+                        existing_container.ports, update_req.ports
+                    );
                 }
 
                 if container_changed {
@@ -921,7 +974,10 @@ pub async fn update_processor(
             (Some(_), None) => {
                 // Adding a container where none existed
                 requires_recreation = true;
-                debug!("Container added, requires recreation");
+                debug!(
+                    "Container added (was None), requires recreation. New: {:?}",
+                    update_request.container
+                );
             }
             (None, Some(_)) => {
                 // Container exists but update request doesn't specify one.

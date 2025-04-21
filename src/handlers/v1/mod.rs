@@ -13,7 +13,7 @@ pub use container::{
     fetch_container_logs_by_id, get_container, get_container_by_id, list_containers,
     patch_container, search_containers, stream_logs_ws, stream_logs_ws_by_id,
 };
-pub use iam::{create_scoped_s3_token, delete_scoped_s3_token};
+pub use iam::{create_scoped_s3_token, delete_scoped_s3_token, generate_temp_s3_credentials};
 pub use namespaces::{
     create_namespace, delete_namespace, ensure_namespace, get_namespace, list_namespaces,
 };

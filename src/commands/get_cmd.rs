@@ -14,7 +14,20 @@ pub async fn get_containers(id: Option<String>) -> Result<(), Box<dyn Error>> {
             let url = format!("/v1/containers/{}", id);
             let response = server_request(url.as_str(), reqwest::Method::GET).await?;
             let container: V1Container = response.json().await?;
-            vec![container]
+
+            // For a specific container, output YAML instead of a table
+            // Convert to YAML output
+            let mut buf = Vec::new();
+            {
+                let mut serializer = serde_yaml::Serializer::new(&mut buf);
+                container.serialize(&mut serializer)?;
+            }
+            let yaml = String::from_utf8(buf)?;
+            println!("{}", yaml);
+            return Ok(());
+
+            // This is unreachable but kept for clarity
+            // vec![container]
         }
         None => {
             let response = server_request("/v1/containers", reqwest::Method::GET).await?;

@@ -113,7 +113,7 @@ pub struct V1AuthzFieldMatch {
     pub pattern: Option<String>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
 pub struct V1ResourceReference {
     pub kind: String,
     pub name: String,
