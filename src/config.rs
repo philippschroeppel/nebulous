@@ -39,12 +39,15 @@ impl GlobalConfig {
 
         // Collect environment variables (NO fallback defaults here)
         let env_api_key = env::var("NEBU_API_KEY")
+            .or_else(|_| env::var("NEBULOUS_API_KEY"))
             .or_else(|_| env::var("AGENTSEA_API_KEY"))
             .ok();
         let env_server = env::var("NEBU_SERVER")
+            .or_else(|_| env::var("NEBULOUS_SERVER"))
             .or_else(|_| env::var("AGENTSEA_SERVER"))
             .ok();
         let env_auth_server = env::var("NEBU_AUTH_SERVER")
+            .or_else(|_| env::var("NEBULOUS_AUTH_SERVER"))
             .or_else(|_| env::var("AGENTSEA_AUTH_SERVER"))
             .ok();
 
@@ -79,7 +82,7 @@ impl GlobalConfig {
                 server_name
             };
 
-            // Set that server as the “current” or default
+            // Set that server as the "current" or default
             config.current_server = Some(chosen_name);
         }
 
@@ -140,6 +143,7 @@ pub struct Config {
     pub bucket_name: String,
     pub bucket_region: String,
     pub root_owner: String,
+    pub auth_server: String,
 }
 
 impl Config {
@@ -161,11 +165,18 @@ impl Config {
             tailscale_api_key: env::var("TAILSCALE_API_KEY").ok(),
             tailscale_tailnet: env::var("TAILSCALE_TAILNET").ok(),
             bucket_name: env::var("NEBU_BUCKET_NAME")
-                .unwrap_or_else(|_| panic!("NEBU_BUCKET_NAME environment variable must be set")),
+                .or_else(|_| env::var("NEBULOUS_BUCKET_NAME"))
+                .unwrap_or_else(|_| panic!("NEBU_BUCKET_NAME or NEBULOUS_BUCKET_NAME environment variable must be set")),
             bucket_region: env::var("NEBU_BUCKET_REGION")
-                .unwrap_or_else(|_| panic!("NEBU_BUCKET_REGION environment variable must be set")),
+                .or_else(|_| env::var("NEBULOUS_BUCKET_REGION"))
+                .unwrap_or_else(|_| panic!("NEBU_BUCKET_REGION or NEBULOUS_BUCKET_REGION environment variable must be set")),
             root_owner: env::var("NEBU_ROOT_OWNER")
-                .unwrap_or_else(|_| panic!("NEBU_ROOT_OWNER environment variable must be set")),
+                .or_else(|_| env::var("NEBULOUS_ROOT_OWNER"))
+                .unwrap_or_else(|_| panic!("NEBU_ROOT_OWNER or NEBULOUS_ROOT_OWNER environment variable must be set")),
+            auth_server: env::var("NEBU_AUTH_SERVER")
+                .or_else(|_| env::var("NEBULOUS_AUTH_SERVER"))
+                .or_else(|_| env::var("AGENTSEA_AUTH_SERVER"))
+                .unwrap_or_else(|_| "https://auth.hub.agentlabs.xyz".to_string()),
         }
     }
 }

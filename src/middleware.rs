@@ -1,4 +1,5 @@
 use crate::auth;
+use crate::config::CONFIG;
 use crate::models::V1UserProfile;
 use crate::AppState;
 use axum::{
@@ -92,8 +93,8 @@ async fn external_auth(auth_header: &String, mut request: Request, next: Next) -
         .get_current_server_config()
         .unwrap()
         .auth_server
-        .as_ref()
-        .unwrap();
+        .clone()
+        .unwrap_or_else(|| CONFIG.auth_server.clone());
 
     let auth_url = format!("{}/v1/users/me", auth_server);
 
