@@ -58,6 +58,24 @@ pub async fn create_scoped_s3_token(
     // Also allow authorization if the namespace matches the user's handle
     if let Some(handle) = &user_profile.handle {
         owner_ids.push(handle.clone());
+
+        match crate::handlers::v1::namespaces::ensure_namespace(
+            db_pool,
+            &handle,
+            &user_profile.email,
+            &user_profile.email,
+            None,
+        )
+        .await
+        {
+            Ok(_) => (),
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": format!("Invalid namespace: {}", e) })),
+                ));
+            }
+        }
     }
     owner_ids.push(user_profile.email.clone());
     debug!(?owner_ids, "Constructed owner_ids for authorization check");
@@ -216,6 +234,24 @@ pub async fn generate_temp_s3_credentials(
     };
     if let Some(handle) = &user_profile.handle {
         owner_ids.push(handle.clone());
+
+        match crate::handlers::v1::namespaces::ensure_namespace(
+            db_pool,
+            &handle,
+            &user_profile.email,
+            &user_profile.email,
+            None,
+        )
+        .await
+        {
+            Ok(_) => (),
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": format!("Invalid namespace: {}", e) })),
+                ));
+            }
+        }
     }
     owner_ids.push(user_profile.email.clone());
 
