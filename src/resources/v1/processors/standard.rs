@@ -854,8 +854,7 @@ impl ProcessorPlatform for StandardProcessor {
         let config = crate::config::GlobalConfig::read()
             .map_err(|e| format!("Failed to read global config: {}", e))?;
         let auth_server = config
-            .get_current_server_config()
-            .and_then(|cfg| cfg.auth_server.clone())
+            .get_auth_server()
             .ok_or_else(|| "Auth server URL not configured".to_string())?;
         let user_token = user_profile
             .token
@@ -1008,13 +1007,7 @@ impl ProcessorPlatform for StandardProcessor {
         let config = crate::config::GlobalConfig::read()
             .map_err(|e| format!("Failed to read global config: {}", e))?;
         let auth_server = config
-            .get_current_server_config()
-            // Use .as_ref() to avoid moving out of shared reference
-            .as_ref()
-            .ok_or_else(|| "Current server config not found".to_string())?
-            .auth_server
-            // Use .as_ref() again to get Option<&String>
-            .as_ref()
+            .get_auth_server()
             .ok_or_else(|| "Auth server URL not configured".to_string())?;
 
         debug!(

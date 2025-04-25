@@ -119,6 +119,12 @@ impl GlobalConfig {
                 .find(|srv| srv.name.as_deref() == Some(name))
         })
     }
+
+    pub fn get_auth_server(&self) -> Option<&str> {
+        self.get_current_server_config()
+            .and_then(|cfg| cfg.auth_server.as_deref())
+            .or_else(|| Some(CONFIG.auth_server.as_str()))
+    }
 }
 
 fn get_config_file_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
