@@ -5,7 +5,7 @@ use std::path::Path;
 
 use crate::cli::{
     ApiKeyActions, AuthCommands, Cli, Commands, CreateCommands, DeleteCommands, GetCommands,
-    ProxyCommands, SelectCommands, SendCommands, SyncCommands,
+    ProxyCommands, SelectCommands, SendCommands, SetCommands, ShowCommands, SyncCommands,
 };
 use clap::Parser;
 use nebulous::select::checkpoint::select_checkpoint;
@@ -160,6 +160,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     commands::auth_cmd::revoke_api_key(&id).await?;
                 }
             },
+        },
+        Commands::Show { command } => match command {
+            ShowCommands::Config => {
+                commands::show_cmd::show_config().await?;
+            }
+        },
+        Commands::Set { command } => match command {
+            SetCommands::Context { name } => {
+                commands::set_cmd::set_context(&name).await?;
+            }
         },
     }
 

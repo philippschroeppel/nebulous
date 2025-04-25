@@ -1,7 +1,7 @@
 use crate::models::{V1AgentKey, V1CreateAgentKeyRequest};
 use anyhow::{anyhow, Result};
 use reqwest::Client;
-use tracing::info;
+use tracing::{debug, info};
 
 /// Creates a new agent key by calling the `/v1/agent/keys` endpoint
 ///
@@ -24,6 +24,10 @@ pub async fn create_agent_key(
     // Change return type to anyhow's Result
     let url = format!("{}/v1/agent/keys", base_url);
 
+    debug!(
+        "Creating agent key with request: {:?} and key: {}",
+        request, api_key
+    );
     let response = client
         .post(&url)
         .header("Authorization", format!("Bearer {}", api_key))

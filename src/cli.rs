@@ -124,6 +124,18 @@ pub enum Commands {
 
     /// Execute a command inside a container.
     Exec(ExecArgs),
+
+    /// Show configuration information.
+    Show {
+        #[command(subcommand)]
+        command: ShowCommands,
+    },
+
+    /// Set configuration options.
+    Set {
+        #[command(subcommand)]
+        command: SetCommands,
+    },
 }
 
 /// Select a checkpoint.
@@ -520,5 +532,22 @@ pub enum ApiKeyActions {
     Revoke {
         /// The ID of the API key to delete.
         id: String,
+    },
+}
+
+/// Subcommands for showing configuration information.
+#[derive(Subcommand)]
+pub enum ShowCommands {
+    /// Show the current global configuration.
+    Config,
+}
+
+/// Subcommands for setting configuration options.
+#[derive(Subcommand)]
+pub enum SetCommands {
+    /// Set the current server context.
+    Context {
+        /// Name of the server to set as current
+        name: String,
     },
 }
