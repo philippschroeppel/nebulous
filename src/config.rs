@@ -176,6 +176,7 @@ impl Config {
             auth_server: env::var("NEBU_AUTH_SERVER")
                 .or_else(|_| env::var("NEBULOUS_AUTH_SERVER"))
                 .or_else(|_| env::var("AGENTSEA_AUTH_SERVER"))
+                .or_else(|_| env::var("AGENTSEA_AUTH_URL"))
                 .unwrap_or_else(|_| "https://auth.hub.agentlabs.xyz".to_string()),
         }
     }

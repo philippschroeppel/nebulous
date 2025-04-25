@@ -89,12 +89,15 @@ async fn internal_auth(
 async fn external_auth(auth_header: &String, mut request: Request, next: Next) -> Response {
     let config = crate::config::GlobalConfig::read().unwrap();
 
-    let auth_server = config
-        .get_current_server_config()
-        .unwrap()
-        .auth_server
-        .clone()
-        .unwrap_or_else(|| CONFIG.auth_server.clone());
+    let auth_server = config.get_current_server_config().map_or_else(
+        || CONFIG.auth_server.clone(),
+        |server_config| {
+            server_config
+                .auth_server
+                .clone()
+                .unwrap_or_else(|| CONFIG.auth_server.clone())
+        },
+    );
 
     let auth_url = format!("{}/v1/users/me", auth_server);
 

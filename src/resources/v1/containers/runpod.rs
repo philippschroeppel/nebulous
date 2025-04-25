@@ -1,5 +1,6 @@
 use crate::accelerator::base::AcceleratorProvider;
 use crate::accelerator::runpod::RunPodProvider;
+use crate::agent::aws::delete_s3_scoped_user;
 use crate::entities::containers;
 use crate::models::{V1Meter, V1UserProfile};
 use crate::mutation::{self, Mutation};
@@ -2482,6 +2483,21 @@ impl ContainerPlatform for RunpodPlatform {
                                         return Err(e.into());
                                     }
                                 };
+
+                                // Delete the AWS S3 scoped user
+                                match delete_s3_scoped_user(&container_model.namespace, &id).await {
+                                    Ok(_) => {
+                                        info!("[Runpod Controller] Successfully deleted S3 scoped user for container: {}", id);
+                                    }
+                                    Err(e) => {
+                                        error!(
+                                            "[Runpod Controller] Failed to delete S3 scoped user for container {}: {}",
+                                            id, e
+                                        );
+                                        // Don't return an error here - continue with the rest of the cleanup
+                                    }
+                                }
+
                                 // TODO: soft delete
                                 // Update container status in database
                                 // if let Err(e) = crate::mutation::Mutation::update_container_status(
@@ -2556,14 +2572,58 @@ impl ContainerPlatform for RunpodPlatform {
                         }
                     } else {
                         info!("[Runpod Controller] No pod found with name: {}", id);
+
+                        // Even if the pod doesn't exist, try to delete the S3 scoped user
+                        match delete_s3_scoped_user(&container_model.namespace, &id).await {
+                            Ok(_) => {
+                                info!("[Runpod Controller] Successfully deleted S3 scoped user for container: {}", id);
+                            }
+                            Err(e) => {
+                                error!(
+                                    "[Runpod Controller] Failed to delete S3 scoped user for container {}: {}",
+                                    id, e
+                                );
+                                // Don't return an error here - continue with cleanup
+                            }
+                        }
                     }
                 } else {
                     error!("[Runpod Controller] No pods data returned from RunPod API");
+
+                    // Even if the pods data is missing, try to delete the S3 scoped user
+                    match delete_s3_scoped_user(&container_model.namespace, &id).await {
+                        Ok(_) => {
+                            info!("[Runpod Controller] Successfully deleted S3 scoped user for container: {}", id);
+                        }
+                        Err(e) => {
+                            error!(
+                                "[Runpod Controller] Failed to delete S3 scoped user for container {}: {}",
+                                id, e
+                            );
+                            // Continue with error return
+                        }
+                    }
+
                     return Err("No pods data returned from RunPod API".into());
                 }
             }
             Err(e) => {
                 error!("[Runpod Controller] Error listing pods: {}", e);
+
+                // Even if we can't list the pods, try to delete the S3 scoped user
+                match delete_s3_scoped_user(&container_model.namespace, &id).await {
+                    Ok(_) => {
+                        info!("[Runpod Controller] Successfully deleted S3 scoped user for container: {}", id);
+                    }
+                    Err(aws_err) => {
+                        error!(
+                            "[Runpod Controller] Failed to delete S3 scoped user for container {}: {}",
+                            id, aws_err
+                        );
+                        // Continue with the original error return
+                    }
+                }
+
                 return Err(e.into());
             }
         }
