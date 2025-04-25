@@ -4,7 +4,7 @@ use crate::config::CONFIG;
 use crate::entities::namespaces::{self, ActiveModel as NamespaceActiveModel};
 use crate::handlers::v1::volumes::ensure_volume;
 use crate::models::V1UserProfile;
-use crate::resources::v1::namespaces::models::{V1Namespace, V1NamespaceRequest};
+use crate::resources::v1::namespaces::models::{V1Namespace, V1NamespaceRequest, V1Namespaces};
 use crate::state::AppState;
 use axum::{extract::Extension, extract::Json, extract::Path, extract::State, http::StatusCode};
 use sea_orm::DbErr;
@@ -79,6 +79,8 @@ pub async fn create_namespace(
     }
 
     // check if owner_id is in owner_ids
+    debug!("Owner ID: {}", owner_id);
+    debug!("Owner IDs: {:?}", owner_ids);
     if !owner_ids.contains(&owner_id) {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -118,7 +120,7 @@ pub async fn create_namespace(
     let namespace_entity = namespaces::Model::new(
         id,
         namespace.metadata.name.clone(),
-        user_profile.email.clone(), // Use the user's email as the owner
+        owner_id,
         user_profile.email.clone(), // Use the user's email as created_by
         namespace
             .metadata
@@ -282,7 +284,7 @@ pub async fn ensure_namespace(
 pub async fn list_namespaces(
     State(state): State<AppState>,
     Extension(user_profile): Extension<V1UserProfile>,
-) -> Result<Json<Vec<V1Namespace>>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Json<V1Namespaces>, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
 
     // Gather all possible owner IDs from user + organizations
@@ -312,7 +314,7 @@ pub async fn list_namespaces(
         .map(|namespace| namespace.to_v1())
         .collect();
 
-    Ok(Json(namespaces))
+    Ok(Json(V1Namespaces { namespaces }))
 }
 
 pub async fn ensure_ns_and_resources(

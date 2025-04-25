@@ -23,3 +23,8 @@ pub struct V1NamespaceMetaRequest {
     pub labels: Option<HashMap<String, String>>,
     pub owner: Option<String>,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
+pub struct V1Namespaces {
+    pub namespaces: Vec<V1Namespace>,
+}

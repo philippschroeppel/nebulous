@@ -1,12 +1,12 @@
 use crate::auth::server::handlers::{get_api_key, list_api_keys};
 use crate::handlers::v1::{
-    create_container, create_processor, create_scoped_s3_token, create_secret, create_volume,
-    delete_cache_key, delete_container, delete_container_by_id, delete_processor,
-    delete_scoped_s3_token, delete_secret, delete_secret_by_id, delete_volume,
+    create_container, create_namespace, create_processor, create_scoped_s3_token, create_secret,
+    create_volume, delete_cache_key, delete_container, delete_container_by_id, delete_namespace,
+    delete_processor, delete_scoped_s3_token, delete_secret, delete_secret_by_id, delete_volume,
     fetch_container_logs, fetch_container_logs_by_id, generate_temp_s3_credentials, get_cache_key,
-    get_container, get_container_by_id, get_processor, get_processor_logs, get_secret,
-    get_secret_by_id, get_user_profile, get_volume, list_cache_keys, list_containers,
-    list_processors, list_secrets, list_volumes, patch_container, scale_processor,
+    get_container, get_container_by_id, get_namespace, get_processor, get_processor_logs,
+    get_secret, get_secret_by_id, get_user_profile, get_volume, list_cache_keys, list_containers,
+    list_namespaces, list_processors, list_secrets, list_volumes, patch_container, scale_processor,
     search_containers, send_processor, stream_logs_ws, stream_logs_ws_by_id, update_processor,
     update_secret, update_secret_by_id,
 };
@@ -112,6 +112,14 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
             get(get_cache_key).delete(delete_cache_key),
         )
         .route("/v1/users/me", get(get_user_profile))
+        .route(
+            "/v1/namespaces",
+            get(list_namespaces).post(create_namespace),
+        )
+        .route(
+            "/v1/namespaces/:name",
+            get(get_namespace).delete(delete_namespace),
+        )
         // Apply the authentication middleware to private routes
         .layer(middleware::from_fn_with_state(
             app_state.clone(),

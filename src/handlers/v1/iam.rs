@@ -59,6 +59,7 @@ pub async fn create_scoped_s3_token(
     if let Some(handle) = &user_profile.handle {
         owner_ids.push(handle.clone());
 
+        debug!("Ensuring namespace: {}", handle);
         match crate::handlers::v1::namespaces::ensure_namespace(
             db_pool,
             &handle,
@@ -235,6 +236,7 @@ pub async fn generate_temp_s3_credentials(
     if let Some(handle) = &user_profile.handle {
         owner_ids.push(handle.clone());
 
+        debug!("Ensuring namespace: {}", handle);
         match crate::handlers::v1::namespaces::ensure_namespace(
             db_pool,
             &handle,
