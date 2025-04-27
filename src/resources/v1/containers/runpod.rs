@@ -1439,7 +1439,10 @@ impl RunpodPlatform {
                 // If you'd prefer to ignore the parse failure and still run, you could do so here
             }
         }
-        info!("[Runpod Controller] Environment variables: {:?}", env_vec);
+        info!(
+            "[Runpod Controller] >>>> Environment variables: {:?}",
+            env_vec
+        );
 
         let hostname = self.get_tailscale_device_name(&model).await;
         info!("[Runpod Controller] Hostname: {}", hostname);

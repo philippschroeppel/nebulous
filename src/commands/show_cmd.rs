@@ -32,18 +32,10 @@ pub async fn show_config() -> Result<(), Box<dyn Error>> {
                 "  ".normal()
             };
 
-            println!("{}{}", prefix, format!("Server #{}", idx + 1).bold());
-
             if let Some(name) = &server.name {
-                println!("{}  Name: {}", prefix, name);
-            }
-
-            if let Some(server_url) = &server.server {
-                println!("{}  Server URL: {}", prefix, server_url);
-            }
-
-            if let Some(auth_server) = &server.auth_server {
-                println!("{}  Auth Server: {}", prefix, auth_server);
+                println!("{}{}", prefix, name.bold());
+            } else {
+                println!("{}{}", prefix, format!("Server #{}", idx + 1).bold());
             }
 
             if let Some(api_key) = &server.api_key {
@@ -60,6 +52,14 @@ pub async fn show_config() -> Result<(), Box<dyn Error>> {
                         .collect::<String>()
                 );
                 println!("{}  API Key: {}", prefix, hidden_key);
+            }
+
+            if let Some(server_url) = &server.server {
+                println!("{}  Server URL: {}", prefix, server_url);
+            }
+
+            if let Some(auth_server) = &server.auth_server {
+                println!("{}  Auth Server: {}", prefix, auth_server);
             }
 
             if idx < config.servers.len() - 1 {

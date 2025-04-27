@@ -683,6 +683,7 @@ impl StandardProcessor {
                     "[Processor Controller] Creating container #{} for processor {}",
                     replica_index, processor.id
                 );
+                debug!("Request for replica: {:?}", request_for_replica);
 
                 let declared = platform
                     .declare(
