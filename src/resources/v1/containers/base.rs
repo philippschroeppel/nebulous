@@ -253,7 +253,8 @@ pub trait ContainerPlatform {
             CONFIG.bucket_region.clone(),
         );
         env.insert("RCLONE_S3_NO_CHECK_BUCKET".to_string(), "true".to_string());
-        env.insert("NEBU_API_KEY".to_string(), agent_key.unwrap());
+        env.insert("NEBU_API_KEY".to_string(), agent_key.clone().unwrap());
+        env.insert("AGENTSEA_API_KEY".to_string(), agent_key.unwrap());
 
         let orign_server = get_orign_server();
         if let Some(orign_server) = orign_server {
