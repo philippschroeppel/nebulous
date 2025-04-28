@@ -150,6 +150,7 @@ pub struct Config {
     pub bucket_region: String,
     pub root_owner: String,
     pub auth_server: String,
+    pub tailnet_url: Option<String>,
 }
 
 impl Config {
@@ -184,6 +185,9 @@ impl Config {
                 .or_else(|_| env::var("AGENTSEA_AUTH_SERVER"))
                 .or_else(|_| env::var("AGENTSEA_AUTH_URL"))
                 .unwrap_or_else(|_| "https://auth.hub.agentlabs.xyz".to_string()),
+            tailnet_url: env::var("NEBU_TAILNET_URL")
+                .or_else(|_| env::var("NEBULOUS_TAILNET_URL"))
+                .ok(),
         }
     }
 }

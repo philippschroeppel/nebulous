@@ -17,6 +17,7 @@ pub mod mutation;
 pub mod neblet;
 pub mod oci;
 pub mod org;
+pub mod orign;
 pub mod proxy;
 pub mod query;
 pub mod resources;

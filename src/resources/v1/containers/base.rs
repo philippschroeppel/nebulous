@@ -5,6 +5,7 @@ use crate::config::CONFIG;
 use crate::entities::containers;
 use crate::handlers::v1::volumes::ensure_volume;
 use crate::models::{V1CreateAgentKeyRequest, V1UserProfile};
+use crate::orign::get_orign_server;
 use crate::query::Query;
 use crate::resources::v1::containers::models::{
     V1Container, V1ContainerRequest, V1UpdateContainer,
@@ -253,16 +254,20 @@ pub trait ContainerPlatform {
         );
         env.insert("RCLONE_S3_NO_CHECK_BUCKET".to_string(), "true".to_string());
         env.insert("NEBU_API_KEY".to_string(), agent_key.unwrap());
+
+        let orign_server = get_orign_server();
+        if let Some(orign_server) = orign_server {
+            env.insert("ORIGN_SERVER".to_string(), orign_server);
+        }
         env.insert(
-            "NEBU_SERVER".to_string(),
-            config
-                .get_current_server_config()
-                .unwrap()
-                .server
-                .as_ref()
-                .unwrap()
-                .clone(),
+            "AGENTSEA_AUTH_SERVER".to_string(),
+            CONFIG.auth_server.clone(),
         );
+        env.insert(
+            "NEBULOUS_SERVER".to_string(),
+            CONFIG.tailnet_url.clone().unwrap(),
+        );
+
         env.insert("NEBU_NAMESPACE".to_string(), model.namespace.clone());
         env.insert("NEBU_NAME".to_string(), model.name.clone());
         env.insert("NEBU_CONTAINER_ID".to_string(), model.id.clone());
