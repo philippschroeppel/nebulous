@@ -10,7 +10,7 @@ use tokio_tungstenite::{
 
 pub async fn fetch_container_logs(
     name: String,
-    namespace: String,
+    namespace: Option<String>,
     follow: bool,
 ) -> Result<String, Box<dyn StdError>> {
     // Load config
@@ -18,6 +18,8 @@ pub async fn fetch_container_logs(
     let current_server = config.get_current_server_config().unwrap();
     let server = current_server.server.as_ref().unwrap();
     let api_key = current_server.api_key.as_ref().unwrap();
+
+    let namespace = namespace.unwrap_or("-".to_string());
 
     if follow {
         // Use WebSocket to stream logs

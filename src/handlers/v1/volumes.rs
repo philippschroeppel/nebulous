@@ -1,13 +1,21 @@
 // src/handlers/containers.rs
 
-use crate::models::V1UserProfile;
-use crate::query::Query;
-use crate::resources::v1::volumes::models::{V1Volume, V1VolumeRequest};
-use crate::state::AppState;
-
 use crate::agent::ns::auth_ns;
-use crate::entities::volumes::{self, ActiveModel as VolumeActiveModel};
-use axum::{extract::Extension, extract::Json, extract::Path, extract::State, http::StatusCode};
+use crate::models::V1ResourceMeta;
+use crate::resources::v1::volumes::models::{V1Volume, V1VolumeRequest};
+use crate::utils::namespace::resolve_namespace;
+use crate::{
+    entities::volumes::{self, ActiveModel as VolumeActiveModel},
+    models::V1UserProfile,
+    mutation::Mutation,
+    query::Query,
+    state::AppState,
+};
+use axum::{
+    extract::{Extension, Json, Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+};
 use chrono;
 use sea_orm::DbErr;
 use sea_orm::{
@@ -22,6 +30,7 @@ pub async fn get_volume(
     Path((namespace, name)): Path<(String, String)>,
 ) -> Result<Json<V1Volume>, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
+    let resolved_namespace = resolve_namespace(&namespace, &user_profile);
 
     let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
         orgs.keys().cloned().collect()
@@ -33,15 +42,19 @@ pub async fn get_volume(
     owner_ids.push(user_profile.email.clone());
     let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
 
-    let volume =
-        Query::find_volume_by_namespace_name_and_owners(db_pool, &namespace, &name, &owner_id_refs)
-            .await
-            .map_err(|err| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": format!("Database error: {}", err)})),
-                )
-            })?;
+    let volume = Query::find_volume_by_namespace_name_and_owners(
+        db_pool,
+        &resolved_namespace,
+        &name,
+        &owner_id_refs,
+    )
+    .await
+    .map_err(|err| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Database error: {}", err)})),
+        )
+    })?;
 
     Ok(Json(volume.to_v1()))
 }
@@ -165,10 +178,11 @@ pub async fn delete_volume(
     State(state): State<AppState>,
     Extension(user_profile): Extension<V1UserProfile>,
     Path((namespace, name)): Path<(String, String)>,
-) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
+    let resolved_namespace = resolve_namespace(&namespace, &user_profile);
 
-    // Get owner IDs from organizations and email
+    // Collect owner IDs
     let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
         orgs.keys().cloned().collect()
     } else {
@@ -177,21 +191,20 @@ pub async fn delete_volume(
     owner_ids.push(user_profile.email.clone());
     let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
 
-    // Find the volume to delete
-    let volume =
-        Query::find_volume_by_namespace_name_and_owners(db_pool, &namespace, &name, &owner_id_refs)
-            .await
-            .map_err(|err| {
-                (
-                    StatusCode::NOT_FOUND,
-                    Json(json!({
-                        "error": format!(
-                            "Volume with namespace '{}' and name '{}' not found",
-                            namespace, name
-                        )
-                    })),
-                )
-            })?;
+    // 1) Look up volume by namespace + name
+    let volume = Query::find_volume_by_namespace_name_and_owners(
+        db_pool,
+        &resolved_namespace,
+        &name,
+        &owner_id_refs,
+    )
+    .await
+    .map_err(|err| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Database error: {}", err) })),
+        )
+    })?;
 
     // Delete the volume
     volumes::Entity::delete_by_id(volume.id)
@@ -303,4 +316,65 @@ pub async fn list_volumes(
         .collect();
 
     Ok(Json(volumes))
+}
+
+pub async fn update_volume(
+    State(state): State<AppState>,
+    Extension(user_profile): Extension<V1UserProfile>,
+    Path((namespace, name)): Path<(String, String)>,
+    Json(payload): Json<V1VolumeRequest>,
+) -> Result<Json<V1Volume>, (StatusCode, Json<serde_json::Value>)> {
+    let db_pool = &state.db_pool;
+    let resolved_namespace = resolve_namespace(&namespace, &user_profile);
+
+    let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
+        orgs.keys().cloned().collect()
+    } else {
+        Vec::new()
+    };
+    owner_ids.push(user_profile.email.clone());
+    let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
+
+    let volume = Query::find_volume_by_namespace_name_and_owners(
+        db_pool,
+        &resolved_namespace,
+        &name,
+        &owner_id_refs,
+    )
+    .await
+    .map_err(|err| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Database error: {}", err)})),
+        )
+    })?;
+
+    // Create an ActiveModel from the existing volume
+    let mut volume_active_model = volumes::ActiveModel::from(volume);
+
+    // Update fields from the payload
+    if let Some(name) = payload.metadata.name {
+        volume_active_model.name = sea_orm::ActiveValue::Set(name.clone());
+        volume_active_model.full_name =
+            sea_orm::ActiveValue::Set(format!("{}/{}", resolved_namespace, name));
+    }
+
+    volume_active_model.source = sea_orm::ActiveValue::Set(payload.source);
+
+    if let Some(labels) = payload.metadata.labels {
+        volume_active_model.labels =
+            sea_orm::ActiveValue::Set(Some(serde_json::to_value(labels).unwrap_or_default()));
+    }
+
+    volume_active_model.updated_at = sea_orm::ActiveValue::Set(chrono::Utc::now().into());
+
+    // Save the updated volume to the database
+    let updated_volume = volume_active_model.update(db_pool).await.map_err(|err| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to update volume: {}", err)})),
+        )
+    })?;
+
+    Ok(Json(updated_volume.to_v1()))
 }

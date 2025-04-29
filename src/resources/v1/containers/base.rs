@@ -150,6 +150,7 @@ pub trait ContainerPlatform {
         user_profile: &V1UserProfile,
         owner_id: &str,
         namespace: &str,
+        api_key: Option<String>,
     ) -> Result<V1Container, Box<dyn std::error::Error + Send + Sync>>;
 
     async fn reconcile(
@@ -471,6 +472,7 @@ pub trait ContainerPlatform {
         user_profile: &V1UserProfile,
         container_id: &str,
         owner_id: &str,
+        key: Option<String>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use crate::entities::secrets;
         use sea_orm::{EntityTrait, Set};
@@ -485,11 +487,14 @@ pub trait ContainerPlatform {
             user_profile
         );
 
-        // TODO: Re-evaluate how agent keys are generated.
+        // TODO: Re-evaluate how agent keys are generated. >>>>>
         // get_agent_key relied on user_profile.token which is no longer available here.
         // For now, we might need a placeholder or a different mechanism.
         // Let's use a temporary placeholder value for now.
-        let agent_key = format!("temp-agent-key-for-{}", container_id);
+        let agent_key = match key {
+            Some(key) => key,
+            None => self.get_agent_key(user_profile).await?,
+        };
         debug!(
             "[DEBUG] store_agent_key_secret: Using temporary agent key: {}",
             agent_key

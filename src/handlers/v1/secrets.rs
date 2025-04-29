@@ -1,6 +1,7 @@
 use crate::agent::ns::auth_ns;
 use crate::models::V1ResourceMeta;
 use crate::resources::v1::secrets::models::{V1Secret, V1SecretRequest};
+use crate::utils::namespace::resolve_namespace;
 use crate::{
     entities::secrets, models::V1UserProfile, mutation::Mutation, query::Query, state::AppState,
 };
@@ -79,13 +80,14 @@ pub async fn list_secrets(
 /// Handler: Get a single secret by namespace and name
 pub async fn get_secret(
     State(state): State<AppState>,
-    Extension(_user_profile): Extension<V1UserProfile>,
+    Extension(user_profile): Extension<V1UserProfile>,
     Path((namespace, name)): Path<(String, String)>,
 ) -> Result<Json<V1Secret>, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
+    let resolved_namespace = resolve_namespace(&namespace, &user_profile);
 
     // Attempt to retrieve the secret from the DB
-    let secret = Query::find_secret_by_namespace_and_name(db_pool, &namespace, &name)
+    let secret = Query::find_secret_by_namespace_and_name(db_pool, &resolved_namespace, &name)
         .await
         .map_err(|err| {
             (
@@ -346,9 +348,10 @@ pub async fn update_secret(
     Json(payload): Json<V1SecretRequest>,
 ) -> Result<Json<V1Secret>, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
+    let resolved_namespace = resolve_namespace(&namespace, &user_profile);
 
     // 1) Fetch secret by namespace+name
-    let secret_opt = Query::find_secret_by_namespace_and_name(db_pool, &namespace, &name)
+    let secret_opt = Query::find_secret_by_namespace_and_name(db_pool, &resolved_namespace, &name)
         .await
         .map_err(|err| {
             (
@@ -460,9 +463,10 @@ pub async fn delete_secret(
     Path((namespace, name)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
+    let resolved_namespace = resolve_namespace(&namespace, &user_profile);
 
     // 1) Look up secret by namespace + name
-    let secret_opt = Query::find_secret_by_namespace_and_name(db_pool, &namespace, &name)
+    let secret_opt = Query::find_secret_by_namespace_and_name(db_pool, &resolved_namespace, &name)
         .await
         .map_err(|err| {
             (

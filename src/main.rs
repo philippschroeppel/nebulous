@@ -97,11 +97,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
         },
         Commands::Delete { command } => match command {
-            DeleteCommands::Containers { id } => {
-                commands::delete_cmd::delete_container(id).await?;
+            DeleteCommands::Containers {
+                name,
+                namespace,
+                all,
+            } => {
+                commands::delete_cmd::delete_container(name, namespace, all).await?;
             }
-            DeleteCommands::Processors { command } => {
-                commands::delete_cmd::delete_processor(command.name, command.namespace).await?;
+            DeleteCommands::Processors { name, namespace } => {
+                commands::delete_cmd::delete_processor(name, namespace).await?;
             }
         },
         Commands::Proxy { command } => match command {

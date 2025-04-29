@@ -88,7 +88,7 @@ pub enum Commands {
 
         /// Container namespace.
         #[arg(long, short)]
-        namespace: String,
+        namespace: Option<String>,
 
         /// Follow the logs
         #[arg(long, short, default_value_t = false)]
@@ -448,13 +448,24 @@ pub enum GetCommands {
 pub enum DeleteCommands {
     /// Delete a container.
     #[command(aliases = ["container", "co"])]
-    Containers { id: String },
+    Containers {
+        /// Specific container name to delete. Required unless -A/--all is used.
+        name: Option<String>,
+
+        /// Namespace to delete from.
+        #[arg(long, short)]
+        namespace: Option<String>,
+
+        /// Delete all containers in the specified namespace.
+        #[arg(short = 'A', long, default_value_t = false)]
+        all: bool,
+    },
 
     /// Delete a processor
     #[command(aliases = ["processor", "proc"])]
     Processors {
-        #[command(flatten)]
-        command: DeleteProcessorCommands,
+        name: String,
+        namespace: Option<String>,
     },
 }
 

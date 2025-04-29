@@ -212,6 +212,27 @@ impl StandardProcessor {
         )
         .await?;
 
+        // Get the processor's agent key
+        let secret_name = format!("processor-agent-key-{}", processor.id);
+        let secret_namespace = "root";
+
+        debug!("Fetching secret {}/{}", secret_namespace, secret_name);
+        let secret_model =
+            Query::find_secret_by_namespace_and_name(db, secret_namespace, &secret_name)
+                .await
+                .map_err(|e| format!("Database error fetching secret: {}", e))?
+                .ok_or_else(|| {
+                    format!(
+                        "Secret '{}/{}' not found for processor {}",
+                        secret_namespace, secret_name, processor.id
+                    )
+                })?;
+
+        debug!("Decrypting secret value for processor {}", processor.id);
+        let agent_key = secret_model
+            .decrypt_value()
+            .map_err(|e| format!("Failed to decrypt agent key: {}", e))?;
+
         // 2) Get customized container
         let container = self.customize_container(&processor, None, redis_client)?;
 
@@ -256,6 +277,7 @@ impl StandardProcessor {
                     owner_profile,
                     &processor.owner,
                     &processor.namespace,
+                    Some(agent_key.clone()),
                 )
                 .await?;
 
@@ -648,6 +670,27 @@ impl StandardProcessor {
         owner_profile: &V1UserProfile,
         redis_client: &redis::Client,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Get the processor's agent key
+        let secret_name = format!("processor-agent-key-{}", processor.id);
+        let secret_namespace = "root";
+
+        debug!("Fetching secret {}/{}", secret_namespace, secret_name);
+        let secret_model =
+            Query::find_secret_by_namespace_and_name(db, secret_namespace, &secret_name)
+                .await
+                .map_err(|e| format!("Database error fetching secret: {}", e))?
+                .ok_or_else(|| {
+                    format!(
+                        "Secret '{}/{}' not found for processor {}",
+                        secret_namespace, secret_name, processor.id
+                    )
+                })?;
+
+        debug!("Decrypting secret value for processor {}", processor.id);
+        let agent_key = secret_model
+            .decrypt_value()
+            .map_err(|e| format!("Failed to decrypt agent key: {}", e))?;
+
         // Get the customized container with all our environment variables
         let container =
             self.customize_container(processor, Some(container_request), redis_client)?;
@@ -692,6 +735,7 @@ impl StandardProcessor {
                         owner_profile,
                         &processor.owner,
                         &processor.namespace,
+                        Some(agent_key.clone()),
                     )
                     .await?;
 

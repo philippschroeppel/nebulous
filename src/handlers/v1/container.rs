@@ -13,6 +13,7 @@ use crate::entities::containers;
 use crate::mutation::Mutation;
 use crate::query::Query;
 use crate::state::AppState;
+use crate::utils::namespace::resolve_namespace;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::{
     extract::Extension, extract::Json, extract::Path, extract::State, http::StatusCode,
@@ -35,6 +36,7 @@ pub async fn get_container(
     Path((namespace, name)): Path<(String, String)>,
 ) -> Result<Json<V1Container>, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
+    let resolved_namespace = resolve_namespace(&namespace, &user_profile);
 
     let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
         orgs.keys().cloned().collect()
@@ -43,7 +45,7 @@ pub async fn get_container(
     };
     owner_ids.push(user_profile.email.clone());
 
-    let owner = auth_ns(db_pool, &owner_ids, &namespace)
+    let owner = auth_ns(db_pool, &owner_ids, &resolved_namespace)
         .await
         .map_err(|e| {
             (
@@ -54,11 +56,11 @@ pub async fn get_container(
 
     debug!(
         "Getting container by namespace and name: {} {}",
-        namespace, name
+        resolved_namespace, name
     );
     let container = match Query::find_container_by_namespace_name_and_owners(
         db_pool,
-        &namespace,
+        &resolved_namespace,
         &name,
         &vec![owner.as_str()],
     )
@@ -297,7 +299,7 @@ pub async fn create_container(
     debug!("Handle: {:?}", handle);
 
     let namespace = match namespace_opt {
-        Some(namespace) => namespace,
+        Some(namespace) => resolve_namespace(&namespace, &user_profile),
         None => match crate::handlers::v1::namespaces::ensure_namespace(
             db_pool,
             &handle,
@@ -358,6 +360,7 @@ pub async fn create_container(
             &user_profile,
             &owner,
             &namespace,
+            None,
         )
         .await
         .map_err(|e| {
@@ -376,6 +379,7 @@ pub async fn delete_container(
     Path((namespace, name)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
+    let resolved_namespace = resolve_namespace(&namespace, &user_profile);
 
     let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
         orgs.keys().cloned().collect()
@@ -389,7 +393,7 @@ pub async fn delete_container(
 
     let container = match Query::find_container_by_namespace_name_and_owners(
         db_pool,
-        &namespace,
+        &resolved_namespace,
         &name,
         &owner_id_refs,
     )
@@ -486,6 +490,7 @@ pub async fn fetch_container_logs(
     Path((namespace, name)): Path<(String, String)>,
 ) -> Result<Json<String>, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
+    let resolved_namespace = resolve_namespace(&namespace, &user_profile);
 
     let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
         orgs.keys().cloned().collect()
@@ -499,7 +504,7 @@ pub async fn fetch_container_logs(
 
     let container = Query::find_container_by_namespace_name_and_owners(
         db_pool,
-        &namespace,
+        &resolved_namespace,
         &name,
         &owner_id_refs,
     )
@@ -564,6 +569,7 @@ pub async fn patch_container(
     Json(update_request): Json<V1UpdateContainer>,
 ) -> Result<Json<V1Container>, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
+    let resolved_namespace = resolve_namespace(&namespace, &user_profile);
 
     // Collect owner IDs from user_profile to use in your `Query` call
     let mut owner_ids: Vec<String> = user_profile
@@ -579,7 +585,7 @@ pub async fn patch_container(
     // Find the container in the DB, ensuring the user has permission
     let container = match Query::find_container_by_namespace_name_and_owners(
         db_pool,
-        &namespace,
+        &resolved_namespace,
         &name,
         &owner_id_refs,
     )
@@ -949,6 +955,7 @@ pub async fn patch_container(
                 &user_profile,
                 &user_profile.email,
                 &namespace,
+                None,
             )
             .await
             .map_err(|e| {
@@ -1173,7 +1180,10 @@ pub async fn stream_logs_ws(
     Extension(user_profile): Extension<V1UserProfile>,
     Path((namespace, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, state, user_profile, namespace, name))
+    let resolved_namespace = resolve_namespace(&namespace, &user_profile);
+    ws.on_upgrade(move |socket| {
+        handle_socket(socket, state, user_profile, resolved_namespace, name)
+    })
 }
 
 pub async fn stream_logs_ws_by_id(

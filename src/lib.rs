@@ -26,6 +26,7 @@ pub mod select;
 pub mod ssh;
 pub mod state;
 pub mod streams;
+pub mod utils;
 pub mod validate;
 pub mod volumes;
 

@@ -1490,6 +1490,9 @@ impl RunpodPlatform {
             }
         };
 
+        let container_registry_auth_id = std::env::var("RUNPOD_CONTAINER_REGISTRY_AUTH_ID")
+            .expect("RUNPOD_CONTAINER_REGISTRY_AUTH_ID must be set");
+
         // 5) Create an on-demand instance instead of a spot instance
         let create_request =
             if model.accelerators.is_some() && !model.accelerators.as_ref().unwrap().is_empty() {
@@ -1511,6 +1514,7 @@ impl RunpodPlatform {
                     env: env_vec,
                     network_volume_id: Some(volume.id),
                     volume_mount_path: Some("/nebu/cache".to_string()),
+                    container_registry_auth_id: Some(container_registry_auth_id.to_string()),
                 }
             } else {
                 // CPU-only workload
@@ -1531,6 +1535,7 @@ impl RunpodPlatform {
                     env: env_vec,
                     network_volume_id: Some(volume.id),
                     volume_mount_path: Some("/nebu/cache".to_string()),
+                    container_registry_auth_id: Some(container_registry_auth_id.to_string()),
                 }
             };
 
@@ -1937,6 +1942,7 @@ impl ContainerPlatform for RunpodPlatform {
         user_profile: &V1UserProfile,
         owner_id: &str,
         namespace: &str,
+        api_key: Option<String>,
     ) -> Result<V1Container, Box<dyn std::error::Error + Send + Sync>> {
         let name = config
             .metadata
@@ -2078,7 +2084,7 @@ impl ContainerPlatform for RunpodPlatform {
             id, owner_id
         );
         match self
-            .store_agent_key_secret(db, user_profile, &id, owner_id)
+            .store_agent_key_secret(db, user_profile, &id, owner_id, api_key)
             .await
         {
             Ok(_) => debug!("[Runpod Controller] Successfully stored agent key secret"),

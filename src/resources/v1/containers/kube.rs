@@ -285,6 +285,7 @@ impl ContainerPlatform for KubePlatform {
         _user_profile: &V1UserProfile,
         owner_id: &str,
         namespace: &str,
+        api_key: Option<String>,
     ) -> Result<V1Container, Box<dyn std::error::Error + Send + Sync>> {
         let name = config
             .metadata

@@ -8,6 +8,7 @@ use crate::resources::v1::processors::models::{
 };
 use crate::resources::v1::processors::standard::StandardProcessor;
 use crate::state::AppState;
+use crate::utils::namespace::resolve_namespace;
 use axum::{
     extract::Extension, extract::Json, extract::Path, extract::State, http::StatusCode,
     response::IntoResponse,
@@ -308,6 +309,7 @@ pub async fn get_processor(
     Path((namespace, name)): Path<(String, String)>,
 ) -> Result<Json<V1Processor>, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
+    let resolved_namespace = resolve_namespace(&namespace, &user_profile);
 
     let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
         orgs.keys().cloned().collect()
@@ -319,7 +321,7 @@ pub async fn get_processor(
 
     let processor = Query::find_processor_by_namespace_name_and_owners(
         db_pool,
-        &namespace,
+        &resolved_namespace,
         &name,
         &owner_id_refs,
     )
@@ -348,6 +350,7 @@ pub async fn send_processor(
     Json(stream_data): Json<V1StreamData>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
+    let resolved_namespace = resolve_namespace(&namespace, &user_profile);
 
     // Collect owner IDs from user_profile
     let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
@@ -361,7 +364,7 @@ pub async fn send_processor(
     // Find the processor
     let processor = Query::find_processor_by_namespace_name_and_owners(
         db_pool,
-        &namespace,
+        &resolved_namespace,
         &name,
         &owner_id_refs,
     )
@@ -683,6 +686,7 @@ pub async fn delete_processor(
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
     debug!("Deleting processor: {} in namespace: {}", name, namespace);
     let db_pool = &state.db_pool;
+    let resolved_namespace = resolve_namespace(&namespace, &user_profile);
 
     let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
         orgs.keys().cloned().collect()
@@ -692,10 +696,13 @@ pub async fn delete_processor(
     owner_ids.push(user_profile.email.clone());
     let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
 
-    debug!("Finding processor: {} in namespace: {}", name, namespace);
+    debug!(
+        "Finding processor: {} in namespace: {}",
+        name, resolved_namespace
+    );
     let processor = Query::find_processor_by_namespace_name_and_owners(
         db_pool,
-        &namespace,
+        &resolved_namespace,
         &name,
         &owner_id_refs,
     )
@@ -746,6 +753,7 @@ pub async fn update_processor(
     Json(update_request): Json<V1UpdateProcessor>,
 ) -> Result<Json<V1Processor>, (StatusCode, Json<serde_json::Value>)> {
     let db_pool = &state.db_pool;
+    let resolved_namespace = resolve_namespace(&namespace, &user_profile);
 
     // Collect owner IDs from user_profile
     let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
@@ -759,7 +767,7 @@ pub async fn update_processor(
     // Find the processor
     let processor = Query::find_processor_by_namespace_name_and_owners(
         db_pool,
-        &namespace,
+        &resolved_namespace,
         &name,
         &owner_id_refs,
     )
@@ -1081,7 +1089,7 @@ pub async fn update_processor(
                 db_pool,
                 &user_profile,
                 &user_profile.email,
-                &namespace,
+                &resolved_namespace,
             )
             .await
             .map_err(|e| {
@@ -1236,6 +1244,7 @@ pub async fn get_processor_logs(
         name, namespace
     );
     let db_pool = &state.db_pool;
+    let resolved_namespace = resolve_namespace(&namespace, &user_profile);
 
     // --- Authorization and Processor Fetching (similar to get_processor) ---
     let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
@@ -1248,7 +1257,7 @@ pub async fn get_processor_logs(
 
     let processor = Query::find_processor_by_namespace_name_and_owners(
         db_pool,
-        &namespace,
+        &resolved_namespace,
         &name,
         &owner_id_refs,
     )
@@ -1257,7 +1266,7 @@ pub async fn get_processor_logs(
         // Consider returning 404 if e indicates "not found"
         error!(
             "Database error finding processor {}:{} - {}",
-            namespace, name, e
+            resolved_namespace, name, e
         );
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1283,7 +1292,7 @@ pub async fn get_processor_logs(
         Err(e) => {
             error!(
                 "Database error finding containers for processor {}:{} with owner_ref '{}': {}",
-                namespace, name, owner_ref_string, e
+                resolved_namespace, name, owner_ref_string, e
             );
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -1295,7 +1304,7 @@ pub async fn get_processor_logs(
     if associated_containers.is_empty() {
         debug!(
             "No containers found associated with processor {}:{} (owner_ref: {})",
-            namespace, name, owner_ref_string
+            resolved_namespace, name, owner_ref_string
         );
         return Ok(Json(json!({}))); // Return empty JSON if no containers found
     }
