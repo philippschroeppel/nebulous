@@ -177,6 +177,7 @@ pub struct V1StreamMessage {
     pub orgs: Option<Value>,
     pub handle: Option<String>,
     pub adapter: Option<String>,
+    pub api_key: Option<String>,
 }
 
 fn kind_v1_stream_message() -> String {
@@ -211,6 +212,7 @@ pub struct V1OpenAIStreamMessage {
     pub orgs: Option<Value>,
     pub handle: Option<String>,
     pub adapter: Option<String>,
+    pub api_key: Option<String>,
 }
 
 fn kind_v1_openai_stream_message() -> String {

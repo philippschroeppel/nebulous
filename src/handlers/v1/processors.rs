@@ -1,4 +1,5 @@
 use crate::agent::ns::auth_ns;
+use crate::config::CONFIG;
 use crate::entities::processors;
 use crate::models::{V1ResourceMetaRequest, V1StreamData, V1StreamMessage, V1UserProfile};
 use crate::query::Query;
@@ -376,6 +377,58 @@ pub async fn send_processor(
         )
     })?;
 
+    // --- Generate a temporary agent key for this operation --- //
+    let user_token = user_profile.token.clone().ok_or_else(|| {
+        error!("User profile token is missing, cannot generate agent key.");
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication token missing"})),
+        )
+    })?;
+
+    let auth_server = CONFIG.auth_server.clone();
+    if auth_server.is_empty() {
+        error!("Auth server URL is not configured or empty.");
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Auth server configuration missing"})),
+        ));
+    }
+
+    let agent_key_request = crate::models::V1CreateAgentKeyRequest {
+        agent_id: format!("processor-{}", processor.id),
+        name: format!(
+            "send-processor-{}-{}",
+            processor.id,
+            ShortUuid::generate().to_string()
+        ),
+        duration: 3600, // e.g., 1 hour validity
+    };
+    debug!("Creating agent key request: {:?}", agent_key_request);
+
+    let agent_key_response =
+        crate::agent::agent::create_agent_key(&auth_server, &user_token, agent_key_request)
+            .await
+            .map_err(|e| {
+                error!("Failed to create agent key: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        json!({"error": format!("Failed to generate temporary agent key: {}", e)}),
+                    ),
+                )
+            })?;
+
+    debug!("Agent key response: {:?}", agent_key_response);
+    let agent_key = agent_key_response.key.ok_or_else(|| {
+        error!("Generated agent key response did not contain a key.");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Failed to obtain temporary agent key value"})),
+        )
+    })?;
+    // --- End Agent Key Generation ---
+
     // Get the stream name
     let stream_name = processor.stream;
     let id = ShortUuid::generate().to_string();
@@ -401,6 +454,7 @@ pub async fn send_processor(
         orgs: user_profile.organizations.clone().map(|orgs| json!(orgs)),
         handle: user_profile.handle.clone(),
         adapter: Some(format!("processor:{}", processor.id)),
+        api_key: Some(agent_key),
     };
 
     // Access the Redis client from the message queue
