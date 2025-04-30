@@ -1710,21 +1710,23 @@ impl RunpodPlatform {
     tailscaled --tun=userspace-networking --socks5-server=localhost:1055 --outbound-http-proxy-listen=localhost:1055  > "$HOME/.logs/tailscaled.log" 2>&1 &
 
     echo "[DEBUG] Waiting for tailscale to start..."
-    for i in $(seq 1 200); do
-        if tailscale status >/dev/null 2>&1; then
-            echo "[DEBUG] Tailscale is up"
+    for i in $(seq 1 10); do
+        echo "[DEBUG] Checking tailscale status (attempt $i)..."
+        tailscale status # Print the status output
+        if tailscale status >/dev/null 2>&1; then # Check the exit status silently
+            echo "[DEBUG] Tailscale is up (based on exit code)"
             break
         else
-            echo "[DEBUG] Tailscale not up yet, retrying..."
+            echo "[DEBUG] Tailscale not up yet (based on exit code), retrying..."
             sleep 1
         fi
     done
 
     # Check if tailscale started successfully after the loop
-    if ! tailscale status >/dev/null 2>&1; then
-        echo "[ERROR] Tailscale failed to start after 200 seconds. Exiting." >&2
-        exit 1
-    fi
+    # if ! tailscale status >/dev/null 2>&1; then
+    #     echo "[ERROR] Tailscale failed to start after 200 seconds. Exiting." >&2
+    #     exit 1
+    # fi
     
     nvidia-smi
     echo "[DEBUG] Starting tailscale up..."
