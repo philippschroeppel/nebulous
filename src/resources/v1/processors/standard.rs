@@ -141,7 +141,7 @@ impl StandardProcessor {
         });
 
         // Redis URL with credentials - prioritize REDIS_URL if set
-        let redis_url = match CONFIG.redis_url.clone() {
+        let redis_url = match CONFIG.publish_redis_url.clone() {
             Some(url) => url,
             None => format!(
                 "redis://{}:{}@{}:{}",
@@ -153,16 +153,6 @@ impl StandardProcessor {
         env.push(V1EnvVar {
             key: "REDIS_URL".to_string(),
             value: Some(redis_url),
-            secret_name: None,
-        });
-        env.push(V1EnvVar {
-            key: "REDIS_HOST".to_string(),
-            value: Some(CONFIG.redis_host.clone()),
-            secret_name: None,
-        });
-        env.push(V1EnvVar {
-            key: "REDIS_PORT".to_string(),
-            value: Some(CONFIG.redis_port.clone()),
             secret_name: None,
         });
         env.push(V1EnvVar {

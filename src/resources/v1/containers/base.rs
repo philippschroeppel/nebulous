@@ -267,7 +267,7 @@ pub trait ContainerPlatform {
         );
         env.insert(
             "NEBULOUS_SERVER".to_string(),
-            CONFIG.tailnet_url.clone().unwrap(),
+            CONFIG.publish_url.clone().unwrap(),
         );
 
         env.insert("NEBU_NAMESPACE".to_string(), model.namespace.clone());

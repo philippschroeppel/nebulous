@@ -143,6 +143,7 @@ pub struct Config {
     pub redis_port: String,
     pub redis_password: Option<String>,
     pub redis_url: Option<String>,
+    pub publish_redis_url: Option<String>,
     pub database_url: String,
     pub tailscale_api_key: Option<String>,
     pub tailscale_tailnet: Option<String>,
@@ -150,7 +151,7 @@ pub struct Config {
     pub bucket_region: String,
     pub root_owner: String,
     pub auth_server: String,
-    pub tailnet_url: Option<String>,
+    pub publish_url: Option<String>,
 }
 
 impl Config {
@@ -167,6 +168,7 @@ impl Config {
             redis_port: env::var("REDIS_PORT").unwrap_or_else(|_| "6379".to_string()),
             redis_password: env::var("REDIS_PASSWORD").ok(),
             redis_url: env::var("REDIS_URL").ok(),
+            publish_redis_url: env::var("PUBLISH_REDIS_URL").ok(),
             database_url: env::var("DATABASE_URL")
                 .unwrap_or_else(|_| "sqlite://.data/data.db".to_string()),
             tailscale_api_key: env::var("TAILSCALE_API_KEY").ok(),
@@ -185,8 +187,8 @@ impl Config {
                 .or_else(|_| env::var("AGENTSEA_AUTH_SERVER"))
                 .or_else(|_| env::var("AGENTSEA_AUTH_URL"))
                 .unwrap_or_else(|_| "https://auth.hub.agentlabs.xyz".to_string()),
-            tailnet_url: env::var("NEBU_TAILNET_URL")
-                .or_else(|_| env::var("NEBULOUS_TAILNET_URL"))
+            publish_url: env::var("NEBU_PUBLISH_URL")
+                .or_else(|_| env::var("NEBULOUS_PUBLISH_URL"))
                 .ok(),
         }
     }
