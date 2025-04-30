@@ -66,7 +66,8 @@ RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2
     rm -rf awscliv2.zip aws
 
 # Install Tailscale
-RUN curl -fsSL https://tailscale.com/install.sh | sh
+# RUN curl -fsSL https://tailscale.com/install.sh | sh
+RUN apt-get update && apt-get install -y tailscale
 
 # Create directory for SQLite database
 RUN mkdir -p /data
