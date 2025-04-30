@@ -1256,7 +1256,10 @@ impl ProcessorPlatform for StandardProcessor {
             // fallback to "runpod" or whichever makes sense
             debug!("Platform string: {}", platform_str);
             let platform = platform_factory(platform_str);
-            platform.delete(&container.id, db).await?;
+            match platform.delete(&container.id, db).await {
+                Ok(_) => info!("Successfully deleted container {}", container.id),
+                Err(e) => error!("Failed to delete container {}: {}", container.id, e),
+            }
 
             // // e) Remove the container record from DB
             // container.delete(db).await?;
