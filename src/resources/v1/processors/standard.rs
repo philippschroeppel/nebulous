@@ -644,6 +644,9 @@ impl StandardProcessor {
             );
         }
 
+        // Add a short delay before the next watch cycle
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
         Ok(())
     }
 
