@@ -48,6 +48,7 @@ RUN apt-get update && apt-get install -y \
     libsqlite3-0 \
     curl \
     unzip \
+    openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the binary from builder - fix the binary name
