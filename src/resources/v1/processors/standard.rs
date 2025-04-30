@@ -143,10 +143,7 @@ impl StandardProcessor {
         // Redis URL with credentials - prioritize REDIS_URL if set
         let redis_url = match CONFIG.redis_publish_url.clone() {
             Some(url) => url,
-            None => format!(
-                "redis://{}:{}@{}:{}",
-                username, password, CONFIG.redis_host, CONFIG.redis_port
-            ),
+            None => CONFIG.redis_url.clone().unwrap(),
         };
 
         // Add all Redis env vars
