@@ -143,7 +143,7 @@ pub struct Config {
     pub redis_port: String,
     pub redis_password: Option<String>,
     pub redis_url: Option<String>,
-    pub publish_redis_url: Option<String>,
+    pub redis_publish_url: Option<String>,
     pub database_url: String,
     pub tailscale_api_key: Option<String>,
     pub tailscale_tailnet: Option<String>,
@@ -168,7 +168,7 @@ impl Config {
             redis_port: env::var("REDIS_PORT").unwrap_or_else(|_| "6379".to_string()),
             redis_password: env::var("REDIS_PASSWORD").ok(),
             redis_url: env::var("REDIS_URL").ok(),
-            publish_redis_url: env::var("PUBLISH_REDIS_URL").ok(),
+            redis_publish_url: env::var("REDIS_PUBLISH_URL").ok(),
             database_url: env::var("DATABASE_URL")
                 .unwrap_or_else(|_| "sqlite://.data/data.db".to_string()),
             tailscale_api_key: env::var("TAILSCALE_API_KEY").ok(),
