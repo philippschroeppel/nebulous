@@ -465,6 +465,9 @@ pub enum DeleteCommands {
     #[command(aliases = ["processor", "proc"])]
     Processors {
         name: String,
+
+        /// Namespace to delete from.
+        #[arg(long, short)]
         namespace: Option<String>,
     },
 }

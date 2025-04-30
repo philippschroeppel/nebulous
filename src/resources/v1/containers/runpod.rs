@@ -1237,8 +1237,18 @@ impl RunpodPlatform {
             }
         }
 
-        // --- ADDED: Generate SSH key pair and store the private key as a secret ---
-        let (ssh_private_key, ssh_public_key) = keys::generate_ssh_keypair()?;
+        debug!(
+            "[Runpod Controller] Using GPU type ID: {}",
+            runpod_gpu_type_id
+        );
+        debug!("[Runpod Controler] generating ssh key pair");
+        let (ssh_private_key, ssh_public_key) = match keys::generate_ssh_keypair() {
+            Ok((private_key, public_key)) => (private_key, public_key),
+            Err(e) => {
+                error!("[Runpod Controller] Error generating SSH key pair: {}", e);
+                return Err(e.into());
+            }
+        };
         debug!(
             "[Runpod Controller] Generated SSH private key: {}",
             ssh_private_key
@@ -1470,6 +1480,10 @@ impl RunpodPlatform {
                 "EU-RO-1".to_string()
             };
 
+        info!(
+            "[Runpod Controller] Attempting to ensure volume in datacenter {}",
+            datacenter_id
+        );
         let volume = match self
             .runpod_client
             .ensure_volume_in_datacenter(
@@ -1484,14 +1498,34 @@ impl RunpodPlatform {
             )
             .await
         {
-            Ok(vol) => vol,
+            Ok(vol) => {
+                info!(
+                    "[Runpod Controller] Successfully ensured volume {} in datacenter {}",
+                    vol.id, datacenter_id
+                );
+                vol
+            }
             Err(e) => {
-                panic!("Error ensuring volume in datacenter: {:?}", e);
+                error!(
+                    "[Runpod Controller] Error ensuring volume in datacenter {}: {:?}",
+                    datacenter_id, e
+                );
+                // Return an error instead of panicking
+                return Err(format!(
+                    "Error ensuring volume in datacenter {}: {:?}",
+                    datacenter_id, e
+                )
+                .into());
             }
         };
 
-        let container_registry_auth_id = std::env::var("RUNPOD_CONTAINER_REGISTRY_AUTH_ID")
-            .expect("RUNPOD_CONTAINER_REGISTRY_AUTH_ID must be set");
+        let container_registry_auth_id = match std::env::var("RUNPOD_CONTAINER_REGISTRY_AUTH_ID") {
+            Ok(id) => id,
+            Err(_) => {
+                error!("[Runpod Controller] RUNPOD_CONTAINER_REGISTRY_AUTH_ID environment variable not set");
+                return Err("RUNPOD_CONTAINER_REGISTRY_AUTH_ID must be set".into());
+            }
+        };
 
         // 5) Create an on-demand instance instead of a spot instance
         let create_request =
@@ -1545,6 +1579,7 @@ impl RunpodPlatform {
         );
 
         // Attempt to create the on-demand pod - directly await
+        info!("[Runpod Controller] Calling runpod_client.create_on_demand_pod...");
         let pod_id = match self
             .runpod_client
             .create_on_demand_pod(create_request)
