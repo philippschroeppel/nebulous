@@ -1709,20 +1709,40 @@ impl RunpodPlatform {
     echo "[DEBUG] Starting tailscale daemon ..."
     tailscaled --tun=userspace-networking --socks5-server=localhost:1055 --outbound-http-proxy-listen=localhost:1055  > "$HOME/.logs/tailscaled.log" 2>&1 &
 
-    echo "[DEBUG] Waiting for tailscale to start..."
+    echo "[DEBUG] Waiting for tailscale daemon to start (checking for 'Logged out.' status)..."
+    daemon_running=false
     for i in $(seq 1 10); do
         echo "[DEBUG] Checking tailscale status (attempt $i)..."
-        tailscale status
-        if tailscale status >/dev/null 2>&1; then
-            echo "[DEBUG] Tailscale is up (based on exit code)"
+        status_output=$(tailscale status 2>&1) # Capture stdout and stderr
+        echo "${{status_output}}" # Print the output for debugging
+
+        # Check if the output contains "Logged out."
+        if echo "${{status_output}}" | grep -q "Logged out."; then
+            echo "[DEBUG] Tailscale daemon is running (status is 'Logged out.')."
+            daemon_running=true
             break
         else
-            echo "[DEBUG] Tailscale not up yet (based on exit code), retrying..."
+            echo "[DEBUG] Tailscale status not yet 'Logged out.' or daemon error, retrying..."
             sleep 1
         fi
     done
-    
-    nvidia-smi
+
+    # Check if daemon was confirmed running after the loop
+    if [ "$daemon_running" = false ]; then
+        echo "[ERROR] Tailscale daemon did not report 'Logged out.' status after 10 attempts. It might not be running correctly."
+        echo "[DEBUG] Last tailscale status output:"
+        echo "${{status_output}}" # Print last captured status
+        echo "[DEBUG] Checking tailscaled logs..."
+        cat "$HOME/.logs/tailscaled.log"
+        exit 1
+    fi
+
+    echo "[DEBUG] Checking if TS_AUTHKEY is set..."
+    if [ -z "$TS_AUTHKEY" ]; then
+        echo "[ERROR] TS_AUTHKEY is not set. Please set it and try again."
+        exit 1
+    fi
+
     echo "[DEBUG] Starting tailscale up..."
     tailscale up --auth-key=$TS_AUTHKEY --hostname="{hostname}" --ssh
 
