@@ -423,6 +423,9 @@ async fn start_sync_process(
         cmd.arg("--resync");
     }
 
+    // Exclude common Python cache directories
+    cmd.arg("--exclude").arg("__pycache__/**");
+
     // cmd.arg("--create-empty-src-dirs");
 
     // // Add common options
@@ -575,7 +578,10 @@ pub async fn execute_sync(
         // cmd.arg("--fast-list");
         // cmd.arg("--create-empty-src-dirs");
 
-        // // Add cache directory
+        // Exclude common Python cache directories
+        cmd.arg("--exclude").arg("__pycache__/**");
+
+        // Add cache directory
         // cmd.arg("--cache-dir");
         // cmd.arg(&config.cache_dir);
 
@@ -1141,6 +1147,9 @@ pub async fn execute_non_continuous_sync(
             cmd.arg(&dest);
         }
 
+        // Exclude common Python cache directories
+        cmd.arg("--exclude").arg("__pycache__/**");
+
         // Add common options
         // cmd.arg("--verbose");
         // cmd.arg("--fast-list");
@@ -1527,6 +1536,9 @@ pub async fn check_paths(source: &str, dest: &str) -> Result<bool, Box<dyn std::
         .arg(source)
         .arg(dest)
         .arg("--one-way") // or omit if you want a two-way check
+        // Exclude common Python cache directories
+        .arg("--exclude")
+        .arg("__pycache__/**")
         .stderr(Stdio::piped())
         .stdout(Stdio::piped())
         .output()
