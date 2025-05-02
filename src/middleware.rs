@@ -33,12 +33,15 @@ pub async fn auth_middleware(
         if token.is_empty() {
             println!("Bearer token is empty");
             unauthorized_response()
-        } else if token.starts_with("nebu-") {
-            println!("🔐 Found Nebulous token: {}", token);
-            internal_auth(db_pool, token, request, next).await
         } else {
-            println!("🔐 Found external token: {}", token);
-            external_auth(&auth_header, request, next).await
+            match get_user_profile_from_token(db_pool, token).await {
+                Ok(user_profile) => {
+                    let mut req = request;
+                    req.extensions_mut().insert(user_profile);
+                    next.run(req).await
+                }
+                Err(_) => unauthorized_response(),
+            }
         }
     } else {
         println!("Invalid Authorization header format");
@@ -46,19 +49,56 @@ pub async fn auth_middleware(
     }
 }
 
-async fn internal_auth(
+pub async fn internal_auth(
     db_conn: &DatabaseConnection,
     token: &str,
     mut request: Request,
     next: Next,
 ) -> Response {
+    match get_user_profile_from_internal_token(db_conn, token).await {
+        Ok(user_profile) => {
+            request.extensions_mut().insert(user_profile);
+            next.run(request).await
+        }
+        Err(_) => unauthorized_response(),
+    }
+}
+
+pub async fn external_auth(auth_header: &String, mut request: Request, next: Next) -> Response {
+    let token = auth_header.trim_start_matches("Bearer ");
+    match get_user_profile_from_external_token(token).await {
+        Ok(user_profile) => {
+            request.extensions_mut().insert(user_profile);
+            next.run(request).await
+        }
+        Err(_) => unauthorized_response(),
+    }
+}
+
+/// Get a user profile from any token (internal or external)
+pub async fn get_user_profile_from_token(
+    db_conn: &DatabaseConnection,
+    token: &str,
+) -> Result<V1UserProfile, StatusCode> {
+    if token.starts_with("nebu-") {
+        get_user_profile_from_internal_token(db_conn, token).await
+    } else {
+        get_user_profile_from_external_token(token).await
+    }
+}
+
+/// Get a user profile from an internal token
+pub async fn get_user_profile_from_internal_token(
+    db_conn: &DatabaseConnection,
+    token: &str,
+) -> Result<V1UserProfile, StatusCode> {
     let is_valid = auth::api::validate_api_key(db_conn, token).await;
     match is_valid {
         Ok(is_valid) => {
             if is_valid {
-                println!("✅ Token is valid");
+                println!("✅ Internal token is valid");
 
-                let user_profile: V1UserProfile = V1UserProfile {
+                let user_profile = V1UserProfile {
                     email: "dummy@example.com".to_string(),
                     display_name: None,
                     handle: None,
@@ -72,21 +112,23 @@ async fn internal_auth(
                     updated: None,
                     token: None,
                 };
-                request.extensions_mut().insert(user_profile);
-                next.run(request).await
+                Ok(user_profile)
             } else {
-                println!("❌ Token is invalid");
-                unauthorized_response()
+                println!("❌ Internal token is invalid");
+                Err(StatusCode::UNAUTHORIZED)
             }
         }
         Err(_) => {
-            println!("❌ Failed to validate token");
-            unauthorized_response()
+            println!("❌ Failed to validate internal token");
+            Err(StatusCode::UNAUTHORIZED)
         }
     }
 }
 
-async fn external_auth(auth_header: &String, mut request: Request, next: Next) -> Response {
+/// Get a user profile from an external token
+pub async fn get_user_profile_from_external_token(
+    token: &str,
+) -> Result<V1UserProfile, StatusCode> {
     let config = crate::config::GlobalConfig::read().unwrap();
 
     let auth_server = config.get_current_server_config().map_or_else(
@@ -100,43 +142,38 @@ async fn external_auth(auth_header: &String, mut request: Request, next: Next) -
     );
 
     let auth_url = format!("{}/v1/users/me", auth_server);
-
     println!("🔐 Making auth request to: {}", auth_url);
 
     // Validate the token with auth server
     let client = reqwest::Client::new();
+    let auth_header = format!("Bearer {}", token);
     let user_profile_result = client
         .get(auth_url)
-        .header("Authorization", auth_header)
+        .header("Authorization", &auth_header)
         .send()
         .await;
 
     match user_profile_result {
         Ok(response) => {
             if response.status().is_success() {
-                // Clone the response so we can read the body twice
                 let response_text = response.text().await.unwrap_or_default();
-                println!("✅ Auth response: {}", response_text);
+                println!("✅ External auth response received");
 
-                // Parse the user profile from the cloned response
                 match serde_json::from_str::<V1UserProfile>(&response_text) {
-                    Ok(user_profile) => {
-                        request.extensions_mut().insert(user_profile);
-                        next.run(request).await
-                    }
+                    Ok(user_profile) => Ok(user_profile),
                     Err(e) => {
                         println!("❌ Failed to parse user profile: {}", e);
-                        unauthorized_response()
+                        Err(StatusCode::UNAUTHORIZED)
                     }
                 }
             } else {
-                println!("❌ Auth failed with status: {}", response.status());
-                unauthorized_response()
+                println!("❌ External auth failed with status: {}", response.status());
+                Err(StatusCode::UNAUTHORIZED)
             }
         }
         Err(e) => {
-            println!("❌ Auth request failed: {}", e);
-            unauthorized_response()
+            println!("❌ External auth request failed: {}", e);
+            Err(StatusCode::UNAUTHORIZED)
         }
     }
 }

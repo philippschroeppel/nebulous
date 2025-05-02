@@ -1,6 +1,7 @@
 use crate::agent::ns::auth_ns;
 use crate::config::CONFIG;
 use crate::entities::processors;
+use crate::middleware::get_user_profile_from_token;
 use crate::models::{V1ResourceMetaRequest, V1StreamData, V1StreamMessage, V1UserProfile};
 use crate::query::Query;
 use crate::resources::v1::processors::base::ProcessorPlatform;
@@ -471,6 +472,18 @@ pub async fn send_processor(
     debug!("Sending message to processor: {}", stream_name);
     debug!("content: {:?}", stream_data.content);
 
+    let user_prof = match get_user_profile_from_token(&state.db_pool, &user_token).await {
+        Ok(user_prof) => user_prof,
+        Err(e) => {
+            error!("Failed to get user profile: {}", e);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Failed to get user profile: {}", e)})),
+            ));
+        }
+    }; // TODO: make more efficient
+    debug!("Sending message with user profile: {:?}", user_prof);
+
     // Create a stream message
     let message = V1StreamMessage {
         kind: "StreamMessage".to_string(),
@@ -478,9 +491,9 @@ pub async fn send_processor(
         content: stream_data.content,
         created_at: chrono::Utc::now().timestamp(),
         return_stream: return_stream.clone(),
-        user_id: Some(user_profile.email.clone()),
-        orgs: user_profile.organizations.clone().map(|orgs| json!(orgs)),
-        handle: user_profile.handle.clone(),
+        user_id: Some(user_prof.email.clone()),
+        orgs: user_prof.organizations.clone().map(|orgs| json!(orgs)),
+        handle: user_prof.handle.clone(),
         adapter: Some(format!("processor:{}", processor.id)),
         api_key: Some(agent_key),
     };
