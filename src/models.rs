@@ -162,6 +162,7 @@ pub struct V1StreamData {
     #[serde(default)]
     pub content: Value,
     pub wait: Option<bool>,
+    pub user_key: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

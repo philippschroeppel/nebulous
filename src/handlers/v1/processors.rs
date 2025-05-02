@@ -179,19 +179,22 @@ async fn _scale_processor(
     let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
 
     // Find the processor
-    let processor = Query::find_processor_by_namespace_name_and_owners(
+    let processor = match Query::find_processor_by_namespace_name_and_owners(
         db_pool,
         namespace,
         name,
         &owner_id_refs,
     )
     .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Database error: {}", e)})),
-        )
-    })?;
+    {
+        Ok(processor) => processor,
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Database error: {}", e)})),
+            ));
+        }
+    };
 
     let mut active_model = processors::ActiveModel::from(processor);
 
@@ -320,19 +323,22 @@ pub async fn get_processor(
     owner_ids.push(user_profile.email.clone());
     let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
 
-    let processor = Query::find_processor_by_namespace_name_and_owners(
+    let processor = match Query::find_processor_by_namespace_name_and_owners(
         db_pool,
         &resolved_namespace,
         &name,
         &owner_id_refs,
     )
     .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Database error: {}", e)})),
-        )
-    })?;
+    {
+        Ok(processor) => processor,
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Database error: {}", e)})),
+            ));
+        }
+    };
 
     let processor_v1 = processor.to_v1_processor().map_err(|e| {
         (
@@ -350,8 +356,14 @@ pub async fn send_processor(
     Path((namespace, name)): Path<(String, String)>,
     Json(stream_data): Json<V1StreamData>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    debug!(
+        "Sending processor with namespace: {} and name: {}",
+        namespace, name
+    );
+
     let db_pool = &state.db_pool;
     let resolved_namespace = resolve_namespace(&namespace, &user_profile);
+    debug!("Resolved namespace: {}", resolved_namespace);
 
     // Collect owner IDs from user_profile
     let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
@@ -361,30 +373,42 @@ pub async fn send_processor(
     };
     owner_ids.push(user_profile.email.clone());
     let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
+    debug!("Owner IDs: {:?}", owner_ids);
 
     // Find the processor
-    let processor = Query::find_processor_by_namespace_name_and_owners(
+    let processor = match Query::find_processor_by_namespace_name_and_owners(
         db_pool,
         &resolved_namespace,
         &name,
         &owner_id_refs,
     )
     .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Database error: {}", e)})),
-        )
-    })?;
+    {
+        Ok(processor) => processor,
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Database error: {}", e)})),
+            ));
+        }
+    };
+
+    debug!("Processor: {:?}", processor);
 
     // --- Generate a temporary agent key for this operation --- //
-    let user_token = user_profile.token.clone().ok_or_else(|| {
-        error!("User profile token is missing, cannot generate agent key.");
-        (
+    let user_token = stream_data
+        .user_key
+        .clone()
+        .unwrap_or_else(|| user_profile.token.clone().unwrap_or_default());
+
+    if user_token.is_empty() {
+        error!("User token is missing, cannot generate agent key.");
+        return Err((
             StatusCode::UNAUTHORIZED,
             Json(json!({"error": "Authentication token missing"})),
-        )
-    })?;
+        ));
+    }
+    debug!("User token: {}", user_token);
 
     let auth_server = CONFIG.auth_server.clone();
     if auth_server.is_empty() {
@@ -395,6 +419,10 @@ pub async fn send_processor(
         ));
     }
 
+    debug!(
+        "Creating agent key request for processor: {} and auth server: {}",
+        processor.id, auth_server
+    );
     let agent_key_request = crate::models::V1CreateAgentKeyRequest {
         agent_id: format!("processor-{}", processor.id),
         name: format!(
@@ -819,19 +847,22 @@ pub async fn update_processor(
     let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
 
     // Find the processor
-    let processor = Query::find_processor_by_namespace_name_and_owners(
+    let processor = match Query::find_processor_by_namespace_name_and_owners(
         db_pool,
         &resolved_namespace,
         &name,
         &owner_id_refs,
     )
     .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Database error: {}", e)})),
-        )
-    })?;
+    {
+        Ok(processor) => processor,
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Database error: {}", e)})),
+            ));
+        }
+    };
 
     let no_delete = update_request.no_delete.unwrap_or(false);
 
