@@ -36,6 +36,9 @@ ingress:
   annotations: { }
   # -- The ingress class.
   ingressClassName: ""
+  
+# -- The URL that agents use to connect to Nebulous.
+publicUrl: ""
 
 local:
   # -- If enabled, nebulous can run Pods in the local cluster.
@@ -53,6 +56,10 @@ rootOwner: "agentsea"
 messageQueue:
   # -- The message queue type. The currently only supported value is "redis".
   type: "redis"
+
+orign:
+  # -- The URL that Nebulous uses to connect to the Orign server.
+  url: ""
 
 tailscale:
   # -- The Tailscale host to connect to. If headscale.enabled is true, this is ignored.
@@ -194,9 +201,12 @@ redis:
     # -- Override the name of the Kubernetes service.
     nameOverride: ""
 
+  # -- The URL that agents use to connect to Redis. This is usually its address on the tailnet.
+  publicUrl: ""
+
   # -- The name of the Kubernetes service account for the Redis Pod.
   serviceAccountName: "redis"
-
+ 
   tailscale:
     # -- The Tailscale auth key for Redis. If headscale.enabled is true, this is ignored.
     authKey: ""

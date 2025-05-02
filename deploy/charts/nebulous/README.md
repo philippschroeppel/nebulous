@@ -142,6 +142,7 @@ data:
 | openmeter.secret.name | string | `"openmeter-secret"` | The name of the secrets containing the OpenMeter API token. |
 | openmeter.token | string | `""` | The OpenMeter API token. Not recommended for production. |
 | openmeter.url | string | `"https://openmeter.cloud"` | The URL to report OpenMeter data to. |
+| orign.url | string | `""` | The URL that Nebulous uses to connect to the Orign server. |
 | postgres.auth | object | `{"database":"nebulous","host":"","password":"nebulous","port":5432,"user":"nebulous"}` | Manual configuration of the Postgres connection. Except for 'host', this information is also used if 'create' is true. |
 | postgres.create | bool | `false` | If enabled, create a Postgres deployment and service. Not recommended for production. |
 | postgres.imageTag | string | `"latest"` | The postgres image tag. Ignored unless 'create' is true. |
@@ -162,9 +163,11 @@ data:
 | providers.runpod.secret.keys.apiKey | string | `"RUNPOD_API_KEY"` | The key in the secret containing the API key. |
 | providers.runpod.secret.keys.containerRegistryAuthId | string | `"RUNPOD_CONTAINER_REGISTRY_AUTH_ID"` | The key in the secret containing the container registry auth ID. |
 | providers.runpod.secret.name | string | `"runpod-secret"` | The name of the secret containing the Runpod credentials. |
+| publicUrl | string | `""` | The URL that agents use to connect to Nebulous. |
 | redis.auth | object | `{"database":0,"host":"","password":"nebulous","port":6379}` | Manual configuration of the Redis connection. Except for 'host', this information is also used if 'create' is true. |
 | redis.create | bool | `false` | If enabled, create a Redis deployment and service. Not recommended for production. |
 | redis.imageTag | string | `"latest"` | The redis image tag. Ignored unless 'create' is true. |
+| redis.publicUrl | string | `""` | The URL that agents use to connect to Redis. This is usually its address on the tailnet. |
 | redis.secret.keys.connectionString | string | `"CONNECTION_STRING"` | The key in the secret containing the Redis connection string. |
 | redis.secret.keys.password | string | `"PASSWORD"` | The key in the secret containing the Redis password. |
 | redis.secret.name | string | `"redis-secret"` | Name of the secret with the Redis connection string and password. |

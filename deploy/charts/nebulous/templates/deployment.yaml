@@ -98,6 +98,14 @@ spec:
             - name: TAILSCALE_TAILNET
               value: {{ .Values.tailscale.organization }}
             {{- end }}
+            - name: REDIS_PUBLISH_URL
+              value: {{ required ".Values.redis.publicUrl is required" .Values.redis.publicUrl }}
+            - name: NEBU_PUBLISH_URL
+              value: {{ required ".Values.publicUrl is required" .Values.publicUrl }}
+            {{- if .Values.orign.url }}
+            - name: ORIGN_SERVER
+              value: {{ .Values.orign.url }}
+            {{- end }}
             {{- if .Values.openmeter.enabled }}
             - name: OPENMETER_URL
               value: {{ .Values.openmeter.url }}
