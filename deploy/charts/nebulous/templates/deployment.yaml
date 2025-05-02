@@ -94,6 +94,10 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.tailscale.secret.name }}
                   key: {{ .Values.tailscale.secret.keys.apiKey }}
+            {{- if .Values.tailscale.organization }}
+            - name: TAILSCALE_TAILNET
+              value: {{ .Values.tailscale.organization }}
+            {{- end }}
             {{- if .Values.openmeter.enabled }}
             - name: OPENMETER_URL
               value: {{ .Values.openmeter.url }}

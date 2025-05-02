@@ -61,6 +61,8 @@ tailscale:
   apiKey: ""
   # -- The Tailscale auth key. If headscale.enabled is true, this is ignored.
   authKey: ""
+  # -- The name of the Tailscale organization. If headscale.enabled is true, this is ignored.
+  organization: ""
 
   secret:
     # -- Name of the secret with the Tailscale auth key and API key.

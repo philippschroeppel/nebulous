@@ -1,6 +1,6 @@
 # nebulous
 
-![Version: 0.2.1](https://img.shields.io/badge/Version-0.2.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.1.75](https://img.shields.io/badge/AppVersion-0.1.75-informational?style=flat-square)
+![Version: 0.2.2](https://img.shields.io/badge/Version-0.2.2-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.1.86](https://img.shields.io/badge/AppVersion-0.1.86-informational?style=flat-square)
 
 A cross-cloud container orchestrator for AI workloads
 
@@ -198,6 +198,7 @@ data:
 | tailscale.apiKey | string | `""` | The Tailscale API key. If headscale.enabled is true, this is ignored. |
 | tailscale.authKey | string | `""` | The Tailscale auth key. If headscale.enabled is true, this is ignored. |
 | tailscale.loginServer | string | `"https://login.tailscale.com"` | The Tailscale host to connect to. If headscale.enabled is true, this is ignored. |
+| tailscale.organization | string | `""` | The name of the Tailscale organization. If headscale.enabled is true, this is ignored. |
 | tailscale.secret.keys.apiKey | string | `"API_KEY"` | The key in the secret containing the Tailscale API key. |
 | tailscale.secret.keys.authKey | string | `"AUTH_KEY"` | The key in the secret containing the Tailscale auth key. |
 | tailscale.secret.name | string | `"tailscale-secret"` | Name of the secret with the Tailscale auth key and API key. |
