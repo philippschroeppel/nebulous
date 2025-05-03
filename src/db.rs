@@ -1,8 +1,24 @@
 // src/db.rs
 use crate::config::CONFIG;
-use sea_orm::{ConnectionTrait, Database, DatabaseConnection, DbErr, Schema};
+use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseConnection, DbErr, Schema};
+use std::time::Duration;
 
 pub type DbPool = DatabaseConnection;
+
+// Helper function to create connection options
+fn create_connect_options(url: String) -> ConnectOptions {
+    let mut opt = ConnectOptions::new(url);
+
+    // --- CONFIGURE POOL SIZE AND TIMEOUTS HERE ---
+    opt.max_connections(80) // Example: Set pool size to 50
+        .connect_timeout(Duration::from_secs(8))
+        .acquire_timeout(Duration::from_secs(15)) // Increased acquire timeout slightly
+        .idle_timeout(Duration::from_secs(60 * 5)) // Increased idle timeout (5 minutes)
+        .max_lifetime(Duration::from_secs(60 * 10)); // Increased max lifetime (10 minutes)
+                                                     // .sqlx_logging(true); // Uncomment for more verbose SQL logs if needed
+
+    opt
+}
 
 pub async fn init_db() -> Result<DbPool, DbErr> {
     let database_url = &CONFIG.database_url;
@@ -21,7 +37,6 @@ pub async fn init_db() -> Result<DbPool, DbErr> {
                 );
 
                 // Try to use a fallback location in the user's home directory
-                // Using the same directory structure as in config.rs
                 if let Some(home_dir) = dirs::home_dir() {
                     let fallback_dir = home_dir.join(".agentsea/data");
                     println!(
@@ -31,7 +46,7 @@ pub async fn init_db() -> Result<DbPool, DbErr> {
 
                     if let Err(e2) = std::fs::create_dir_all(&fallback_dir) {
                         return Err(DbErr::Custom(format!(
-                            "Failed to create both default and fallback database directories: {} and {}", 
+                            "Failed to create both default and fallback database directories: {} and {}",
                             e, e2
                         )));
                     }
@@ -41,7 +56,11 @@ pub async fn init_db() -> Result<DbPool, DbErr> {
                     let fallback_url = format!("sqlite:{}", fallback_db_path.display());
                     println!("Using fallback database URL: {}", fallback_url);
 
-                    let db = Database::connect(&fallback_url).await?;
+                    // --- Use ConnectOptions for fallback ---
+                    let opts = create_connect_options(fallback_url);
+                    let db = Database::connect(opts).await?;
+                    // --------------------------------------
+
                     create_tables(&db).await?;
                     return Ok(db);
                 } else {
@@ -54,7 +73,11 @@ pub async fn init_db() -> Result<DbPool, DbErr> {
         }
     }
 
-    let db = Database::connect(database_url).await?;
+    // --- Use ConnectOptions for primary URL ---
+    let opts = create_connect_options(database_url.clone()); // Clone if needed or ensure ownership
+    let db = Database::connect(opts).await?;
+    // -----------------------------------------
+
     create_tables(&db).await?;
     Ok(db)
 }
