@@ -33,6 +33,10 @@ app.kubernetes.io/instance: {{ .Release.Name | trunc 63 | trimSuffix "-" }}
 {{- printf "%s-local-role" .Release.Name }}
 {{- end }}
 
+{{- define "nebulous.tailscaleStateSecretName" -}}
+tailscale-{{- include "nebulous.serviceAccountName" . }}-state-secret
+{{- end }}
+
 {{- define "headscale.name" -}}
 headscale
 {{- end }}
@@ -46,7 +50,15 @@ headscale
 {{- end }}
 
 {{- define "headscale.host" -}}
-{{- include "headscale.serviceName" . }}.{{- include "headscale.namespace" . }}.svc.cluster.local
+https://{{- required ".Values.headscale.domain is required" .Values.headscale.domain }}
+{{- end }}
+
+{{- define "tailscale.loginServer" }}
+{{- if .Values.headscale.create }}
+{{- include "headscale.host" . }}
+{{- else }}
+{{- required ".Values.tailscale.loginServer is required" .Values.tailscale.loginServer }}
+{{- end }}
 {{- end }}
 
 {{- define "postgres.name" -}}
@@ -75,4 +87,8 @@ redis
 {{- else }}
 {{- required ".Values.redis.auth.host is required" .Values.redis.auth.host }}
 {{- end }}
+{{- end }}
+
+{{- define "redis.tailscaleStateSecretName" -}}
+tailscale-{{- include "redis.name" . }}-state-secret
 {{- end }}

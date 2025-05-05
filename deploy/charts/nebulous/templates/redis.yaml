@@ -8,11 +8,58 @@ metadata:
     {{- include "common.labels" . | nindent 4 }}
 type: Opaque
 data:
-  {{ .Values.redis.secret.keys.connection_string }}: {{ printf "redis://%s:%d/%d" (include "redis.host" .) (int .Values.redis.auth.port) (int .Values.redis.auth.database) | b64enc }}
+  {{ .Values.redis.secret.keys.connectionString }}: {{ printf "redis://:%s@%s:%d/%d" .Values.redis.auth.password (include "redis.host" .) (int .Values.redis.auth.port) (int .Values.redis.auth.database) | b64enc }}
   {{ .Values.redis.secret.keys.password}}: {{ .Values.redis.auth.password | b64enc }}
 ---
 {{- end }}
+{{- if and .Values.redis.tailscale.authKey (not .Values.headscale.create) }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.redis.tailscale.secret.name }}
+  namespace: {{ include "nebulous.namespace" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+type: Opaque
+data:
+  {{ .Values.redis.tailscale.secret.keys.authKey }}: {{ required ".Values.redis.tailscale.authKey is required" .Values.tailscale.authKey | b64enc }}
+---
+{{- end }}
 {{- if .Values.redis.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.redis.serviceAccountName }}
+---
+# Reference: https://github.com/tailscale/tailscale/blob/main/docs/k8s/role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tailscale-{{ .Values.redis.serviceAccountName }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resourceNames: ["{{ include "redis.tailscaleStateSecretName" . }}"]
+    resources: ["secrets"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tailscale-{{ .Values.redis.serviceAccountName }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.redis.serviceAccountName }}
+roleRef:
+  kind: Role
+  name: tailscale-redis
+  apiGroup: rbac.authorization.k8s.io
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -30,6 +77,7 @@ spec:
       labels:
         app: {{ include "redis.name" . }}
     spec:
+      serviceAccountName: {{ .Values.redis.serviceAccountName }}
       containers:
         - name: redis
           image: "redis:{{ .Values.redis.imageTag }}"
@@ -47,6 +95,36 @@ spec:
                   key: {{ .Values.redis.secret.keys.password }}
           ports:
             - containerPort: 6379
+        # Reference: https://github.com/tailscale/tailscale/blob/main/docs/k8s/userspace-sidecar.yaml
+        # Docs: https://tailscale.com/kb/1185/kubernetes
+        - name: tailscale
+          image: tailscale/tailscale:latest
+          imagePullPolicy: Always
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+          env:
+            - name: TS_USERSPACE
+              value: "true"
+            - name: TS_AUTH_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.redis.tailscale.secret.name }}
+                  key: {{ .Values.redis.tailscale.secret.keys.authKey }}
+            - name: TS_HOSTNAME
+              value: "redis"
+            - name: TS_EXTRA_ARGS
+              value: --login-server {{ include "tailscale.loginServer" . }}
+            - name: TS_KUBE_SECRET
+              value: {{ include "redis.tailscaleStateSecretName" . }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
 ---
 apiVersion: v1
 kind: Service
@@ -67,35 +145,4 @@ spec:
       port: {{ .Values.redis.auth.port }}
       targetPort: 6379
   type: ClusterIP
----
-{{- if .Values.redis.ingress.enabled }}
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: {{ include "redis.serviceName" . }}
-  namespace: {{ include "nebulous.namespace" . }}
-  labels:
-    {{- include "common.labels" . | nindent 4 }}
-  {{- with .Values.redis.ingress.annotations }}
-  annotations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
-spec:
-  {{- with .Values.redis.ingress.ingressClassName }}
-  ingressClassName: {{.}}
-  {{- end }}
-  rules:
-    - http:
-        paths:
-          - backend:
-              service:
-                name: {{ include "redis.name" . }}
-                port:
-                  number: {{ .Values.redis.auth.port }}
-            path: /
-            pathType: Prefix
-      {{- with .Values.redis.ingress.host }}
-      host: {{.}}
-      {{- end }}
-{{- end }}
 {{- end }}
