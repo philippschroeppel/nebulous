@@ -56,6 +56,11 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.redis.secret.name }}
                   key: {{ .Values.redis.secret.keys.password }}
+            - name: REDIS_PUBLISH_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.redis.secret.name }}
+                  key: {{ .Values.redis.secret.keys.publicConnectionString }}
             {{- end }}
             {{- if .Values.providers.aws.enabled }}
             - name: AWS_ACCESS_KEY_ID
@@ -98,8 +103,6 @@ spec:
             - name: TAILSCALE_TAILNET
               value: {{ .Values.tailscale.organization }}
             {{- end }}
-            - name: REDIS_PUBLISH_URL
-              value: {{ required ".Values.redis.publicUrl is required" .Values.redis.publicUrl }}
             - name: NEBU_PUBLISH_URL
               value: {{ required ".Values.publicUrl is required" .Values.publicUrl }}
             {{- if .Values.orign.url }}
