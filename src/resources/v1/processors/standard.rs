@@ -191,98 +191,66 @@ impl StandardProcessor {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         info!("[Processor Controller] Starting processor {}", processor.id);
 
-        // 1) Mark Processor status as Creating
-        Mutation::update_processor_status(
-            db,
-            processor.id.clone(),
-            Some(ProcessorStatus::Creating.to_string()),
-            None,
-        )
-        .await?;
-
-        // Get the processor's agent key
-        let secret_name = format!("processor-agent-key-{}", processor.id);
-        let secret_namespace = "root";
-
-        debug!("Fetching secret {}/{}", secret_namespace, secret_name);
-        let secret_model =
-            Query::find_secret_by_namespace_and_name(db, secret_namespace, &secret_name)
-                .await
-                .map_err(|e| format!("Database error fetching secret: {}", e))?
-                .ok_or_else(|| {
-                    format!(
-                        "Secret '{}/{}' not found for processor {}",
-                        secret_namespace, secret_name, processor.id
-                    )
-                })?;
-
-        debug!("Decrypting secret value for processor {}", processor.id);
-        let agent_key = secret_model
-            .decrypt_value()
-            .map_err(|e| format!("Failed to decrypt agent key: {}", e))?;
-
-        // 2) Get customized container
-        let container = self.customize_container(&processor, None, redis_client)?;
-
-        // 3) Decide how many containers to create based on `min_replicas`
-        let min_replicas = processor.min_replicas.unwrap_or(1).max(1);
-        info!(
-            "[Processor Controller] Processor {} => creating {} container(s).",
-            processor.id, min_replicas
-        );
-
-        // 4) Create a ContainerPlatform
-        // Determine the platform from the container config or default to runpod
-        let platform_str = container.platform.clone().unwrap_or("runpod".to_string());
-        let platform = platform_factory(platform_str);
-
-        // 6) For each replica, create the container
-        for replica_index in 0..min_replicas {
-            let mut request_for_replica = container.clone();
-            if let Some(mut meta) = request_for_replica.metadata.take() {
-                meta.name = Some(format!(
-                    "{}-replica-{}-{}",
-                    meta.name.unwrap_or_default(),
-                    replica_index,
-                    ShortUuid::generate()
-                        .to_string()
-                        .chars()
-                        .take(5)
-                        .collect::<String>()
-                ));
-                request_for_replica.metadata = Some(meta);
-            }
-
+        // 1) Mark Processor status as Creating (if not already something else)
+        //    This might be redundant if reconcile loop already set it, but ensures it's set.
+        let current_status_str = processor
+            .parse_status()
+            .ok()
+            .flatten()
+            .and_then(|s| s.status)
+            .unwrap_or_default();
+        if ProcessorStatus::from_str(&current_status_str).unwrap_or(ProcessorStatus::Invalid)
+            == ProcessorStatus::Defined
+        {
             info!(
-                "[Processor Controller] Creating container #{} for processor {}",
-                replica_index, processor.id
+                "[Processor Controller] Setting processor {} status to Creating",
+                processor.id
             );
-
-            let declared = platform
-                .declare(
-                    &request_for_replica,
-                    db,
-                    owner_profile,
-                    &processor.owner,
-                    &processor.namespace,
-                    Some(agent_key.clone()),
-                )
-                .await?;
-
+            Mutation::update_processor_status(
+                db,
+                processor.id.clone(),
+                Some(ProcessorStatus::Creating.to_string()),
+                None,
+            )
+            .await?;
+        } else {
             info!(
-                "[Processor Controller] Created container {} (id = {}) for processor {}",
-                declared.metadata.name, declared.metadata.id, processor.id
+                "[Processor Controller] Processor {} status already '{}', not setting to Creating.",
+                processor.id, current_status_str
             );
         }
 
-        // 7) Update Processor status to Created
-        Mutation::update_processor_status(
-            db,
-            processor.id,
-            Some(ProcessorStatus::Created.to_string()),
-            None,
-        )
-        .await?;
+        // 2) Ensure desired_replicas is set based on min_replicas
+        let target_replicas = processor.min_replicas.unwrap_or(1).max(1);
+        if processor.desired_replicas != Some(target_replicas) {
+            info!("[Processor Controller] Setting processor {} desired_replicas to {} based on min_replicas", processor.id, target_replicas);
+            let mut active_model = processors::ActiveModel::from(processor.clone());
+            active_model.desired_replicas = sea_orm::ActiveValue::Set(Some(target_replicas));
+            active_model.update(db).await?;
+            // Note: We use the original processor model below, but the update is now in DB for the watch loop
+        } else {
+            info!("[Processor Controller] Processor {} desired_replicas already matches min_replicas ({})", processor.id, target_replicas);
+        }
+
+        // 3) Update Processor desired_status to Running (if not already)
+        // The actual status (like Running, Failed etc.) will be updated by the watch loop based on pod states.
+        if processor.desired_status != Some(ProcessorStatus::Running.to_string()) {
+            info!(
+                "[Processor Controller] Setting processor {} desired_status to Running",
+                processor.id
+            );
+            Mutation::update_processor_desired_status(
+                db,
+                processor.id,
+                Some(ProcessorStatus::Running.to_string()),
+            )
+            .await?;
+        } else {
+            info!(
+                "[Processor Controller] Processor {} desired_status already Running",
+                processor.id
+            );
+        }
 
         Ok(())
     }
@@ -451,6 +419,7 @@ impl StandardProcessor {
         let mut actual_active_replicas: i32 = 0;
         let mut container_ids_to_mark_failed = Vec::new();
         let mut container_ids_to_delete_pod = Vec::new(); // Use container ID (which is pod name)
+        let mut active_runpod_containers: Vec<containers::Model> = Vec::new(); // Collect active containers
 
         for (container_id, db_container) in &db_containers_map {
             let db_status_opt = db_container.parse_status().unwrap_or(None);
@@ -481,6 +450,7 @@ impl StandardProcessor {
                 if runpod_status.is_active() && db_status.is_active() {
                     debug!("[Processor Controller] Container {} active in DB and Runpod. Counting as replica.", container_id);
                     actual_active_replicas += 1;
+                    active_runpod_containers.push((*db_container).clone()); // Add to list if active
                 } else if runpod_status.is_inactive() && db_status.is_active() {
                     // Pod is terminal in Runpod, but DB thinks it's active. Update DB.
                     warn!("[Processor Controller] Container {} is terminal ({}) in Runpod but active ({:?}) in DB. Updating DB.",
@@ -570,6 +540,7 @@ impl StandardProcessor {
                 &processor,
                 current_replicas, // Use the actual count
                 initial_desired_replicas,
+                active_runpod_containers.clone(), // Pass the list of active containers
                 container_spec_for_reconcile,
                 db,
                 owner_profile,
@@ -817,22 +788,15 @@ impl StandardProcessor {
                 }
             };
 
-            // let mut metadata = parsed_container.metadata.clone().unwrap_or_default();
-            // metadata.namespace = Some(processor.namespace.clone());
-            // metadata.owner_ref = Some(format!(
-            //     "{}.{}.Processor",
-            //     processor.name, processor.namespace
-            // ));
-            // parsed_container.metadata = Some(metadata);
-
             info!(
                 "[Processor Controller] Updated processor {} desired_replicas to {} in DB; reconciling...",
                 updated_model.id, new_replica_target
             );
             self.reconcile_replicas(
-                &updated_model,     // Pass the updated model
-                current_replicas,   // The actual count *before* this reconcile call
-                new_replica_target, // The target count
+                &updated_model,                   // Pass the updated model
+                current_replicas,                 // The actual count *before* this reconcile call
+                new_replica_target,               // The target count
+                active_runpod_containers.clone(), // Pass the list of active containers
                 parsed_container,
                 db,
                 owner_profile,
@@ -857,6 +821,7 @@ impl StandardProcessor {
         processor: &processors::Model,
         current_replicas: i32,
         new_replica_count: i32,
+        active_runpod_containers: Vec<containers::Model>,
         container_request: V1ContainerRequest,
         db: &DatabaseConnection,
         owner_profile: &V1UserProfile,
@@ -937,12 +902,8 @@ impl StandardProcessor {
                 );
             }
         } else if new_replica_count < current_replicas {
-            // Sort containers by creation date, newest first
-            let mut sorted_containers = Query::find_containers_by_owner_ref(
-                db,
-                &format!("{}.{}.Processor", processor.name, processor.namespace),
-            )
-            .await?;
+            // Use the provided list of active containers
+            let mut sorted_containers = active_runpod_containers;
             sorted_containers.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
             // Remove containers from highest replica number down to new_replica_count

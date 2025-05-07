@@ -460,4 +460,33 @@ impl Mutation {
         // 6) Write it back to the database
         processor_am.update(db).await
     }
+
+    /// Mutation to update just the `desired_status` of a processor.
+    pub async fn update_processor_desired_status(
+        db: &DatabaseConnection,
+        id: String,
+        new_desired_status: Option<String>,
+    ) -> Result<processors::Model, DbErr> {
+        // 1) Find the processor record by ID
+        let processor = processors::Entity::find_by_id(id.clone())
+            .one(db)
+            .await?
+            .ok_or_else(|| DbErr::Custom(format!("Processor '{}' not found", id)))?;
+
+        // 2) Convert the existing `Model` into an `ActiveModel`
+        let mut processor_am: processors::ActiveModel = processor.into();
+
+        // 3) Update the desired_status field
+        processor_am.desired_status = sea_orm::ActiveValue::Set(new_desired_status);
+        // Always refresh the updated_at timestamp
+        processor_am.updated_at = sea_orm::ActiveValue::Set(chrono::Utc::now().into());
+
+        info!(
+            "[Mutation] Updating processor '{}' desired_status to: {:?}",
+            id, processor_am.desired_status
+        );
+
+        // 4) Write it back to the database
+        processor_am.update(db).await
+    }
 }
