@@ -10,6 +10,7 @@ type: Opaque
 data:
   {{ .Values.redis.secret.keys.connectionString }}: {{ printf "redis://:%s@%s:%d/%d" .Values.redis.auth.password (include "redis.host" .) (int .Values.redis.auth.port) (int .Values.redis.auth.database) | b64enc }}
   {{ .Values.redis.secret.keys.password}}: {{ .Values.redis.auth.password | b64enc }}
+  {{ .Values.redis.secret.keys.publicConnectionString }}: {{ printf "redis://:%s@%s:%d/%d" .Values.redis.auth.password (include "redis.publicHost" .) (int .Values.redis.auth.port) (int .Values.redis.auth.database) | b64enc }}
 ---
 {{- end }}
 {{- if and .Values.redis.tailscale.authKey (not .Values.headscale.create) }}
@@ -112,7 +113,7 @@ spec:
                   name: {{ .Values.redis.tailscale.secret.name }}
                   key: {{ .Values.redis.tailscale.secret.keys.authKey }}
             - name: TS_HOSTNAME
-              value: "redis"
+              value: {{ include "redis.name" . }}
             - name: TS_EXTRA_ARGS
               value: --login-server {{ include "tailscale.loginServer" . }}
             - name: TS_KUBE_SECRET
