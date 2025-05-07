@@ -937,38 +937,20 @@ impl StandardProcessor {
                 );
             }
         } else if new_replica_count < current_replicas {
-            // Sort containers by replica number (extracted from name)
-            let owner_ref_string = format!("{}.{}.Processor", processor.name, processor.namespace);
-            let associated_containers_result =
-                Query::find_containers_by_owner_ref(db, &owner_ref_string).await;
-            debug!(
-                "Container query result for processor {} using owner_ref '{}': {:?}",
-                processor.id, owner_ref_string, associated_containers_result
-            );
-            let associated_containers = associated_containers_result?;
-
-            debug!("Containers: {:?}", associated_containers);
-
-            let mut containers_to_remove: Vec<(i32, containers::Model)> = associated_containers
-                .into_iter()
-                .filter_map(|c: containers::Model| {
-                    c.name
-                        .split("-replica-")
-                        .nth(1)
-                        .and_then(|num| num.parse::<i32>().ok())
-                        .map(|replica_num| (replica_num, c))
-                })
-                .collect();
-
-            debug!("Containers to remove: {:?}", containers_to_remove);
-
-            containers_to_remove.sort_by_key(|(num, _)| *num);
-            containers_to_remove.reverse(); // Remove highest numbered replicas first
+            // Sort containers by creation date, newest first
+            let mut sorted_containers = Query::find_containers_by_owner_ref(
+                db,
+                &format!("{}.{}.Processor", processor.name, processor.namespace),
+            )
+            .await?;
+            sorted_containers.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
             // Remove containers from highest replica number down to new_replica_count
-            for (_, container) in containers_to_remove
-                .iter()
-                .take((current_replicas - new_replica_count) as usize)
+            let num_to_remove = (current_replicas - new_replica_count) as usize;
+            debug!("Need to remove {} container(s)", num_to_remove);
+
+            for container in sorted_containers.iter().take(num_to_remove)
+            // Take the newest ones
             {
                 info!(
                     "[Processor Controller] Removing container {} for processor {}",
