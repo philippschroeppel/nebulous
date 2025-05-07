@@ -282,10 +282,17 @@ pub trait ContainerPlatform {
         );
         env.insert("ROOT_VOLUME_URI".to_string(), root_volume_uri);
 
-        env.insert(
-            "TS_AUTHKEY".to_string(),
-            self.get_tailscale_device_key(model).await,
-        );
+        match self.get_tailscale_device_key(model).await {
+            Ok(key) => {
+                env.insert("TS_AUTHKEY".to_string(), key);
+            }
+            Err(e) => {
+                error!(
+                    "Failed to get Tailscale device key for container {}: {:?}. TS_AUTHKEY will not be set.",
+                    model.id, e
+                );
+            }
+        }
 
         // env.insert(
         //     "RCLONE_CONFIG_S3REMOTE_ACL".to_string(),
@@ -336,11 +343,14 @@ pub trait ContainerPlatform {
         TailscaleClient::new(tailscale_api_key)
     }
 
-    async fn get_tailscale_device_key(&self, model: &containers::Model) -> String {
+    async fn get_tailscale_device_key(
+        &self,
+        model: &containers::Model,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let tailnet = CONFIG
             .tailscale_tailnet
             .clone()
-            .expect("tailscale_tailnet not found in config");
+            .ok_or_else(|| "tailscale_tailnet not found in config".to_string())?;
 
         debug!("Tailnet: {}", tailnet);
 
@@ -357,8 +367,11 @@ pub trait ContainerPlatform {
                 debug!("Ensured no existing Tailscale device for {}", name);
             }
             Err(e) => {
-                debug!("Error removing Tailscale auth key for {}: {}", name, e);
-                panic!("Error removing Tailscale auth key for {}: {}", name, e);
+                error!("Error removing Tailscale auth key for {}: {}", name, e);
+                // Return an error instead of panicking
+                return Err(
+                    format!("Tailscale API error while removing device {}: {}", name, e).into(),
+                );
             }
         }
 
@@ -372,7 +385,7 @@ pub trait ContainerPlatform {
                         reusable: Some(false),
                         ephemeral: Some(true), // If true, the key can only add ephemeral nodes
                         preauthorized: Some(true), // If true, automatically approves devices
-                        tags: Some(vec!["container".to_string()]),
+                        tags: Some(vec!["tag:container".to_string()]),
                     }),
                 },
             },
@@ -380,20 +393,22 @@ pub trait ContainerPlatform {
 
         // The second parameter below (true) often corresponds to "override" in some older client versions;
         // adjust as needed based on your Tailscale library's signature.
-        let response = client
-            .create_auth_key(&tailnet, true, &request_body)
-            .await
-            .expect("Failed to create Tailscale auth key");
+        let response = match client.create_auth_key(&tailnet, true, &request_body).await {
+            Ok(resp) => resp,
+            Err(e) => {
+                return Err(format!("Failed to create Tailscale auth key: {}", e).into());
+            }
+        };
 
         debug!("Response: {:?}", response);
         // Return the key string
-        let key = response
-            .key
-            .expect("Server did not return a value in `key`");
+        let key = response.key.ok_or_else(|| {
+            "Server did not return a value in `key` from Tailscale API".to_string()
+        })?;
 
         debug!("Tailscale key: {}", key);
 
-        key
+        Ok(key)
     }
 
     async fn get_agent_key(
