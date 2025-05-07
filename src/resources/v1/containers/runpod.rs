@@ -1744,7 +1744,7 @@ impl RunpodPlatform {
     fi
 
     echo "[DEBUG] Starting tailscale up..."
-    tailscale up --auth-key=$TS_AUTHKEY --hostname="{hostname}" --ssh
+    tailscale up --auth-key=$TS_AUTHKEY --hostname="{hostname}" --ssh --advertise-tags=tag:container
 
     echo "[DEBUG] Invoking nebu sync..."
     nebu sync volumes --config /nebu/sync.yaml --interval-seconds 5 \

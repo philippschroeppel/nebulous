@@ -372,7 +372,7 @@ pub trait ContainerPlatform {
                         reusable: Some(false),
                         ephemeral: Some(true), // If true, the key can only add ephemeral nodes
                         preauthorized: Some(true), // If true, automatically approves devices
-                        tags: Some(vec![]),
+                        tags: Some(vec!["container".to_string()]),
                     }),
                 },
             },
