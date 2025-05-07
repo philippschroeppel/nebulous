@@ -1988,6 +1988,11 @@ done
 
         Ok(())
     }
+
+    /// Public method to list pods using the internal client
+    pub async fn list_runpod_pods(&self) -> Result<ListPodsResponse, reqwest::Error> {
+        self.runpod_client.list_pods().await
+    }
 }
 
 impl ContainerPlatform for RunpodPlatform {

@@ -6,6 +6,7 @@ use crate::models::V1CreateAgentKeyRequest;
 use crate::models::V1UserProfile;
 use crate::mutation::Mutation;
 use crate::query::Query;
+use crate::resources::v1::containers::base::ContainerStatus;
 use crate::resources::v1::containers::factory::platform_factory;
 use crate::resources::v1::containers::models::V1ContainerRequest;
 use crate::resources::v1::containers::models::V1EnvVar;
@@ -378,60 +379,217 @@ impl StandardProcessor {
         owner_profile: &V1UserProfile,
         redis_client: &redis::Client,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        use crate::resources::v1::containers::factory::platform_factory;
+        use crate::resources::v1::containers::runpod::RunpodPlatform;
+        use std::collections::{HashMap, HashSet};
         use tracing::info;
+
         info!("[Processor Controller] Watching processor {}", processor.id);
 
-        // 2) Attempt to parse container config from JSON in `processor.container`.
-        //    If none is stored, fall back to some defaults.
-        let mut parsed_container = match processor.parse_container() {
-            Ok(Some(c)) => c, // `c` is a V1Container
-            Ok(None) => {
-                // No container data stored, so provide a fallback:
-                info!(
-                    "[Processor Controller] Processor {} has no container spec; using defaults",
-                    processor.id
-                );
-                Default::default()
-            }
+        // --- BEGIN Reconciliation between DB and Runpod ---
+
+        // 1. Get expected owner_ref and platform
+        let owner_ref_string = format!("{}.{}.Processor", processor.name, processor.namespace);
+        // TODO: This assumes Runpod - ideally, determine platform dynamically if needed
+        let platform = platform_factory("runpod".to_string()); // Assuming RunpodPlatform
+
+        // Cast to RunpodPlatform to access runpod_client - This is a bit hacky, assumes watch is only for runpod
+        // A better approach might involve adding list_pods to ContainerPlatform trait or specific logic
+        let runpod_platform = RunpodPlatform::new(); // Creates a new client, consider passing it down if possible
+
+        // 2. Fetch ALL Runpod pods for the user
+        let all_runpod_pods_result = runpod_platform.list_runpod_pods().await;
+        let all_runpod_pods = match all_runpod_pods_result {
+            Ok(pods) => pods.data.map_or(vec![], |d| d.pods),
             Err(e) => {
-                // If there's invalid JSON in the DB, handle or return error
                 error!(
-                    "[Processor Controller] Failed to parse container JSON for processor {}: {}",
-                    processor.id, e
+                    "[Processor Controller] Failed to list Runpod pods for reconciliation: {}",
+                    e
                 );
-                return Err(format!(
-                    "Failed to parse container JSON for processor {}: {}",
-                    processor.id, e
-                )
-                .into());
+                // Decide how to handle: return error, or proceed with potentially stale DB data?
+                // For now, return error to avoid incorrect scaling.
+                return Err(format!("Failed to list Runpod pods: {}", e).into());
             }
         };
+        debug!(
+            "[Processor Controller] Fetched {} total Runpod pods for user.",
+            all_runpod_pods.len()
+        );
 
-        // Get actual current replica count from DB
-        let current_replicas = Query::count_active_containers_for_processor(db, &processor.id)
+        // 3. Fetch DB containers for *this* processor
+        let db_containers = Query::find_containers_by_owner_ref(db, &owner_ref_string).await?;
+        let db_containers_map: HashMap<String, &crate::entities::containers::Model> =
+            db_containers.iter().map(|c| (c.id.clone(), c)).collect();
+        debug!(
+            "[Processor Controller] Found {} DB container records for processor {}",
+            db_containers.len(),
+            processor.id
+        );
+
+        // 4. Correlate Runpod pods with DB containers for this processor
+        let mut relevant_runpod_pods_map = HashMap::new();
+        let mut runpod_pod_names_for_processor = HashSet::new(); // Track names (IDs) of Runpod pods belonging to this processor
+
+        for pod in all_runpod_pods {
+            // The Runpod pod `name` should match the container `id` from our DB
+            if db_containers_map.contains_key(&pod.name) {
+                debug!(
+                    "[Processor Controller] Found matching Runpod pod '{}' for processor {}",
+                    pod.name, processor.id
+                );
+                relevant_runpod_pods_map.insert(pod.name.clone(), pod.clone()); // Use pod name as key (which is container ID)
+                runpod_pod_names_for_processor.insert(pod.name.clone());
+            }
+        }
+        debug!(
+            "[Processor Controller] Found {} Runpod pods matching DB records for processor {}",
+            relevant_runpod_pods_map.len(),
+            processor.id
+        );
+
+        // 5. Reconcile states and calculate actual replicas
+        let mut actual_active_replicas: i32 = 0;
+        let mut container_ids_to_mark_failed = Vec::new();
+        let mut container_ids_to_delete_pod = Vec::new(); // Use container ID (which is pod name)
+
+        for (container_id, db_container) in &db_containers_map {
+            let db_status_opt = db_container.parse_status().unwrap_or(None);
+            let db_status = db_status_opt
+                .as_ref()
+                .and_then(|s| s.status.as_deref())
+                .and_then(|s_str| ContainerStatus::from_str(s_str).ok())
+                .unwrap_or(ContainerStatus::Invalid); // Default to Invalid if parse fails
+
+            if let Some(runpod_pod) = relevant_runpod_pods_map.get(container_id) {
+                // Pod exists in Runpod and DB record exists
+                let runpod_desired_status_str = &runpod_pod.desired_status;
+                // Map Runpod status string to our ContainerStatus enum
+                let runpod_status = match runpod_desired_status_str.as_str() {
+                    "RUNNING" => ContainerStatus::Running,
+                    "EXITED" => ContainerStatus::Completed,
+                    "TERMINATED" => ContainerStatus::Stopped, // Or maybe Deleted? Runpod uses Terminated
+                    "DEAD" => ContainerStatus::Failed,
+                    "CREATED" => ContainerStatus::Created, // Or Defined?
+                    "RESTARTING" => ContainerStatus::Restarting,
+                    "PAUSED" => ContainerStatus::Paused,
+                    _ => ContainerStatus::Pending, // Default for unknown Runpod statuses
+                };
+
+                debug!("[Processor Controller] Reconciling Container ID: {}, DB Status: {:?}, Runpod Status: {:?} ({})",
+                       container_id, db_status, runpod_status, runpod_desired_status_str);
+
+                if runpod_status.is_active() && db_status.is_active() {
+                    debug!("[Processor Controller] Container {} active in DB and Runpod. Counting as replica.", container_id);
+                    actual_active_replicas += 1;
+                } else if runpod_status.is_inactive() && db_status.is_active() {
+                    // Pod is terminal in Runpod, but DB thinks it's active. Update DB.
+                    warn!("[Processor Controller] Container {} is terminal ({}) in Runpod but active ({:?}) in DB. Updating DB.",
+                           container_id, runpod_desired_status_str, db_status);
+                    container_ids_to_mark_failed.push(container_id.clone()); // Mark as failed for simplicity
+                } else if runpod_status.is_active() && db_status.is_inactive() {
+                    // Pod is active in Runpod, but DB thinks it's terminal. Delete the pod.
+                    warn!("[Processor Controller] Container {} is active ({}) in Runpod but terminal ({:?}) in DB. Deleting Runpod pod.",
+                            container_id, runpod_desired_status_str, db_status);
+                    container_ids_to_delete_pod.push(container_id.clone());
+                }
+                // If both are inactive, do nothing - state is consistent.
+                // If both are active, we already counted it.
+            } else {
+                // Pod not found in Runpod, but DB record exists
+                if db_status.is_active() {
+                    warn!("[Processor Controller] DB Container {} is active ({:?}) but no matching pod found in Runpod. Marking failed in DB.",
+                            container_id, db_status);
+                    container_ids_to_mark_failed.push(container_id.clone());
+                }
+                // If DB status is already inactive, do nothing - state is consistent.
+            }
+        }
+
+        // --- Perform DB Updates and Pod Deletions ---
+        for container_id in container_ids_to_mark_failed {
+            if let Err(e) = Mutation::update_container_status(
+                db,
+                container_id.clone(),
+                Some(ContainerStatus::Failed.to_string()),
+                Some("Associated Runpod pod not found or in terminal state.".to_string()),
+                None,
+                None,
+                None,
+                None,
+                Some(false), // Mark not ready
+            )
             .await
-            .map_err(|e| format!("Failed to count current containers: {}", e))?;
+            {
+                error!(
+                    "[Processor Controller] Failed to mark container {} as Failed in DB: {}",
+                    container_id, e
+                );
+            }
+        }
 
-        info!("Current replicas: {:?}", current_replicas);
+        for container_id_to_delete in container_ids_to_delete_pod {
+            warn!(
+                "[Processor Controller] Deleting Runpod pod for container ID: {}",
+                container_id_to_delete
+            );
+            // We use the container ID directly as it's the pod name in Runpod
+            match platform.delete(&container_id_to_delete, db).await {
+                Ok(_) => info!("[Processor Controller] Successfully deleted orphaned/mismatched Runpod pod for container {}", container_id_to_delete),
+                Err(e) => error!("[Processor Controller] Failed to delete orphaned/mismatched Runpod pod for container {}: {}", container_id_to_delete, e),
+            }
+        }
+        // --- END Reconciliation ---
 
-        self.reconcile_replicas(
-            &processor,
-            current_replicas as i32,
-            processor.desired_replicas.unwrap_or(1),
-            parsed_container.clone(),
-            db,
-            owner_profile,
-            redis_client,
-        )
-        .await?;
+        // Use the reconciled count
+        let current_replicas = actual_active_replicas;
+        info!(
+            "[Processor Controller] Reconciled active replicas: {}",
+            current_replicas
+        );
+
+        // Get desired replicas from processor config (this might be updated later by scaling logic)
+        // Initialize desired_replicas based on processor's min_replicas if desired_replicas field is None
+        let initial_desired_replicas = processor.desired_replicas.unwrap_or_else(|| {
+            processor.min_replicas.unwrap_or(1).max(1) // Ensure at least 1 if min_replicas is None or 0
+        });
+
+        // Initial reconcile based on DB settings vs actual count before checking pressure
+        // This ensures we reach the processor.desired_replicas count even without scaling triggers.
+        if current_replicas != initial_desired_replicas {
+            info!("[Processor Controller] Initial reconcile needed: current={}, desired={}. Reconciling...",
+                   current_replicas, initial_desired_replicas);
+            let container_spec_for_reconcile = match processor.parse_container() {
+                Ok(Some(c)) => c,
+                Ok(None) => Default::default(),
+                Err(e) => {
+                    error!("[Processor Controller] Failed to parse container spec during initial reconcile: {}", e);
+                    return Err(format!("Failed to parse container spec: {}", e).into());
+                }
+            };
+            self.reconcile_replicas(
+                &processor,
+                current_replicas, // Use the actual count
+                initial_desired_replicas,
+                container_spec_for_reconcile,
+                db,
+                owner_profile,
+                redis_client,
+            )
+            .await?;
+            // Update current_replicas count after this initial reconciliation
+            // It might be better to re-fetch the actual count, but for now, assume reconcile worked.
+            // current_replicas = initial_desired_replicas; // Or re-run the reconciliation check? Let's assume it's desired for now.
+            // Re-fetch might be safer:
+            // TODO: Re-run the pod fetching/counting logic here to get the *very latest* count after reconcile_replicas
+            // For now, we proceed with the potentially updated DB count, but the *next* watch cycle will catch up.
+        }
+
+        // --- Existing Scaling Logic (using reconciled current_replicas) ---
 
         // Make a connection from the client:
         let mut con = redis_client.get_connection()?;
 
-        info!("[Processor Controller] Watching processor {}", processor.id);
-
         // 1) Make sure there's a stream name in the processor.
-        //    We'll treat the processor's `stream` field as the Redis stream name.
         let stream_name = processor.stream.clone();
 
         // 2) The consumer group is the processor's ID.
@@ -439,8 +597,6 @@ impl StandardProcessor {
         debug!("Consumer group: {:?}", consumer_group);
 
         // 3) Check how many messages are pending for this group in the Redis stream (i.e. 'pressure').
-        //    This uses the `redis` crate's XPending or XPendingCount functionality.
-        //    Adjust the connection string or usage as necessary for your environment.
         let pending_count =
             match get_consumer_group_progress(&mut con, &stream_name, consumer_group) {
                 Ok(progress) => progress.remaining_entries(),
@@ -450,42 +606,43 @@ impl StandardProcessor {
                     processor.id, err
                 );
                     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                    return Ok(());
+                    return Ok(()); // Continue watch loop even if pressure check fails once
                 }
             };
 
-        debug!("Pending count: {:?}", pending_count);
+        debug!("Pending count for {}: {:?}", processor.id, pending_count);
 
         // 4) Compare `pending_count` to scale.up.pressure and scale.down.pressure.
-        //    We'll parse the scale from the DB (the 'scale' JSON column).
         let scale = if let Ok(s) = processor.parse_scale() {
             s
         } else {
             None
         };
 
-        // If no scale object, do nothing special
+        // If no scale object, do nothing special for scaling
         let Some(scale) = scale else {
             info!(
-                "[Processor Controller] Processor {} has no scale rules; skipping watch",
+                "[Processor Controller] Processor {} has no scale rules; skipping pressure-based scaling",
                 processor.id
             );
+            // Still need the sleep at the end
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
             return Ok(());
         };
 
-        debug!("Scale: {:?}", scale);
+        debug!("Scale rules for {}: {:?}", processor.id, scale);
 
         // Extract scale up/down thresholds.
         let scale_up_threshold = scale
             .up
             .as_ref()
             .and_then(|up| up.above_pressure)
-            .unwrap_or(i32::MAX); // If none specified, we won't scale up
+            .unwrap_or(i32::MAX);
         let scale_down_threshold = scale
             .down
             .as_ref()
             .and_then(|down| down.below_pressure)
-            .unwrap_or(0); // If none, we won't scale down
+            .unwrap_or(0);
 
         // Extract and parse scale durations
         let scale_up_duration = scale
@@ -494,7 +651,7 @@ impl StandardProcessor {
             .and_then(|up| up.duration.clone())
             .map(|d| self.parse_duration(&d))
             .transpose()?
-            .unwrap_or(Duration::zero()); // Default to instant scaling if no duration specified
+            .unwrap_or(Duration::zero());
 
         let scale_down_duration = scale
             .down
@@ -502,7 +659,12 @@ impl StandardProcessor {
             .and_then(|down| down.duration.clone())
             .map(|d| self.parse_duration(&d))
             .transpose()?
-            .unwrap_or(Duration::zero()); // Default to instant scaling if no duration specified
+            .unwrap_or(Duration::zero());
+
+        // Get max replicas from processor spec, default to a high number if not set
+        let max_replicas = processor.max_replicas.unwrap_or(i32::MAX);
+        // Get min replicas from processor spec, default to 1
+        let min_replicas = processor.min_replicas.unwrap_or(1).max(1); // Ensure at least 1
 
         debug!(
             "Scale up threshold: {:?}, duration: {:?}",
@@ -512,51 +674,63 @@ impl StandardProcessor {
             "Scale down threshold: {:?}, duration: {:?}",
             scale_down_threshold, scale_down_duration
         );
+        debug!(
+            "Min replicas: {}, Max replicas: {}",
+            min_replicas, max_replicas
+        );
 
-        let mut new_replica_count = current_replicas;
-        debug!("New replica count: {:?}", new_replica_count);
+        let mut replica_change_needed = false;
+        // Use current_replicas (the reconciled actual count)
+        let mut new_replica_target = current_replicas;
+        debug!(
+            "Current actual replicas: {}, Target before scaling: {}",
+            current_replicas, new_replica_target
+        );
 
-        // Scale-up check with duration handling
-        if (pending_count as i32) >= scale_up_threshold {
-            // Check if we need duration tracking for scale up
+        // Scale-up check
+        if (pending_count as i32) >= scale_up_threshold && current_replicas < max_replicas {
+            debug!("Scale-up condition met: pending ({}) >= threshold ({}) AND current ({}) < max ({})",
+                    pending_count, scale_up_threshold, current_replicas, max_replicas);
             if scale_up_duration > Duration::zero() {
                 let duration_met = self
                     .duration_threshold_met(redis_client, &processor.id, "up", &scale_up_duration)
                     .await?;
-
                 if duration_met {
-                    // Scale up only if threshold met for required duration
-                    new_replica_count = current_replicas + 1;
+                    new_replica_target = (current_replicas + 1).min(max_replicas); // Apply max replicas limit
                     info!(
                         "[Processor Controller] Scaling UP processor {} from {} -> {} replicas (duration threshold met)",
-                        processor.id, current_replicas, new_replica_count
+                        processor.id, current_replicas, new_replica_target
                     );
-
-                    // Clear the threshold after scaling
+                    replica_change_needed = true;
                     self.clear_duration_threshold(redis_client, &processor.id, "up")
                         .await?;
                 } else {
                     info!(
-                        "[Processor Controller] Processor {} is above scale-up threshold, but duration not yet met",
+                        "[Processor Controller] Processor {} scale-up threshold met, but duration not yet met",
                         processor.id
                     );
                 }
             } else {
-                // Instant scale up (no duration requirement)
-                new_replica_count = current_replicas + 1;
+                // Instant scale up
+                new_replica_target = (current_replicas + 1).min(max_replicas); // Apply max replicas limit
                 info!(
-                    "[Processor Controller] Scaling UP processor {} from {} -> {} replicas",
-                    processor.id, current_replicas, new_replica_count
+                    "[Processor Controller] Scaling UP processor {} from {} -> {} replicas (instant)",
+                    processor.id, current_replicas, new_replica_target
                 );
+                replica_change_needed = true;
             }
-
-            // Clear any scale-down threshold tracking when we're in scale-up condition
-            self.clear_duration_threshold(redis_client, &processor.id, "down")
-                .await?;
+            // Clear any scale-down tracking when scaling up
+            if replica_change_needed {
+                // Only clear if we actually decided to scale
+                self.clear_duration_threshold(redis_client, &processor.id, "down")
+                    .await?;
+            }
         }
-        // Scale-down check with duration handling
-        else if (pending_count as i32) <= scale_down_threshold && current_replicas > 1 {
-            // Check if we need duration tracking for scale down
+        // Scale-down check
+        else if (pending_count as i32) <= scale_down_threshold && current_replicas > min_replicas
+        {
+            debug!("Scale-down condition met: pending ({}) <= threshold ({}) AND current ({}) > min ({})",
+                    pending_count, scale_down_threshold, current_replicas, min_replicas);
             if scale_down_duration > Duration::zero() {
                 let duration_met = self
                     .duration_threshold_met(
@@ -566,71 +740,99 @@ impl StandardProcessor {
                         &scale_down_duration,
                     )
                     .await?;
-
                 if duration_met {
-                    // Scale down only if threshold met for required duration
-                    new_replica_count = (current_replicas - 1).max(1);
+                    new_replica_target = (current_replicas - 1).max(min_replicas); // Apply min replicas limit
                     info!(
                         "[Processor Controller] Scaling DOWN processor {} from {} -> {} replicas (duration threshold met)",
-                        processor.id, current_replicas, new_replica_count
+                        processor.id, current_replicas, new_replica_target
                     );
-
-                    // Clear the threshold after scaling
+                    replica_change_needed = true;
                     self.clear_duration_threshold(redis_client, &processor.id, "down")
                         .await?;
                 } else {
                     info!(
-                        "[Processor Controller] Processor {} is below scale-down threshold, but duration not yet met",
+                        "[Processor Controller] Processor {} scale-down threshold met, but duration not yet met",
                         processor.id
                     );
                 }
             } else {
-                // Instant scale down (no duration requirement)
-                new_replica_count = (current_replicas - 1).max(1);
+                // Instant scale down
+                new_replica_target = (current_replicas - 1).max(min_replicas); // Apply min replicas limit
                 info!(
-                    "[Processor Controller] Scaling DOWN processor {} from {} -> {} replicas",
-                    processor.id, current_replicas, new_replica_count
+                    "[Processor Controller] Scaling DOWN processor {} from {} -> {} replicas (instant)",
+                    processor.id, current_replicas, new_replica_target
                 );
+                replica_change_needed = true;
             }
-
-            // Clear any scale-up threshold tracking when we're in scale-down condition
-            self.clear_duration_threshold(redis_client, &processor.id, "up")
-                .await?;
+            // Clear any scale-up tracking when scaling down
+            if replica_change_needed {
+                // Only clear if we actually decided to scale
+                self.clear_duration_threshold(redis_client, &processor.id, "up")
+                    .await?;
+            }
         } else {
-            // We're not in a scale condition, clear both trackers
+            // Not scaling up or down based on pressure, clear both trackers
+            debug!("Pressure ({}) is between thresholds [{}, {}] or limits reached [{}, {}]. Clearing scale duration trackers.",
+                   pending_count, scale_down_threshold, scale_up_threshold, min_replicas, max_replicas);
             self.clear_duration_threshold(redis_client, &processor.id, "up")
                 .await?;
             self.clear_duration_threshold(redis_client, &processor.id, "down")
                 .await?;
         }
 
-        // 6) If the replica count changed, update DB, then reconcile or create/destroy containers as needed.
-        if new_replica_count != current_replicas {
+        // 6) If the replica target changed due to scaling pressure, update DB and reconcile.
+        if replica_change_needed && new_replica_target != current_replicas {
             debug!(
-                "[Processor Controller] Processor {} replica count changed from {} to {}",
-                processor.id, current_replicas, new_replica_count
+                "[Processor Controller] Scaling processor {}: target count changed from {} to {}",
+                processor.id, current_replicas, new_replica_target
             );
-            let mut active_model = processors::ActiveModel::from(processor.clone());
-            active_model.desired_replicas =
-                sea_orm::ActiveValue::Set(Some(new_replica_count as i32));
-            let updated_model = active_model.update(db).await?;
 
-            let mut metadata = parsed_container.metadata.clone().unwrap_or_default();
-            metadata.namespace = Some(processor.namespace.clone());
-            metadata.owner_ref = Some(format!(
-                "{}.{}.Processor",
-                processor.name, processor.namespace
-            ));
-            parsed_container.metadata = Some(metadata);
+            // Fetch latest processor model before updating to avoid race conditions
+            let latest_processor_model = match processors::Entity::find_by_id(processor.id.clone())
+                .one(db)
+                .await?
+            {
+                Some(p) => p,
+                None => {
+                    error!("[Processor Controller] Processor {} not found before attempting to update desired_replicas.", processor.id);
+                    return Err(format!(
+                        "Processor {} disappeared during watch cycle.",
+                        processor.id
+                    )
+                    .into());
+                }
+            };
+
+            let mut active_model = processors::ActiveModel::from(latest_processor_model); // Use latest model
+            active_model.desired_replicas = sea_orm::ActiveValue::Set(Some(new_replica_target));
+            let updated_model = active_model.update(db).await?; // This updates the processor table
+
+            let parsed_container = match updated_model.parse_container() {
+                // Use updated_model
+                Ok(Some(c)) => c,
+                Ok(None) => Default::default(),
+                Err(e) => {
+                    error!("[Processor Controller] Failed to parse container spec before reconcile: {}", e);
+                    return Err(format!("Failed to parse container spec: {}", e).into());
+                }
+            };
+
+            // let mut metadata = parsed_container.metadata.clone().unwrap_or_default();
+            // metadata.namespace = Some(processor.namespace.clone());
+            // metadata.owner_ref = Some(format!(
+            //     "{}.{}.Processor",
+            //     processor.name, processor.namespace
+            // ));
+            // parsed_container.metadata = Some(metadata);
 
             info!(
-                "[Processor Controller] Updated processor {} min_replicas to {} in DB",
-                updated_model.id, new_replica_count
+                "[Processor Controller] Updated processor {} desired_replicas to {} in DB; reconciling...",
+                updated_model.id, new_replica_target
             );
             self.reconcile_replicas(
-                &updated_model,
-                current_replicas as i32,
-                new_replica_count as i32,
+                &updated_model,     // Pass the updated model
+                current_replicas,   // The actual count *before* this reconcile call
+                new_replica_target, // The target count
                 parsed_container,
                 db,
                 owner_profile,
@@ -639,7 +841,7 @@ impl StandardProcessor {
             .await?;
         } else {
             info!(
-                "[Processor Controller] No scale change for processor {}; replicas remain {}",
+                "[Processor Controller] No scaling change needed for processor {}; actual replicas count = {}",
                 processor.id, current_replicas
             );
         }
