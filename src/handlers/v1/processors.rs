@@ -420,42 +420,50 @@ pub async fn send_processor(
         ));
     }
 
-    debug!(
-        "Creating agent key request for processor: {} and auth server: {}",
-        processor.id, auth_server
-    );
-    let agent_key_request = crate::models::V1CreateAgentKeyRequest {
-        agent_id: format!("processor-{}", processor.id),
-        name: format!(
-            "send-processor-{}-{}",
-            processor.id,
-            ShortUuid::generate().to_string()
-        ),
-        duration: 3600, // e.g., 1 hour validity
-    };
-    debug!("Creating agent key request: {:?}", agent_key_request);
+    // --- Conditionally Generate Agent Key ---
+    let agent_key: String;
+    if user_token.starts_with("a.") || user_token.starts_with("k.") {
+        debug!("Using existing user_token as agent key: {}", user_token);
+        agent_key = user_token.clone();
+    } else {
+        debug!(
+            "Creating agent key request for processor: {} and auth server: {}",
+            processor.id, auth_server
+        );
+        let agent_key_request = crate::models::V1CreateAgentKeyRequest {
+            agent_id: format!("processor-{}", processor.id),
+            name: format!(
+                "send-processor-{}-{}",
+                processor.id,
+                ShortUuid::generate().to_string()
+            ),
+            duration: 86400, // e.g., 24 hour validity
+        };
+        debug!("Creating agent key request: {:?}", agent_key_request);
 
-    let agent_key_response =
-        crate::agent::agent::create_agent_key(&auth_server, &user_token, agent_key_request)
-            .await
-            .map_err(|e| {
-                error!("Failed to create agent key: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        json!({"error": format!("Failed to generate temporary agent key: {}", e)}),
-                    ),
-                )
-            })?;
-
-    debug!("Agent key response: {:?}", agent_key_response);
-    let agent_key = agent_key_response.key.ok_or_else(|| {
-        error!("Generated agent key response did not contain a key.");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to obtain temporary agent key value"})),
+        let agent_key_response = crate::agent::agent::create_agent_key(
+            &auth_server,
+            &user_token,
+            agent_key_request,
         )
-    })?;
+        .await
+        .map_err(|e| {
+            error!("Failed to create agent key: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Failed to generate temporary agent key: {}", e)})),
+            )
+        })?;
+
+        debug!("Agent key response: {:?}", agent_key_response);
+        agent_key = agent_key_response.key.ok_or_else(|| {
+            error!("Generated agent key response did not contain a key.");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to obtain temporary agent key value"})),
+            )
+        })?;
+    }
     // --- End Agent Key Generation ---
 
     // Get the stream name

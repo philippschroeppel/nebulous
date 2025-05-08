@@ -42,6 +42,24 @@ pub async fn create_agent_key(
     }
 
     let agent_key: V1AgentKey = response.json().await?;
-    info!("Agent key created: {:?}", agent_key);
+    info!(">>> Agent key created: {:?}", agent_key);
+
+    // GET /v1/users/me with the new key
+    let user_me_url = format!("{}/v1/users/me", base_url);
+    info!("Fetching /v1/users/me with new key...");
+    let user_me_response = client
+        .get(&user_me_url)
+        .header("Authorization", format!("Bearer {:?}", agent_key.key)) // Assuming V1AgentKey has a field `key`
+        .send()
+        .await?;
+
+    let response_status = user_me_response.status();
+    let response_text = user_me_response.text().await?;
+
+    info!(
+        "/v1/users/me response status: {}, body: {}",
+        response_status, response_text
+    );
+
     Ok(agent_key)
 }
