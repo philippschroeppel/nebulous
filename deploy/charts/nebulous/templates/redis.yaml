@@ -96,6 +96,10 @@ spec:
                   key: {{ .Values.redis.secret.keys.password }}
           ports:
             - containerPort: 6379
+          {{- with .Values.redis.resources }}
+          resources:
+          {{- toYaml . | nindent 12 }}
+          {{- end }}
         # Reference: https://github.com/tailscale/tailscale/blob/main/docs/k8s/userspace-sidecar.yaml
         # Docs: https://tailscale.com/kb/1185/kubernetes
         - name: tailscale
@@ -126,6 +130,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.uid
+          {{- with .Values.redis.tailscale.resources }}
+          resources:
+          {{- toYaml . | nindent 12 }}
+          {{- end }}
 ---
 apiVersion: v1
 kind: Service

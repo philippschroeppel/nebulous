@@ -116,9 +116,9 @@ spec:
                   name: {{ .Values.openmeter.secret.name }}
                   key: {{ .Values.openmeter.secret.keys.token }}
             {{- end }}
-{{- with .Values.extraEnv }}
-{{ toYaml . | indent 12 }}
-{{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | indent 12 }}
+            {{- end }}
           volumeMounts:
             - name: huggingface-pvc
               mountPath: /huggingface
@@ -133,6 +133,10 @@ spec:
               mountPath: /var/run/tailscale
             - name: tmp
               mountPath: /tmp
+          {{- with .Values.resources }}
+          resources:
+          {{- toYaml . | nindent 12 }}
+          {{- end }}
         # Reference: https://github.com/tailscale/tailscale/blob/main/docs/k8s/sidecar.yaml
         # Docs: https://tailscale.com/kb/1185/kubernetes
         - name: tailscale
@@ -170,6 +174,10 @@ spec:
               mountPath: /var/run/tailscale
             - name: tmp
               mountPath: /tmp
+          {{- with .Values.tailscale.resources }}
+          resources:
+          {{- toYaml . | nindent 12 }}
+          {{- end }}
       volumes:
         - name: huggingface-pvc
           persistentVolumeClaim:

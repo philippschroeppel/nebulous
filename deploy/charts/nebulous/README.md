@@ -155,6 +155,7 @@ data:
 | postgres.persistence.enabled | bool | `false` | If enabled, use a PersistentVolumeClaim for the Postgres data. Ignored unless 'create' is true. |
 | postgres.persistence.size | string | `"100Gi"` | The size of the PersistentVolumeClaim for the Postgres data. |
 | postgres.persistence.storageClassName | string | `""` | The storage class of the PersistentVolumeClaim for the Postgres data. |
+| postgres.resources | object | `{}` | The resource requests and limits for the Postgres container. |
 | postgres.secret.keys.connectionString | string | `"CONNECTION_STRING"` | The key in the secret containing the Postgres connection string. |
 | postgres.secret.name | string | `"postgres-secret"` | Name of the secret with the Postgres connection string. |
 | providers.runpod.auth | object | `{"apiKey":"","containerRegistryAuthId":""}` | Manual configuration of the Runpod credentials. Not recommended for production. |
@@ -167,6 +168,7 @@ data:
 | redis.create | bool | `false` | If enabled, create a Redis deployment and service. Not recommended for production. |
 | redis.imageTag | string | `"latest"` | The redis image tag. Ignored unless 'create' is true. |
 | redis.publicHost | string | `""` | The host that Nebulous workloads use to connect to Redis. This is usually its address on the tailnet. Ignored when 'headscale.create' is true. |
+| redis.resources | object | `{}` | The resource requests and limits for the Redis container. |
 | redis.secret.keys.connectionString | string | `"CONNECTION_STRING"` | The key in the secret containing the Redis connection string. |
 | redis.secret.keys.password | string | `"PASSWORD"` | The key in the secret containing the Redis password. |
 | redis.secret.keys.publicConnectionString | string | `"PUBLIC_CONNECTION_STRING"` | The key in the secret containing the Redis connection string used by Nebulous workloads. |
@@ -175,9 +177,10 @@ data:
 | redis.service.nameOverride | string | `""` | Override the name of the Kubernetes service. |
 | redis.serviceAccountName | string | `"redis"` | The name of the Kubernetes service account for the Redis Pod. |
 | redis.tailscale.authKey | string | `""` | The Tailscale auth key for Redis. If headscale.enabled is true, this is ignored. |
+| redis.tailscale.resources | object | `{}` | The resource requests and limits for the Redis database's Tailscale sidecar container. |
 | redis.tailscale.secret.keys.authKey | string | `"AUTH_KEY"` | The key in the secret containing the Tailscale auth key. |
 | redis.tailscale.secret.name | string | `"tailscale-redis-secret"` | Name of the secret with the Tailscale auth key for Redis. |
-| resources | object | `{}` | The resources to request and limit for the Nebulous server container. |
+| resources | object | `{}` | The resource requests and limits for the Nebulous server container. |
 | rootOwner | string | `"agentsea"` | The owner of the Nebulous root. |
 | service.annotations | object | `{}` | Annotations to add to the Kubernetes service. |
 | service.nameOverride | string | `""` | Override the name of the Kubernetes service. |
@@ -203,6 +206,7 @@ data:
 | tailscale.authKey | string | `""` | The Tailscale auth key. If headscale.enabled is true, this is ignored. |
 | tailscale.loginServer | string | `"https://login.tailscale.com"` | The Tailscale host to connect to. If headscale.enabled is true, this is ignored. |
 | tailscale.organization | string | `""` | The name of the Tailscale organization. If headscale.enabled is true, this is ignored. |
+| tailscale.resources | object | `{}` | The resource requests and limits for the Nebulous server's Tailscale sidecar container. |
 | tailscale.secret.keys.apiKey | string | `"API_KEY"` | The key in the secret containing the Tailscale API key. |
 | tailscale.secret.keys.authKey | string | `"AUTH_KEY"` | The key in the secret containing the Tailscale auth key. |
 | tailscale.secret.name | string | `"tailscale-secret"` | Name of the secret with the Tailscale auth key and API key. |

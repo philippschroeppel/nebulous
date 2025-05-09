@@ -2,7 +2,7 @@
 namespaceOverride: ""
 
 # -- Additional environment variables to pass to the Nebulous server container.
-extraEnv: []
+extraEnv: [ ]
 
 ## Nebulous configuration
 image:
@@ -12,8 +12,8 @@ image:
   # -- The repository to pull the server image from.
   repository: "us-docker.pkg.dev/agentsea-dev/nebulous/server"
 
-# -- The resources to request and limit for the Nebulous server container.
-resources: {}
+# -- The resource requests and limits for the Nebulous server container.
+resources: { }
 
 # -- The log level of the Nebulous server. Options are "off", "trace", "debug", "info", "warn", "error".
 logLevel: "info"
@@ -39,7 +39,7 @@ ingress:
   annotations: { }
   # -- The ingress class.
   ingressClassName: ""
-  
+
 # -- The URL that agents use to connect to Nebulous.
 publicUrl: ""
 
@@ -96,6 +96,9 @@ tailscale:
       apiKey: "API_KEY"
       # -- The key in the secret containing the Tailscale auth key.
       authKey: "AUTH_KEY"
+
+  # -- The resource requests and limits for the Nebulous server's Tailscale sidecar container.
+  resources: { }
 
 encryptionKey:
   secret:
@@ -190,6 +193,9 @@ postgres:
     # -- The storage class of the PersistentVolumeClaim for the Postgres data.
     storageClassName: ""
 
+  # -- The resource requests and limits for the Postgres container.
+  resources: { }
+
 redis:
   secret:
     # -- Name of the secret with the Redis connection string and password.
@@ -211,6 +217,7 @@ redis:
 
   # -- If enabled, create a Redis deployment and service. Not recommended for production.
   create: false
+
   # -- The redis image tag. Ignored unless 'create' is true.
   imageTag: "latest"
 
@@ -225,7 +232,10 @@ redis:
 
   # -- The name of the Kubernetes service account for the Redis Pod.
   serviceAccountName: "redis"
- 
+
+  # -- The resource requests and limits for the Redis container.
+  resources: { }
+
   tailscale:
     # -- The Tailscale auth key for Redis. If headscale.enabled is true, this is ignored.
     authKey: ""
@@ -236,6 +246,9 @@ redis:
       keys:
         # -- The key in the secret containing the Tailscale auth key.
         authKey: "AUTH_KEY"
+
+    # -- The resource requests and limits for the Redis database's Tailscale sidecar container.
+    resources: { }
 
 ## Headscale configuration
 headscale:

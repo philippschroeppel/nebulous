@@ -141,6 +141,10 @@ spec:
             - mountPath: /mnt/derp
               name: derp-config
             {{- end }}
+          {{- with .Values.headscale.resources }}
+          resources:
+          {{- toYaml . | nindent 12 }}
+          {{- end }}
       volumes:
         - name: config
           configMap:
