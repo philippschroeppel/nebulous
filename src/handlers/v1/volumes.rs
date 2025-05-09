@@ -242,6 +242,11 @@ pub async fn ensure_volume(
     if let Some(volume) = existing_volume {
         if volume.source == source {
             return Ok(volume);
+        } else {
+            return Err(DbErr::Custom(format!(
+                "Volume with name '{}' already exists in namespace '{}', but has a different source ('{}' vs '{}'). This is currently not supported.",
+                name, namespace, volume.source, source
+            )));
         }
     }
 
