@@ -62,18 +62,20 @@ spec:
                   name: {{ .Values.redis.secret.name }}
                   key: {{ .Values.redis.secret.keys.publicConnectionString }}
             {{- end }}
-            {{- if .Values.providers.aws.enabled }}
+            - name: NEBU_BUCKET_NAME
+              value: {{ .Values.bucket.name }}
+            - name: NEBU_BUCKET_REGION
+              value: {{ .Values.bucket.region }}
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.providers.aws.secret.name }}
-                  key: {{ .Values.providers.aws.secret.keys.accessKeyId }}
+                  name: {{ .Values.bucket.secret.name }}
+                  key: {{ .Values.bucket.secret.keys.accessKeyId }}
             - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.providers.aws.secret.name }}
-                  key: {{ .Values.providers.aws.secret.keys.secretAccessKey }}
-            {{- end }}
+                  name: {{ .Values.bucket.secret.name }}
+                  key: {{ .Values.bucket.secret.keys.secretAccessKey }}
             {{- if .Values.providers.runpod.enabled }}
             - name: RUNPOD_API_KEY
               valueFrom:
@@ -88,10 +90,6 @@ spec:
             {{- end }}
             - name: RUST_LOG
               value: {{ .Values.logLevel | lower }}
-            - name: NEBU_BUCKET_NAME
-              value: {{ .Values.bucket.name }}
-            - name: NEBU_BUCKET_REGION
-              value: {{ .Values.bucket.region }}
             - name: NEBU_ROOT_OWNER
               value: {{ .Values.rootOwner }}
             - name: TS_API_KEY

@@ -88,8 +88,12 @@ data:
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| bucket.name | string | `"nebulous-rs"` | The name of the bucket to use for Nebulous. |
-| bucket.region | string | `"us-east-1"` | The region of the bucket to use for Nebulous. |
+| bucket.auth | object | `{"accessKeyId":"","secretAccessKey":""}` | Manual configuration of the AWS credentials. Not recommended for production. |
+| bucket.name | string | `""` | The name of the Amazon S3 bucket to use for Nebulous. |
+| bucket.region | string | `""` | The region of the Amazon S3 bucket to use for Nebulous. |
+| bucket.secret.keys.accessKeyId | string | `"AWS_ACCESS_KEY_ID"` | The key in the secret containing the access key ID. |
+| bucket.secret.keys.secretAccessKey | string | `"AWS_SECRET_ACCESS_KEY"` | The key in the secret containing the secret access key. |
+| bucket.secret.name | string | `"aws-secret"` | The name of the secret containing the AWS credentials. |
 | encryptionKey.encodedValue | string | `""` | The 32 byte encryption key encoded in base64. Not recommended for production. |
 | encryptionKey.secret.keys.encryptionKey | string | `"ENCRYPTION_KEY"` | The key in the secret containing the encryption key. |
 | encryptionKey.secret.name | string | `"nebulous-secret"` | The name of the secret containing the 32 byte encryption key. |
@@ -153,11 +157,6 @@ data:
 | postgres.persistence.storageClassName | string | `""` | The storage class of the PersistentVolumeClaim for the Postgres data. |
 | postgres.secret.keys.connectionString | string | `"CONNECTION_STRING"` | The key in the secret containing the Postgres connection string. |
 | postgres.secret.name | string | `"postgres-secret"` | Name of the secret with the Postgres connection string. |
-| providers.aws.auth | object | `{"accessKeyId":"","secretAccessKey":""}` | Manual configuration of the AWS credentials. Not recommended for production. |
-| providers.aws.enabled | bool | `false` | Enable access to AWS. |
-| providers.aws.secret.keys.accessKeyId | string | `"AWS_ACCESS_KEY_ID"` | The key in the secret containing the access key ID. |
-| providers.aws.secret.keys.secretAccessKey | string | `"AWS_SECRET_ACCESS_KEY"` | The key in the secret containing the secret access key. |
-| providers.aws.secret.name | string | `"aws-secret"` | The name of the secret containing the AWS credentials. |
 | providers.runpod.auth | object | `{"apiKey":"","containerRegistryAuthId":""}` | Manual configuration of the Runpod credentials. Not recommended for production. |
 | providers.runpod.enabled | bool | `false` | Enable access to Runpod. |
 | providers.runpod.secret.keys.apiKey | string | `"RUNPOD_API_KEY"` | The key in the secret containing the API key. |
@@ -178,6 +177,7 @@ data:
 | redis.tailscale.authKey | string | `""` | The Tailscale auth key for Redis. If headscale.enabled is true, this is ignored. |
 | redis.tailscale.secret.keys.authKey | string | `"AUTH_KEY"` | The key in the secret containing the Tailscale auth key. |
 | redis.tailscale.secret.name | string | `"tailscale-redis-secret"` | Name of the secret with the Tailscale auth key for Redis. |
+| resources | object | `{}` | The resources to request and limit for the Nebulous server container. |
 | rootOwner | string | `"agentsea"` | The owner of the Nebulous root. |
 | service.annotations | object | `{}` | Annotations to add to the Kubernetes service. |
 | service.nameOverride | string | `""` | Override the name of the Kubernetes service. |
