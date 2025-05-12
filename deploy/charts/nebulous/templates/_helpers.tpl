@@ -1,8 +1,14 @@
 {{- define "common.labels" -}}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
-app.kubernetes.io/name: {{ .Chart.Name | trunc 63 | trimSuffix "-" }}
+app.kubernetes.io/part-of: {{ .Chart.Name | trunc 63 | trimSuffix "-" }}
+app.kubernetes.io/managed-by: Helm
+{{- end }}
+
+{{- define "nebulous.labels" -}}
+app.kubernetes.io/name: nebulous
 app.kubernetes.io/instance: {{ .Release.Name | trunc 63 | trimSuffix "-" }}
-{{- end}}
+app.kubernetes.io/component: server
+{{- end }}
 
 {{- define "nebulous.namespace" -}}
 {{- default .Release.Namespace .Values.namespaceOverride }}

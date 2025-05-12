@@ -68,6 +68,9 @@ metadata:
   namespace: {{ include "nebulous.namespace" . }}
   labels:
     {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: {{ include "redis.name" . }}
+    app.kubernetes.io/component: cache
 spec:
   replicas: 1
   selector:
@@ -76,6 +79,10 @@ spec:
   template:
     metadata:
       labels:
+        {{- include "common.labels" . | nindent 8 }}
+        app.kubernetes.io/name: redis
+        app.kubernetes.io/instance: {{ include "redis.name" . }}
+        app.kubernetes.io/component: cache
         app: {{ include "redis.name" . }}
     spec:
       serviceAccountName: {{ .Values.redis.serviceAccountName }}
@@ -96,6 +103,10 @@ spec:
                   key: {{ .Values.redis.secret.keys.password }}
           ports:
             - containerPort: 6379
+          {{- with .Values.redis.resources }}
+          resources:
+          {{- toYaml . | nindent 12 }}
+          {{- end }}
         # Reference: https://github.com/tailscale/tailscale/blob/main/docs/k8s/userspace-sidecar.yaml
         # Docs: https://tailscale.com/kb/1185/kubernetes
         - name: tailscale
@@ -126,6 +137,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.uid
+          {{- with .Values.redis.tailscale.resources }}
+          resources:
+          {{- toYaml . | nindent 12 }}
+          {{- end }}
 ---
 apiVersion: v1
 kind: Service

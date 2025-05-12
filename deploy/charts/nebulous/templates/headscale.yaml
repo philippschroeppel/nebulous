@@ -12,7 +12,7 @@ data:
     listen_addr: 0.0.0.0:8080
     metrics_listen_addr: 0.0.0.0:9090
     noise:
-      private_key_path: /mnt/keys/noise_private.key
+      private_key_path: /var/lib/headscale/noise_private.key
     prefixes:
       v4: 100.64.0.0/10
       v6: fd7a:115c:a1e0::/48
@@ -20,13 +20,15 @@ data:
     tls_letsencrypt_hostname: {{ .Values.headscale.tls.letsencrypt.hostname }}
     acme_email: {{ .Values.headscale.tls.letsencrypt.email }}
     tls_letsencrypt_listen: ":http"
-    tls_letsencrypt_cache_dir: /mnt/letsencrypt
+    tls_letsencrypt_cache_dir: /var/lib/headscale/cache
     tls_letsencrypt_challenge_type: HTTP-01
     {{- end }}
     tls_cert_path: ""
     tls_key_path: ""
     database:
       type: sqlite
+      sqlite:
+        path: /var/lib/headscale/db.sqlite
     derp:
       server:
         enabled: false
@@ -43,78 +45,29 @@ data:
       format: {{ .Values.headscale.log.format }}
       level: {{ .Values.headscale.log.level }}
 ---
-{{- if .Values.headscale.sqlite.createPersistentVolumeClaim }}
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: {{ .Values.headscale.sqlite.claimName }}
-  namespace: {{ include "headscale.namespace" . }}
-  labels:
-    {{- include "common.labels" . | nindent 4 }}
-spec:
-  {{- with .Values.headscale.sqlite.storageClassName }}
-  storageClassName: {{.}}
-  {{- end }}
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: {{ .Values.headscale.sqlite.size }}
----
-{{- end }}
-{{- if .Values.headscale.privateKeys.createPersistentVolumeClaim }}
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: {{ .Values.headscale.privateKeys.claimName }}
-  namespace: {{ include "headscale.namespace" . }}
-  labels:
-    {{- include "common.labels" . | nindent 4 }}
-spec:
-  {{- with .Values.headscale.privateKeys.storageClassName }}
-  storageClassName: {{.}}
-  {{- end }}
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: {{ .Values.headscale.privateKeys.size }}
----
-{{- end }}
-{{- if and .Values.headscale.tls.letsencrypt.hostname .Values.headscale.tls.letsencrypt.createPersistentVolumeClaim }}
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: {{ .Values.headscale.tls.letsencrypt.claimName }}
-  namespace: {{ include "headscale.namespace" . }}
-  labels:
-    {{- include "common.labels" . | nindent 4 }}
-spec:
-  {{- with .Values.headscale.tls.letsencrypt.storageClassName }}
-  storageClassName: {{.}}
-  {{- end }}
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: {{ .Values.headscale.tls.letsencrypt.size }}
----
-{{- end }}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "headscale.name" . }}
   namespace: {{ include "headscale.namespace" . }}
   labels:
     {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/name: headscale
+    app.kubernetes.io/instance: {{ include "headscale.name" . }}
+    app.kubernetes.io/component: headscale
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: {{ include "headscale.name" . }}
+  serviceName: {{ include "headscale.name" . }}
   template:
     metadata:
       labels:
+        {{- include "common.labels" . | nindent 8 }}
+        app.kubernetes.io/name: headscale
+        app.kubernetes.io/instance: {{ include "headscale.name" . }}
+        app.kubernetes.io/component: headscale
         app: {{ include "headscale.name" . }}
     spec:
       containers:
@@ -129,158 +82,38 @@ spec:
           volumeMounts:
             - mountPath: /etc/headscale
               name: config
-            - mountPath: /mnt/sqlite
-              name: sqlite
-            - mountPath: /mnt/keys
-              name: private-keys
-            {{- if .Values.headscale.tls.letsencrypt.hostname }}
-            - mountPath: /mnt/letsencrypt
-              name: tls-letsencrypt
-            {{- end }}
+            - mountPath: /var/lib/headscale
+              name: data
             {{- if .Values.headscale.derp.configMap.name }}
             - mountPath: /mnt/derp
               name: derp-config
             {{- end }}
+          {{- with .Values.headscale.resources }}
+          resources:
+          {{- toYaml . | nindent 12 }}
+          {{- end }}
       volumes:
         - name: config
           configMap:
             name: {{ include "headscale.name" . }}
-        - name: sqlite
-          persistentVolumeClaim:
-            claimName: {{ .Values.headscale.sqlite.claimName }}
-        - name: private-keys
-          persistentVolumeClaim:
-            claimName: {{ .Values.headscale.privateKeys.claimName }}
-        {{- if .Values.headscale.tls.letsencrypt.hostname }}
-        - name: tls-letsencrypt
-          persistentVolumeClaim:
-            claimName: {{ .Values.headscale.tls.letsencrypt.claimName }}
-        {{- end }}
         {{- if .Values.headscale.derp.configMap.name }}
         - name: derp-config
           configMap:
             name: {{ .Values.headscale.derp.configMap.name }}
         {{- end }}
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: headscale-api-key-generator
-  namespace: {{ include "nebulous.namespace" . }}
-  labels:
-    {{- include "common.labels" . | nindent 4 }}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: pod-exec
-  namespace: {{ include "headscale.namespace" . }}
-  labels:
-    {{- include "common.labels" . | nindent 4 }}
-rules:
-  - apiGroups: [ "" ]
-    resources: [ "pods", "pods/exec" ]
-    verbs: [ "get", "list", "watch", "create" ]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: allow-exec
-  namespace: {{ include "headscale.namespace" . }}
-  labels:
-    {{- include "common.labels" . | nindent 4 }}
-subjects:
-  - kind: ServiceAccount
-    name: headscale-api-key-generator
-    namespace: {{ include "nebulous.namespace" . }}
-roleRef:
-  kind: Role
-  name: pod-exec
-  apiGroup: rbac.authorization.k8s.io
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: secret-writer
-  namespace: {{ include "nebulous.namespace" . }}
-  labels:
-    {{- include "common.labels" . | nindent 4 }}
-rules:
-  - apiGroups: [ "" ]
-    resources: [ "secrets" ]
-    verbs: [ "create", "delete", "get", "list" ]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: allow-secret-creation
-  namespace: {{ include "nebulous.namespace" . }}
-  labels:
-      {{- include "common.labels" . | nindent 4 }}
-subjects:
-  - kind: ServiceAccount
-    name: headscale-api-key-generator
-    namespace: {{ include "nebulous.namespace" . }}
-roleRef:
-  kind: Role
-  name: secret-writer
-  apiGroup: rbac.authorization.k8s.io
----
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: delete-old-tailscale-secret
-  annotations:
-    "helm.sh/hook": pre-upgrade
-    "helm.sh/hook-weight": "-10"
-spec:
-  template:
-    spec:
-      restartPolicy: Never
-      serviceAccountName: headscale-api-key-generator
-      containers:
-        - name: delete-secret
-          image: bitnami/kubectl
-          command:
-            - "/bin/sh"
-            - "-c"
-            - "kubectl delete secret {{ .Values.tailscale.secret.name }} -n {{ include "nebulous.namespace" . }} --ignore-not-found"
----
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: generate-tailscale-secret-for-headscale
-  namespace: {{ include "nebulous.namespace" . }}
-  labels:
-    {{- include "common.labels" . | nindent 4 }}
-  annotations:
-    "helm.sh/hook": "post-install,post-upgrade"
-    "helm.sh/hook-weight": "5"
-spec:
-  template:
-    spec:
-      serviceAccountName: headscale-api-key-generator
-      restartPolicy: OnFailure
-      containers:
-        - name: api-key-generator
-          image: bitnami/kubectl
-          command: [ "/bin/sh", "-c", "
-          echo 'Waiting for Headscale Pod to be ready...';
-          until kubectl get pod -l app={{ include "headscale.name" . }} -n {{ include "headscale.namespace" . }} -o jsonpath='{.items[0].status.phase}' | grep -q Running; do
-            sleep 1;
-          done;
-          POD_NAME=$(kubectl get pod -l app={{ include "headscale.name" . }} -n {{ include "headscale.namespace" . }} -o jsonpath='{.items[0].metadata.name}')
-
-          kubectl exec $POD_NAME -n {{ include "headscale.namespace" . }} -- headscale users create nebu || echo 'User nebu already exists. That is OK.';
-
-          API_KEY=$(kubectl exec $POD_NAME -n {{ include "headscale.namespace" . }} -- headscale apikeys create --expiration 99y);
-          AUTH_KEY=$(kubectl exec $POD_NAME -n {{ include "headscale.namespace" . }} -- headscale preauthkeys create --user nebu --reusable);
-
-          kubectl create secret generic {{ .Values.tailscale.secret.name }} -n {{ include "nebulous.namespace" . }} \
-            --from-literal={{ .Values.tailscale.secret.keys.apiKey }}=$API_KEY \
-            --from-literal={{ .Values.tailscale.secret.keys.authKey }}=$AUTH_KEY \
-            --from-literal={{ .Values.tailscale.secret.keys.loginServer }}={{ include "headscale.host" . }};
-        " ]
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "common.labels" . | nindent 8 }}
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: {{ .Values.headscale.persistence.size }}
+        {{- if .Values.headscale.persistence.storageClassName }}
+        storageClassName: {{ .Values.headscale.persistence.storageClassName }}
+        {{- end }}
 ---
 apiVersion: v1
 kind: Service

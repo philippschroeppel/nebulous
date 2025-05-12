@@ -2,7 +2,7 @@
 namespaceOverride: ""
 
 # -- Additional environment variables to pass to the Nebulous server container.
-extraEnv: []
+extraEnv: [ ]
 
 ## Nebulous configuration
 image:
@@ -11,6 +11,9 @@ image:
   tag: ""
   # -- The repository to pull the server image from.
   repository: "us-docker.pkg.dev/agentsea-dev/nebulous/server"
+
+# -- The resource requests and limits for the Nebulous server container.
+resources: { }
 
 # -- The log level of the Nebulous server. Options are "off", "trace", "debug", "info", "warn", "error".
 logLevel: "info"
@@ -36,7 +39,7 @@ ingress:
   annotations: { }
   # -- The ingress class.
   ingressClassName: ""
-  
+
 # -- The URL that agents use to connect to Nebulous.
 publicUrl: ""
 
@@ -45,10 +48,24 @@ local:
   enabled: false
 
 bucket:
-  # -- The name of the bucket to use for Nebulous.
-  name: "nebulous-rs"
-  # -- The region of the bucket to use for Nebulous.
-  region: "us-east-1"
+  # -- The name of the Amazon S3 bucket to use for Nebulous.
+  name: ""
+  # -- The region of the Amazon S3 bucket to use for Nebulous.
+  region: ""
+
+  secret:
+    # -- The name of the secret containing the AWS credentials.
+    name: "aws-secret"
+    keys:
+      # -- The key in the secret containing the access key ID.
+      accessKeyId: "AWS_ACCESS_KEY_ID"
+      # -- The key in the secret containing the secret access key.
+      secretAccessKey: "AWS_SECRET_ACCESS_KEY"
+
+  # -- Manual configuration of the AWS credentials. Not recommended for production.
+  auth:
+    accessKeyId: ""
+    secretAccessKey: ""
 
 # -- The owner of the Nebulous root.
 rootOwner: "agentsea"
@@ -79,6 +96,9 @@ tailscale:
       apiKey: "API_KEY"
       # -- The key in the secret containing the Tailscale auth key.
       authKey: "AUTH_KEY"
+
+  # -- The resource requests and limits for the Nebulous server's Tailscale sidecar container.
+  resources: { }
 
 encryptionKey:
   secret:
@@ -161,17 +181,13 @@ postgres:
   imageTag: "latest"
 
   persistence:
-    # -- If enabled, use a PersistentVolumeClaim for the Postgres data. Ignored unless 'create' is true.
-    enabled: false
-    # -- The name of the PersistentVolumeClaim for the Postgres data.
-    claimName: "postgres-pvc"
-
-    # -- If true, create a new PersistentVolumeClaim for the Postgres data.
-    createPersistentVolumeClaim: false
     # -- The size of the PersistentVolumeClaim for the Postgres data.
     size: "100Gi"
     # -- The storage class of the PersistentVolumeClaim for the Postgres data.
     storageClassName: ""
+
+  # -- The resource requests and limits for the Postgres container.
+  resources: { }
 
 redis:
   secret:
@@ -194,6 +210,7 @@ redis:
 
   # -- If enabled, create a Redis deployment and service. Not recommended for production.
   create: false
+
   # -- The redis image tag. Ignored unless 'create' is true.
   imageTag: "latest"
 
@@ -208,7 +225,10 @@ redis:
 
   # -- The name of the Kubernetes service account for the Redis Pod.
   serviceAccountName: "redis"
- 
+
+  # -- The resource requests and limits for the Redis container.
+  resources: { }
+
   tailscale:
     # -- The Tailscale auth key for Redis. If headscale.enabled is true, this is ignored.
     authKey: ""
@@ -219,6 +239,9 @@ redis:
       keys:
         # -- The key in the secret containing the Tailscale auth key.
         authKey: "AUTH_KEY"
+
+    # -- The resource requests and limits for the Redis database's Tailscale sidecar container.
+    resources: { }
 
 ## Headscale configuration
 headscale:
@@ -259,28 +282,6 @@ headscale:
       # -- The key in the ConfigMap containing the DERP server configuration YAML file.
       key: "servers.yaml"
 
-  sqlite:
-    # -- The name of the PersistentVolumeClaim for the Headscale sqlite database.
-    claimName: "headscale-sqlite-pvc"
-
-    # -- If true, create a PersistentVolumeClaim for the Headscale sqlite database.
-    createPersistentVolumeClaim: true
-    # -- The size of the PersistentVolumeClaim created for the Headscale sqlite database.
-    size: "10Gi"
-    # -- The storage class of the PersistentVolumeClaim created for the Headscale sqlite database.
-    storageClassName: ""
-
-  privateKeys:
-    # -- The name of the PersistentVolumeClaim for the Headscale private keys.
-    claimName: "headscale-keys-pvc"
-
-    # -- If true, create a PersistentVolumeClaim for the Headscale private keys.
-    createPersistentVolumeClaim: true
-    # -- The size of the PersistentVolumeClaim created for the Headscale
-    size: "16Mi"
-    # -- The storage class of the PersistentVolumeClaim created for the Headscale private keys.
-    storageClassName: ""
-
   tls:
     letsencrypt:
       # -- The hostname for the Let's Encrypt certificate. Has to match the domain of the Headscale server.
@@ -288,15 +289,14 @@ headscale:
       # -- The email address for the Let's Encrypt certificate.
       email: ""
 
-      # -- The name of the PersistentVolumeClaim for the Headscale Let's Encrypt cache.
-      claimName: "headscale-tls-pvc"
+  persistence:
+    # -- The size of the PersistentVolumeClaim for the Headscale data.
+    size: "1Gi"
+    # -- The storage class of the PersistentVolumeClaim for the Headscale data.
+    storageClassName: ""
 
-      # -- If true, create a PersistentVolumeClaim for the Headscale Let's Encrypt cache.
-      createPersistentVolumeClaim: true
-      # -- The size of the PersistentVolumeClaim created for the Headscale Let's Encrypt cache.
-      size: "16Mi"
-      # -- The storage class of the PersistentVolumeClaim created for the Headscale Let's Encrypt cache.
-      storageClassName: ""
+  # -- The resource requests and limits for the headscale container.
+  resources: { }
 
   service:
     # -- The port of the Kubernetes service.
@@ -319,24 +319,6 @@ headscale:
 
 ## Provider configuration
 providers:
-  aws:
-    # -- Enable access to AWS.
-    enabled: false
-
-    secret:
-      # -- The name of the secret containing the AWS credentials.
-      name: "aws-secret"
-      keys:
-        # -- The key in the secret containing the access key ID.
-        accessKeyId: "AWS_ACCESS_KEY_ID"
-        # -- The key in the secret containing the secret access key.
-        secretAccessKey: "AWS_SECRET_ACCESS_KEY"
-
-    # -- Manual configuration of the AWS credentials. Not recommended for production.
-    auth:
-      accessKeyId: ""
-      secretAccessKey: ""
-
   runpod:
     # -- Enable access to Runpod.
     enabled: false
