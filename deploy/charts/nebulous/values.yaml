@@ -181,13 +181,6 @@ postgres:
   imageTag: "latest"
 
   persistence:
-    # -- If enabled, use a PersistentVolumeClaim for the Postgres data. Ignored unless 'create' is true.
-    enabled: false
-    # -- The name of the PersistentVolumeClaim for the Postgres data.
-    claimName: "postgres-pvc"
-
-    # -- If true, create a new PersistentVolumeClaim for the Postgres data.
-    createPersistentVolumeClaim: false
     # -- The size of the PersistentVolumeClaim for the Postgres data.
     size: "100Gi"
     # -- The storage class of the PersistentVolumeClaim for the Postgres data.
@@ -289,28 +282,6 @@ headscale:
       # -- The key in the ConfigMap containing the DERP server configuration YAML file.
       key: "servers.yaml"
 
-  sqlite:
-    # -- The name of the PersistentVolumeClaim for the Headscale sqlite database.
-    claimName: "headscale-sqlite-pvc"
-
-    # -- If true, create a PersistentVolumeClaim for the Headscale sqlite database.
-    createPersistentVolumeClaim: true
-    # -- The size of the PersistentVolumeClaim created for the Headscale sqlite database.
-    size: "10Gi"
-    # -- The storage class of the PersistentVolumeClaim created for the Headscale sqlite database.
-    storageClassName: ""
-
-  privateKeys:
-    # -- The name of the PersistentVolumeClaim for the Headscale private keys.
-    claimName: "headscale-keys-pvc"
-
-    # -- If true, create a PersistentVolumeClaim for the Headscale private keys.
-    createPersistentVolumeClaim: true
-    # -- The size of the PersistentVolumeClaim created for the Headscale
-    size: "16Mi"
-    # -- The storage class of the PersistentVolumeClaim created for the Headscale private keys.
-    storageClassName: ""
-
   tls:
     letsencrypt:
       # -- The hostname for the Let's Encrypt certificate. Has to match the domain of the Headscale server.
@@ -318,15 +289,14 @@ headscale:
       # -- The email address for the Let's Encrypt certificate.
       email: ""
 
-      # -- The name of the PersistentVolumeClaim for the Headscale Let's Encrypt cache.
-      claimName: "headscale-tls-pvc"
+  persistence:
+    # -- The size of the PersistentVolumeClaim for the Headscale data.
+    size: "1Gi"
+    # -- The storage class of the PersistentVolumeClaim for the Headscale data.
+    storageClassName: ""
 
-      # -- If true, create a PersistentVolumeClaim for the Headscale Let's Encrypt cache.
-      createPersistentVolumeClaim: true
-      # -- The size of the PersistentVolumeClaim created for the Headscale Let's Encrypt cache.
-      size: "16Mi"
-      # -- The storage class of the PersistentVolumeClaim created for the Headscale Let's Encrypt cache.
-      storageClassName: ""
+  # -- The resource requests and limits for the headscale container.
+  resources: { }
 
   service:
     # -- The port of the Kubernetes service.

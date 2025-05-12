@@ -112,25 +112,16 @@ data:
 | headscale.log.format | string | `"text"` | The log format of the Headscale server. Options are "text" or "json". |
 | headscale.log.level | string | `"info"` | The log level of the Headscale server. Options are "off", "trace", "debug", "info", "warn", "error". |
 | headscale.namespaceOverride | string | `""` | Namespace override for the Headscale deployment. |
+| headscale.persistence.size | string | `"1Gi"` | The size of the PersistentVolumeClaim for the Headscale data. |
+| headscale.persistence.storageClassName | string | `""` | The storage class of the PersistentVolumeClaim for the Headscale data. |
 | headscale.prefixes | object | `{"v4":"100.64.0.0/10","v6":"fd7a:115c:a1e0::/48"}` | Prefixes to allocate tailaddresses from. Must be within the IP ranges supported by the Tailscale client. Refer to https://github.com/juanfont/headscale/blob/main/config-example.yaml for details. |
-| headscale.privateKeys.claimName | string | `"headscale-keys-pvc"` | The name of the PersistentVolumeClaim for the Headscale private keys. |
-| headscale.privateKeys.createPersistentVolumeClaim | bool | `true` | If true, create a PersistentVolumeClaim for the Headscale private keys. |
-| headscale.privateKeys.size | string | `"16Mi"` | The size of the PersistentVolumeClaim created for the Headscale |
-| headscale.privateKeys.storageClassName | string | `""` | The storage class of the PersistentVolumeClaim created for the Headscale private keys. |
+| headscale.resources | object | `{}` | The resource requests and limits for the headscale container. |
 | headscale.service.annotations | object | `{}` | The annotations to add to the Kubernetes service. |
 | headscale.service.nameOverride | string | `""` | Override the name of the Kubernetes service. |
 | headscale.service.port | int | `80` | The port of the Kubernetes service. |
 | headscale.service.type | string | `"ClusterIP"` | The type of the Kubernetes service. Options are "ClusterIP", "NodePort", and "LoadBalancer". |
-| headscale.sqlite.claimName | string | `"headscale-sqlite-pvc"` | The name of the PersistentVolumeClaim for the Headscale sqlite database. |
-| headscale.sqlite.createPersistentVolumeClaim | bool | `true` | If true, create a PersistentVolumeClaim for the Headscale sqlite database. |
-| headscale.sqlite.size | string | `"10Gi"` | The size of the PersistentVolumeClaim created for the Headscale sqlite database. |
-| headscale.sqlite.storageClassName | string | `""` | The storage class of the PersistentVolumeClaim created for the Headscale sqlite database. |
-| headscale.tls.letsencrypt.claimName | string | `"headscale-tls-pvc"` | The name of the PersistentVolumeClaim for the Headscale Let's Encrypt cache. |
-| headscale.tls.letsencrypt.createPersistentVolumeClaim | bool | `true` | If true, create a PersistentVolumeClaim for the Headscale Let's Encrypt cache. |
 | headscale.tls.letsencrypt.email | string | `""` | The email address for the Let's Encrypt certificate. |
 | headscale.tls.letsencrypt.hostname | string | `""` | The hostname for the Let's Encrypt certificate. Has to match the domain of the Headscale server. |
-| headscale.tls.letsencrypt.size | string | `"16Mi"` | The size of the PersistentVolumeClaim created for the Headscale Let's Encrypt cache. |
-| headscale.tls.letsencrypt.storageClassName | string | `""` | The storage class of the PersistentVolumeClaim created for the Headscale Let's Encrypt cache. |
 | image.pullPolicy | string | `"IfNotPresent"` |  |
 | image.repository | string | `"us-docker.pkg.dev/agentsea-dev/nebulous/server"` | The repository to pull the server image from. |
 | image.tag | string | `""` | The nebulous image tag. Defaults to the Helm chart's appVersion. |
@@ -150,9 +141,6 @@ data:
 | postgres.auth | object | `{"database":"nebulous","host":"","password":"nebulous","port":5432,"user":"nebulous"}` | Manual configuration of the Postgres connection. Except for 'host', this information is also used if 'create' is true. |
 | postgres.create | bool | `false` | If enabled, create a Postgres deployment and service. Not recommended for production. |
 | postgres.imageTag | string | `"latest"` | The postgres image tag. Ignored unless 'create' is true. |
-| postgres.persistence.claimName | string | `"postgres-pvc"` | The name of the PersistentVolumeClaim for the Postgres data. |
-| postgres.persistence.createPersistentVolumeClaim | bool | `false` | If true, create a new PersistentVolumeClaim for the Postgres data. |
-| postgres.persistence.enabled | bool | `false` | If enabled, use a PersistentVolumeClaim for the Postgres data. Ignored unless 'create' is true. |
 | postgres.persistence.size | string | `"100Gi"` | The size of the PersistentVolumeClaim for the Postgres data. |
 | postgres.persistence.storageClassName | string | `""` | The storage class of the PersistentVolumeClaim for the Postgres data. |
 | postgres.resources | object | `{}` | The resource requests and limits for the Postgres container. |
