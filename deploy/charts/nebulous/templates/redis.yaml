@@ -68,6 +68,9 @@ metadata:
   namespace: {{ include "nebulous.namespace" . }}
   labels:
     {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: {{ include "redis.name" . }}
+    app.kubernetes.io/component: cache
 spec:
   replicas: 1
   selector:
@@ -76,6 +79,10 @@ spec:
   template:
     metadata:
       labels:
+        {{- include "common.labels" . | nindent 8 }}
+        app.kubernetes.io/name: redis
+        app.kubernetes.io/instance: {{ include "redis.name" . }}
+        app.kubernetes.io/component: cache
         app: {{ include "redis.name" . }}
     spec:
       serviceAccountName: {{ .Values.redis.serviceAccountName }}

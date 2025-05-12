@@ -5,6 +5,7 @@ metadata:
   namespace: {{ include "nebulous.namespace" . }}
   labels:
     {{- include "common.labels" . | nindent 4 }}
+    {{- include "nebulous.labels" . | nindent 4 }}
 spec:
   replicas: 1
   selector:
@@ -13,11 +14,9 @@ spec:
   template:
     metadata:
       labels:
+        {{- include "common.labels" . | nindent 8 }}
+        {{- include "nebulous.labels" . | nindent 8 }}
         app: {{ include "nebulous.appSelector" . }}
-      {{- if .Values.headscale.create }}
-      annotations:
-        "helm.sh/restart-timestamp": "{{ now | date "20250101010203" }}"
-      {{- end }}
     spec:
       serviceAccountName: {{ include "nebulous.serviceAccountName" . }}
       containers:
