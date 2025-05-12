@@ -11,6 +11,7 @@ use axum::{
 };
 use sea_orm::DatabaseConnection;
 use serde_json::json;
+use tracing::debug;
 
 pub async fn auth_middleware(
     State(state): State<AppState>,
@@ -92,6 +93,7 @@ pub async fn get_user_profile_from_internal_token(
     db_conn: &DatabaseConnection,
     token: &str,
 ) -> Result<V1UserProfile, StatusCode> {
+    debug!("Validating internal token: {}", token);
     let is_valid = auth::api::validate_api_key(db_conn, token).await;
     match is_valid {
         Ok(is_valid) => {

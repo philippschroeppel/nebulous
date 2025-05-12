@@ -1,5 +1,6 @@
 use nebulous::config::GlobalConfig;
 use std::error::Error as StdError;
+use std::io::Write;
 
 use futures::{SinkExt, StreamExt};
 use reqwest::Client;
@@ -53,26 +54,60 @@ pub async fn fetch_container_logs(
         // Split the stream
         let (mut write, mut read) = ws_stream.split();
 
+        // Buffer stdout for potentially faster printing of rapid log lines
+        let stdout_handle = std::io::stdout();
+        let mut buffered_stdout = std::io::BufWriter::new(stdout_handle.lock());
+
         // Print incoming messages until connection is closed
         while let Some(message) = read.next().await {
             match message {
                 Ok(Message::Text(text)) => {
-                    println!("{}", text);
+                    if let Err(e) = writeln!(buffered_stdout, "{}", text) {
+                        // If printing fails, log to stderr and potentially break or handle
+                        eprintln!(
+                            "Error writing to buffered stdout: {}. Log line: {}",
+                            e, text
+                        );
+                        // Consider breaking if stdout is consistently failing
+                        // break;
+                    }
                 }
                 Ok(Message::Close(_)) => {
-                    println!("Connection closed by server");
+                    if let Err(e) = writeln!(buffered_stdout, "Connection closed by server") {
+                        eprintln!("Error writing to buffered stdout: {}", e);
+                    }
                     break;
                 }
                 Ok(Message::Ping(ping_data)) => {
                     // Respond to pings to keep the connection alive
-                    write.send(Message::Pong(ping_data)).await?;
+                    if let Err(e) = write.send(Message::Pong(ping_data)).await {
+                        if let Err(print_err) =
+                            writeln!(buffered_stdout, "Error sending pong: {}", e)
+                        {
+                            eprintln!("Error writing to buffered stdout: {}", print_err);
+                        }
+                        // Depending on severity, might want to break or log this error
+                        // eprintln!("WebSocket error sending pong: {}", e);
+                        // return Err(e.into()); // Or handle differently
+                    }
                 }
                 Err(e) => {
+                    // Log WebSocket errors to stderr (or buffered_stdout if preferred, though stderr is typical for errors)
                     eprintln!("WebSocket error: {}", e);
+                    // Ensure an error message is flushed if we are about to return an error
+                    let _ = buffered_stdout.flush();
                     return Err(e.into());
                 }
                 _ => {}
             }
+            // Periodically flush the buffer to ensure logs are displayed in a timely manner,
+            // especially if logs are sparse. Adjust interval as needed.
+            // For now, relying on BufWriter's internal buffering and flush on drop/close.
+            // Or, could explicitly flush after N messages or N seconds.
+        }
+        // Ensure all buffered output is written before exiting the follow mode.
+        if let Err(e) = buffered_stdout.flush() {
+            eprintln!("Error flushing stdout at end of log stream: {}", e);
         }
 
         Ok("Log streaming finished.".to_string())
@@ -81,26 +116,24 @@ pub async fn fetch_container_logs(
         // Step 1: Fetch container ID by calling your server's HTTP GET /v1/containers/:namespace/:name
         let container_id = fetch_container_id_from_api(&namespace, &name).await?;
 
-        let _bearer_token = format!("Bearer {}", api_key);
-
-        // Step 2: Run the local SSH command using the ID as the SSH host (e.g. Tailscale address).
-        //         This uses the synchronous `run_ssh_command_ts` from your existing code.
-        let mut cmd = vec![
+        // Step 2: Run the local SSH command to stream log content.
+        //         This uses the streaming `stream_ssh_command_ts`.
+        let cmd = vec![
             "cat".to_string(),
             "$HOME/.logs/nebu_container.log".to_string(),
         ];
 
-        let output = nebulous::ssh::exec::run_ssh_command_ts(
+        nebulous::ssh::exec::stream_ssh_command_ts(
             &format!("container-{}", container_id),
             cmd,
-            false,
-            false,
+            false,        // Not interactive for cat
+            false,        // No TTY needed for cat
             Some("root"), // TODO: need to fetch from the API
         )?;
 
-        // Output the SSH command's stdout
-        println!("{}", output);
-        Ok(output)
+        // Output was streamed directly by stream_ssh_command_ts.
+        // println!("{}", output);
+        Ok("Log content displayed.".to_string()) // Return a success message
     }
 }
 

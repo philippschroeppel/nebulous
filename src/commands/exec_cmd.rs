@@ -12,8 +12,8 @@ pub async fn exec_cmd(args: ExecArgs) -> Result<(), Box<dyn StdError>> {
     let container_id = fetch_container_id_from_api(&args.namespace, &args.name).await?;
 
     // Step 2: Run the local SSH command using the ID as the SSH host (e.g. Tailscale address).
-    //         This uses the synchronous `run_ssh_command_ts` from your existing code.
-    let output = nebulous::ssh::exec::run_ssh_command_ts(
+    //         This now uses the streaming `stream_ssh_command_ts`.
+    nebulous::ssh::exec::stream_ssh_command_ts(
         &format!("container-{}", container_id),
         args.command
             .split_whitespace()
@@ -24,8 +24,8 @@ pub async fn exec_cmd(args: ExecArgs) -> Result<(), Box<dyn StdError>> {
         Some("root"), // Example: pass Some("root") if you need a specific user
     )?;
 
-    // Output the SSH command’s stdout
-    println!("{}", output);
+    // Output is now streamed directly by stream_ssh_command_ts.
+    // println!("{}", output);
     Ok(())
 }
 

@@ -2,6 +2,7 @@ use std::io::Read;
 use std::io::{stdin, stdout, Write};
 use std::io::{Error as IoError, ErrorKind};
 use std::net::TcpStream;
+use std::process::Stdio;
 
 use anyhow::Result;
 use russh::keys::PrivateKeyWithHashAlg;
@@ -93,6 +94,69 @@ pub fn run_ssh_command_ts(
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
+/// Executes a command via SSH and streams its output directly to stdio.
+///
+/// This is similar to `run_ssh_command_ts` but does not buffer the output.
+/// It's suitable for commands that may produce large amounts of data.
+pub fn stream_ssh_command_ts(
+    hostname: &str,
+    command_and_args: Vec<String>,
+    interactive: bool,
+    tty: bool,
+    username: Option<&str>,
+) -> Result<(), IoError> {
+    debug!(
+        "Streaming SSH command: '{:?}' on {} as {:?} with interactive={} and tty={}",
+        command_and_args, hostname, username, interactive, tty
+    );
+
+    let mut ssh_cmd = Command::new("ssh");
+
+    // Disable host key checking and skip writing to known_hosts:
+    ssh_cmd.arg("-o").arg("StrictHostKeyChecking=no");
+    ssh_cmd.arg("-o").arg("UserKnownHostsFile=/dev/null");
+
+    if let Some(u) = username {
+        ssh_cmd.arg(format!("{}@{}", u, hostname));
+    } else {
+        ssh_cmd.arg(hostname);
+    }
+
+    if interactive || tty {
+        ssh_cmd.arg("-t");
+    }
+
+    ssh_cmd.args(command_and_args);
+
+    if interactive {
+        ssh_cmd.stdin(Stdio::inherit());
+    } else {
+        ssh_cmd.stdin(Stdio::null());
+    }
+    ssh_cmd.stdout(Stdio::inherit());
+    ssh_cmd.stderr(Stdio::inherit());
+
+    let mut child = ssh_cmd
+        .spawn()
+        .map_err(|err| IoError::new(ErrorKind::Other, format!("Failed to spawn ssh: {}", err)))?;
+
+    let status = child.wait().map_err(|err| {
+        IoError::new(ErrorKind::Other, format!("Failed to wait for ssh: {}", err))
+    })?;
+
+    if !status.success() {
+        // stderr was already inherited.
+        // The error message here is less informative than the original because we don't capture stderr to a string.
+        // However, the actual error from the ssh command should have been printed to the user's terminal.
+        return Err(IoError::new(
+            ErrorKind::Other,
+            format!("SSH command failed with status: {:?}", status.code()),
+        ));
+    }
+
+    Ok(())
+}
+
 struct Client {}
 
 // More SSH event handlers
@@ -136,7 +200,7 @@ where
     // 2) Decode your in-memory private key
     //
     //    Note: If your key is encrypted (passphrase-protected),
-    //    you’d need to pass `Some("passphrase")` as the second arg.
+    //    you'd need to pass `Some("passphrase")` as the second arg.
     let raw_key = russh::keys::decode_secret_key(private_key, None)?;
 
     // 3) Authenticate with the remote server
@@ -170,7 +234,7 @@ where
     channel.request_shell(true).await?;
 
     // 2) Send our command, then a special marker, then exit.
-    //    We’ll look for CMD_DONE_... to know when we're done.
+    //    We'll look for CMD_DONE_... to know when we're done.
     let marker = "CMD_DONE_1234"; // Could be a random UUID for uniqueness
     let script = format!(
         "{cmd}\necho {marker}\nexit\n",
@@ -245,7 +309,7 @@ where
 /// Asynchronous function to execute a command via SSH using [`async_ssh2_tokio`].
 ///
 /// - `host` should be just the hostname or IP (e.g. "example.com" or "10.10.10.2").  
-///   We’ll connect on port 22 below.  
+///   We'll connect on port 22 below.  
 /// - `username` is your SSH username.  
 /// - `private_key` is the **in-memory** Ed25519 (or RSA, etc.) private key contents
 ///   in OpenSSH format. If you have a passphrase, use the [`AuthMethod::with_key`]
