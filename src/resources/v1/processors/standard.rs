@@ -1323,6 +1323,17 @@ impl ProcessorPlatform for StandardProcessor {
 
         tracing::info!("Deleting processor '{}'...", processor.id);
 
+        // --- BEGIN: Set desired state to terminate ---
+        let mut processor_active_model: processors::ActiveModel = processor.clone().into();
+        processor_active_model.desired_replicas = Set(Some(0));
+        processor_active_model.desired_status = Set(Some(ProcessorStatus::Stopped.to_string()));
+        // Ignore errors here? If DB update fails, deletion might be problematic anyway.
+        // Let's log error but continue the delete process.
+        if let Err(e) = processor_active_model.update(db).await {
+            error!("Failed to update processor {} desired state during deletion: {}. Continuing deletion...", processor.id, e);
+        }
+        // --- END: Set desired state to terminate ---
+
         // --- BEGIN: Delete Redis Stream ---
         let stream_name = processor.stream.clone();
         debug!(
