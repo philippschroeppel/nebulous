@@ -928,6 +928,35 @@ impl StandardProcessor {
                         container.name, processor.id, e
                     ),
                 }
+
+                // e) Remove the container record from DB
+                debug!(
+                    "Attempting to delete container DB record for ID: {}",
+                    container.id
+                );
+                match crate::entities::containers::Entity::delete_by_id(container.id.clone()) // Clone ID for the call
+                    .exec(db)
+                    .await
+                {
+                    Ok(delete_result) => {
+                        // delete_result is sea_orm::DeleteResult
+                        if delete_result.rows_affected > 0 {
+                            info!(
+                                "Successfully deleted container DB record {} ({} row(s) affected).",
+                                container.id, // Original container.id is fine here
+                                delete_result.rows_affected
+                            );
+                        } else {
+                            warn!(
+                                "Container DB record {} not found or already deleted during attempt to delete.",
+                                container.id
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        error!("Error deleting container DB record {}: {}", container.id, e);
+                    }
+                }
             }
         }
 
@@ -1403,12 +1432,44 @@ impl ProcessorPlatform for StandardProcessor {
             debug!("Platform string: {}", platform_str);
             let platform = platform_factory(platform_str);
             match platform.delete(&container.id, db).await {
-                Ok(_) => info!("Successfully deleted container {}", container.id),
-                Err(e) => error!("Failed to delete container {}: {}", container.id, e),
+                Ok(_) => info!(
+                    "Successfully deleted container {} from platform",
+                    container.id
+                ),
+                Err(e) => error!(
+                    "Failed to delete container {} from platform: {}",
+                    container.id, e
+                ),
             }
 
-            // // e) Remove the container record from DB
-            // container.delete(db).await?;
+            // e) Remove the container record from DB
+            debug!(
+                "Attempting to delete container DB record for ID: {}",
+                container.id
+            );
+            match crate::entities::containers::Entity::delete_by_id(container.id.clone()) // Clone ID for the call
+                .exec(db)
+                .await
+            {
+                Ok(delete_result) => {
+                    // delete_result is sea_orm::DeleteResult
+                    if delete_result.rows_affected > 0 {
+                        info!(
+                            "Successfully deleted container DB record {} ({} row(s) affected).",
+                            container.id, // Original container.id is fine here
+                            delete_result.rows_affected
+                        );
+                    } else {
+                        warn!(
+                            "Container DB record {} not found or already deleted during attempt to delete.",
+                            container.id
+                        );
+                    }
+                }
+                Err(e) => {
+                    error!("Error deleting container DB record {}: {}", container.id, e);
+                }
+            }
         }
 
         // --- BEGIN: Delete Associated Secret ---
