@@ -62,7 +62,7 @@ spec:
     - metadata:
         name: {{ include "postgres.name" . }}
         labels:
-          {{- include "common.labels" . | nindent 8 }}
+          {{- include "common.labels" . | nindent 10 }}
       spec:
         accessModes: [ "ReadWriteOnce" ]
         resources:
