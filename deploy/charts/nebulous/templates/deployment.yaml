@@ -62,9 +62,9 @@ spec:
                   key: {{ .Values.redis.secret.keys.publicConnectionString }}
             {{- end }}
             - name: NEBU_BUCKET_NAME
-              value: {{ .Values.bucket.name }}
+              value: {{ required ".Values.bucket.name is required" .Values.bucket.name }}
             - name: NEBU_BUCKET_REGION
-              value: {{ .Values.bucket.region }}
+              value: {{ required ".Values.bucket.region is required" .Values.bucket.region }}
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
@@ -110,14 +110,18 @@ spec:
             - name: OPENMETER_URL
               value: {{ .Values.openmeter.url }}
             - name: OPENMETER_TOKEN
+            {{- if .Values.openmeter.token }}
+              value: {{ .Values.openmeter.token }}
+            {{- else }}
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.openmeter.secret.name }}
                   key: {{ .Values.openmeter.secret.keys.token }}
             {{- end }}
-            {{- with .Values.extraEnv }}
-            {{- toYaml . | indent 12 }}
             {{- end }}
+{{- with .Values.extraEnv }}
+{{ toYaml . | indent 12 }}
+{{- end }}
           volumeMounts:
             - name: huggingface-pvc
               mountPath: /huggingface

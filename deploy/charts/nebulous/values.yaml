@@ -116,7 +116,7 @@ openmeter:
   enabled: false
 
   # -- The URL to report OpenMeter data to.
-  url: https://openmeter.cloud
+  url: "https://openmeter.cloud"
 
   secret:
     # -- The name of the secrets containing the OpenMeter API token.
