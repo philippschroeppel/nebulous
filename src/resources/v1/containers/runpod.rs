@@ -25,6 +25,27 @@ use std::str::FromStr;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
+// Helper function to assign preference score based on location
+fn location_preference(location: &str) -> i32 {
+    if location.starts_with("United States") || location.starts_with("Europe") {
+        0 // Highest preference: US or Europe
+    } else if location.starts_with("Canada") {
+        1 // Next preference: Canada
+    } else {
+        2 // Lowest preference: Others
+    }
+}
+
+// Helper function to assign preference score based on stock status
+fn stock_status_preference(status: &Option<String>) -> i32 {
+    match status.as_deref() {
+        Some("High") => 0,   // Highest preference
+        Some("Medium") => 1, // Next preference
+        Some("Low") => 2,    // Lower preference
+        _ => 3,              // Lowest preference (None or other unexpected values)
+    }
+}
+
 /// A `TrainingPlatform` implementation that schedules training jobs on RunPod.
 #[derive(Clone)]
 pub struct RunpodPlatform {
@@ -1460,28 +1481,113 @@ impl RunpodPlatform {
         let docker_command = self.build_command(&model, &hostname);
         info!("[Runpod Controller] Docker command: {:?}", docker_command);
 
-        let datacenter_id =
-            if model.accelerators.is_some() && !model.accelerators.as_ref().unwrap().is_empty() {
-                // Only find datacenters with desired GPU if accelerators are requested
-                let datacenters = self
-                    .runpod_client
-                    .find_datacenters_with_desired_gpu(&runpod_gpu_type_id, requested_gpu_count)
-                    .await
-                    .map_err(|e| format!("Failed to find datacenters: {}", e))?;
+        let datacenter_id = if model.accelerators.is_some()
+            && !model.accelerators.as_ref().unwrap().is_empty()
+        {
+            // GPU workload: Find datacenters with desired GPU, ensuring storage support and prioritizing location/stock.
+            info!(
+                    "[Runpod Controller] Finding datacenters for GPU: {}, count: {}. Must have storage support.",
+                    runpod_gpu_type_id, requested_gpu_count
+                );
+            let all_datacenters = self
+                .runpod_client
+                .find_datacenters_with_desired_gpu(&runpod_gpu_type_id, requested_gpu_count)
+                .await
+                .map_err(|e| {
+                    format!(
+                        "Failed to find datacenters for GPU {}: {}",
+                        runpod_gpu_type_id, e
+                    )
+                })?;
 
-                // grab the first datacenter's ID
-                datacenters
-                    .first()
-                    .ok_or("No datacenters available for the requested GPU type")?
-                    .id
-                    .clone()
-            } else {
-                // For CPU-only workloads, default to EU-RO-1
-                "EU-RO-1".to_string()
-            };
+            info!(
+                    "[Runpod Controller] Found {} datacenters initially for GPU {}. Filtering for storage support...",
+                    all_datacenters.len(),
+                    runpod_gpu_type_id
+                );
+
+            let mut suitable_datacenters: Vec<runpod::DataCenterItem> = all_datacenters
+                .into_iter()
+                .filter(|dc| dc.storageSupport) // MUST have storage support (it's a bool)
+                .collect();
+
+            if suitable_datacenters.is_empty() {
+                let error_msg = format!(
+                    "No datacenters found for GPU {} with storage support.",
+                    runpod_gpu_type_id
+                );
+                error!("[Runpod Controller] {}", error_msg);
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    error_msg,
+                )));
+            }
+
+            info!(
+                    "[Runpod Controller] Found {} datacenters for GPU {} with storage support. Sorting by preference (Location > Stock > ID)...",
+                    suitable_datacenters.len(),
+                    runpod_gpu_type_id
+                );
+
+            suitable_datacenters.sort_by(|a, b| {
+                // Primary: Location (US/EU > Canada > Others)
+                let loc_a = location_preference(&a.location); // Pass as &str
+                let loc_b = location_preference(&b.location); // Pass as &str
+                if loc_a != loc_b {
+                    return loc_a.cmp(&loc_b);
+                }
+
+                // Secondary: GPU Stock Status for the requested GPU type
+                let get_stock_status = |dc: &runpod::DataCenterItem| -> Option<String> {
+                    dc.gpu_availability // Use Rust field name: gpu_availability (Vec)
+                        .iter()
+                        .find(|gpu_item| gpu_item.gpuTypeId.as_deref() == Some(&runpod_gpu_type_id)) // Use .gpuTypeId
+                        .and_then(|item| item.stockStatus.clone()) // Use .stockStatus
+                };
+
+                let stock_pref_a = stock_status_preference(&get_stock_status(a));
+                let stock_pref_b = stock_status_preference(&get_stock_status(b));
+                if stock_pref_a != stock_pref_b {
+                    return stock_pref_a.cmp(&stock_pref_b);
+                }
+
+                // Tertiary (Tie-breaker): Datacenter ID (alphabetical)
+                a.id.cmp(&b.id)
+            });
+
+            let selected_dc = suitable_datacenters.first().ok_or_else(|| {
+                    let msg = format!(
+                        "No suitable datacenters remained after sorting for GPU {} (with storage, preferred location/stock).",
+                        runpod_gpu_type_id
+                    );
+                    error!("[Runpod Controller] {}", msg);
+                    Box::new(std::io::Error::new(std::io::ErrorKind::NotFound, msg)) as Box<dyn std::error::Error + Send + Sync>
+                })?;
+
+            info!(
+                    "[Runpod Controller] Selected Datacenter: ID='{}', Location='{}', Storage={}, GPU Stock for '{}': {:?}",
+                    selected_dc.id,
+                    &selected_dc.location, // Log as &str
+                    selected_dc.storageSupport, // Direct bool
+                    runpod_gpu_type_id,
+                    selected_dc.gpu_availability // Use Rust field name: gpu_availability (Vec)
+                        .iter()
+                        .find(|gpu_item| gpu_item.gpuTypeId.as_deref() == Some(&runpod_gpu_type_id)) // Use .gpuTypeId
+                        .and_then(|item| item.stockStatus.as_deref()) // Use .stockStatus
+                        .unwrap_or("N/A")
+                );
+            selected_dc.id.clone()
+        } else {
+            // For CPU-only workloads, default to EU-RO-1.
+            // Based on logs provided by user, EU-RO-1 has storageSupport: true.
+            // If a more dynamic selection for CPU-only datacenters (e.g., from a list of known good CPU datacenters with storage)
+            // is needed in the future, logic similar to GPU selection (minus GPU specifics) could be implemented.
+            info!("[Runpod Controller] CPU-only workload. Defaulting to datacenter 'EU-RO-1' (known to have storage support).");
+            "EU-RO-1".to_string()
+        };
 
         info!(
-            "[Runpod Controller] Attempting to ensure volume in datacenter {}",
+            "[Runpod Controller] Using datacenter '{}' for volume and pod creation.",
             datacenter_id
         );
         let volume = match self

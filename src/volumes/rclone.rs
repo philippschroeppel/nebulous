@@ -423,10 +423,6 @@ async fn start_sync_process(
         cmd.arg("--resync");
     }
 
-    // Exclude common Python cache directories
-    cmd.arg("--exclude").arg("__pycache__/**");
-    cmd.arg("--exclude").arg("*.pyc");
-
     // cmd.arg("--create-empty-src-dirs");
 
     // // Add common options
@@ -578,10 +574,6 @@ pub async fn execute_sync(
         // cmd.arg("--verbose");
         // cmd.arg("--fast-list");
         // cmd.arg("--create-empty-src-dirs");
-
-        // Exclude common Python cache directories
-        cmd.arg("--exclude").arg("__pycache__/**");
-        cmd.arg("--exclude").arg("*.pyc");
 
         // Add cache directory
         // cmd.arg("--cache-dir");
@@ -1149,10 +1141,6 @@ pub async fn execute_non_continuous_sync(
             cmd.arg(&dest);
         }
 
-        // Exclude common Python cache directories
-        cmd.arg("--exclude").arg("__pycache__/**");
-        cmd.arg("--exclude").arg("*.pyc");
-
         // Add common options
         // cmd.arg("--verbose");
         // cmd.arg("--fast-list");
@@ -1539,11 +1527,6 @@ pub async fn check_paths(source: &str, dest: &str) -> Result<bool, Box<dyn std::
         .arg(source)
         .arg(dest)
         .arg("--one-way") // or omit if you want a two-way check
-        // Exclude common Python cache directories
-        .arg("--exclude")
-        .arg("__pycache__/**")
-        .arg("--exclude")
-        .arg("*.pyc")
         .stderr(Stdio::piped())
         .stdout(Stdio::piped())
         .output()
