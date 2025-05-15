@@ -105,7 +105,7 @@ data:
 | headscale.derp.externalMaps | list | `[]` | URLs of externally available DERP maps encoded in JSON. |
 | headscale.dns.baseDomain | string | `""` | The base domain for MagicDNS hostnames. Cannot be the same as the Headscale server's domain. Refer to https://github.com/juanfont/headscale/blob/main/config-example.yaml for details. |
 | headscale.domain | string | `""` | The domain under which the Headscale server is exposed. Required if create is true. The headscale server must be reachable at https://${domain}:443. |
-| headscale.imageTag | string | `"latest"` | The Headscale image tag. |
+| headscale.imageTag | string | `"stable"` | The Headscale image tag. |
 | headscale.ingress.annotations | object | `{}` | Annotations to add to the Ingress resource. |
 | headscale.ingress.enabled | bool | `false` | If enabled, create an Ingress resource. Ignored unless 'enabled' is true. |
 | headscale.ingress.ingressClassName | string | `""` | The ingress class. |

@@ -253,7 +253,7 @@ headscale:
   # -- Namespace override for the Headscale deployment.
   namespaceOverride: ""
   # -- The Headscale image tag.
-  imageTag: "latest"
+  imageTag: "stable"
   # -- The domain under which the Headscale server is exposed. Required if create is true.
   # The headscale server must be reachable at https://${domain}:443.
   domain: ""
