@@ -97,8 +97,12 @@ tailscale:
       # -- The key in the secret containing the Tailscale auth key.
       authKey: "AUTH_KEY"
 
+  # -- The Tailscale sidecar image tag.
+  imageTag: "stable"
+
   # -- The resource requests and limits for the Nebulous server's Tailscale sidecar container.
   resources: { }
+
 
 encryptionKey:
   secret:
@@ -178,7 +182,7 @@ postgres:
   # -- If enabled, create a Postgres deployment and service. Not recommended for production.
   create: false
   # -- The postgres image tag. Ignored unless 'create' is true.
-  imageTag: "latest"
+  imageTag: "17"
 
   persistence:
     # -- The size of the PersistentVolumeClaim for the Postgres data.
@@ -210,9 +214,8 @@ redis:
 
   # -- If enabled, create a Redis deployment and service. Not recommended for production.
   create: false
-
   # -- The redis image tag. Ignored unless 'create' is true.
-  imageTag: "latest"
+  imageTag: "8"
 
   service:
     # -- The annotations to add to the Kubernetes service.
