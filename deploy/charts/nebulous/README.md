@@ -1,6 +1,6 @@
 # nebulous
 
-![Version: 0.2.5](https://img.shields.io/badge/Version-0.2.5-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.1.88](https://img.shields.io/badge/AppVersion-0.1.88-informational?style=flat-square)
+![Version: 0.2.6](https://img.shields.io/badge/Version-0.2.6-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.1.88](https://img.shields.io/badge/AppVersion-0.1.88-informational?style=flat-square)
 
 A cross-cloud container orchestrator for AI workloads
 
@@ -105,7 +105,7 @@ data:
 | headscale.derp.externalMaps | list | `[]` | URLs of externally available DERP maps encoded in JSON. |
 | headscale.dns.baseDomain | string | `""` | The base domain for MagicDNS hostnames. Cannot be the same as the Headscale server's domain. Refer to https://github.com/juanfont/headscale/blob/main/config-example.yaml for details. |
 | headscale.domain | string | `""` | The domain under which the Headscale server is exposed. Required if create is true. The headscale server must be reachable at https://${domain}:443. |
-| headscale.imageTag | string | `"latest"` | The Headscale image tag. |
+| headscale.imageTag | string | `"stable"` | The Headscale image tag. |
 | headscale.ingress.annotations | object | `{}` | Annotations to add to the Ingress resource. |
 | headscale.ingress.enabled | bool | `false` | If enabled, create an Ingress resource. Ignored unless 'enabled' is true. |
 | headscale.ingress.ingressClassName | string | `""` | The ingress class. |
@@ -140,7 +140,7 @@ data:
 | orign.url | string | `""` | The URL that Nebulous uses to connect to the Orign server. |
 | postgres.auth | object | `{"database":"nebulous","host":"","password":"nebulous","port":5432,"user":"nebulous"}` | Manual configuration of the Postgres connection. Except for 'host', this information is also used if 'create' is true. |
 | postgres.create | bool | `false` | If enabled, create a Postgres deployment and service. Not recommended for production. |
-| postgres.imageTag | string | `"latest"` | The postgres image tag. Ignored unless 'create' is true. |
+| postgres.imageTag | string | `"17"` | The postgres image tag. Ignored unless 'create' is true. |
 | postgres.persistence.size | string | `"100Gi"` | The size of the PersistentVolumeClaim for the Postgres data. |
 | postgres.persistence.storageClassName | string | `""` | The storage class of the PersistentVolumeClaim for the Postgres data. |
 | postgres.resources | object | `{}` | The resource requests and limits for the Postgres container. |
@@ -154,7 +154,7 @@ data:
 | publicUrl | string | `""` | The URL that agents use to connect to Nebulous. |
 | redis.auth | object | `{"database":0,"host":"","password":"nebulous","port":6379}` | Manual configuration of the Redis connection. Except for 'host', this information is also used if 'create' is true. |
 | redis.create | bool | `false` | If enabled, create a Redis deployment and service. Not recommended for production. |
-| redis.imageTag | string | `"latest"` | The redis image tag. Ignored unless 'create' is true. |
+| redis.imageTag | string | `"8"` | The redis image tag. Ignored unless 'create' is true. |
 | redis.publicHost | string | `""` | The host that Nebulous workloads use to connect to Redis. This is usually its address on the tailnet. Ignored when 'headscale.create' is true. |
 | redis.resources | object | `{}` | The resource requests and limits for the Redis container. |
 | redis.secret.keys.connectionString | string | `"CONNECTION_STRING"` | The key in the secret containing the Redis connection string. |
@@ -192,6 +192,7 @@ data:
 | storage.model.storageClassName | string | `""` |  |
 | tailscale.apiKey | string | `""` | The Tailscale API key. If headscale.enabled is true, this is ignored. |
 | tailscale.authKey | string | `""` | The Tailscale auth key. If headscale.enabled is true, this is ignored. |
+| tailscale.imageTag | string | `"stable"` | The Tailscale sidecar image tag. |
 | tailscale.loginServer | string | `"https://login.tailscale.com"` | The Tailscale host to connect to. If headscale.enabled is true, this is ignored. |
 | tailscale.organization | string | `""` | The name of the Tailscale organization. If headscale.enabled is true, this is ignored. |
 | tailscale.resources | object | `{}` | The resource requests and limits for the Nebulous server's Tailscale sidecar container. |

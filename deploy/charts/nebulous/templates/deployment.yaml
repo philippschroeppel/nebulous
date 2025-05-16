@@ -8,6 +8,8 @@ metadata:
     {{- include "nebulous.labels" . | nindent 4 }}
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: {{ include "nebulous.appSelector" . }}
@@ -143,7 +145,7 @@ spec:
         # Reference: https://github.com/tailscale/tailscale/blob/main/docs/k8s/sidecar.yaml
         # Docs: https://tailscale.com/kb/1185/kubernetes
         - name: tailscale
-          image: tailscale/tailscale:latest
+          image: "tailscale/tailscale:{{ .Values.tailscale.imageTag }}"
           imagePullPolicy: Always
           env:
             - name: TS_USERSPACE
