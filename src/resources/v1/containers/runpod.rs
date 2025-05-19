@@ -27,10 +27,12 @@ use tracing::{debug, error, info, warn};
 
 // Helper function to assign preference score based on location
 fn location_preference(location: &str) -> i32 {
-    if location.starts_with("United States") || location.starts_with("Europe") {
+    // TODO: configurable!
+    if location.starts_with("United States")
+        || location.starts_with("Europe")
+        || location.starts_with("Canada")
+    {
         0 // Highest preference: US or Europe
-    } else if location.starts_with("Canada") {
-        1 // Next preference: Canada
     } else {
         2 // Lowest preference: Others
     }
@@ -1815,29 +1817,29 @@ impl RunpodPlatform {
     echo "[DEBUG] Starting tailscale daemon ..."
     tailscaled --tun=userspace-networking --socks5-server=localhost:1055 --outbound-http-proxy-listen=localhost:1055  > "$HOME/.logs/tailscaled.log" 2>&1 &
 
-    echo "[DEBUG] Waiting for tailscale daemon to start (checking for 'Logged out.' status)..."
+    echo "[DEBUG] Waiting for tailscale daemon to start..."
     daemon_running=false
     for i in $(seq 1 10); do
         echo "[DEBUG] Checking tailscale status (attempt $i)..."
-        status_output=$(tailscale status 2>&1) # Capture stdout and stderr
-        echo "${{status_output}}" # Print the output for debugging
+        status_output=$(tailscale status 2>&1)
+        echo "$status_output"
 
-        # Check if the output contains "Logged out."
-        if echo "${{status_output}}" | grep -q "Logged out."; then
-            echo "[DEBUG] Tailscale daemon is running (status is 'Logged out.')."
+        # Check if we have either a valid Tailscale IP address or 'Logged out' status
+        if grep -Eq -- '(^|[^0-9])([0-9]{{1,3}}\.){{3}}[0-9]{{1,3}}([^0-9]|$)' <<< "$status_output" || echo "$status_output" | grep -q "Logged out."; then
+            echo "[DEBUG] Tailscale daemon is running (found IP address or 'Logged out' status)."
             daemon_running=true
             break
         else
-            echo "[DEBUG] Tailscale status not yet 'Logged out.' or daemon error, retrying..."
+            echo "[DEBUG] Tailscale not yet ready, retrying..."
             sleep 1
         fi
     done
 
     # Check if daemon was confirmed running after the loop
     if [ "$daemon_running" = false ]; then
-        echo "[ERROR] Tailscale daemon did not report 'Logged out.' status after 10 attempts. It might not be running correctly."
+        echo "[ERROR] Tailscale daemon did not get an IP address or 'Logged out' status after 10 attempts."
         echo "[DEBUG] Last tailscale status output:"
-        echo "${{status_output}}" # Print last captured status
+        echo "$status_output"
         echo "[DEBUG] Checking tailscaled logs..."
         cat "$HOME/.logs/tailscaled.log"
         exit 1
