@@ -45,12 +45,15 @@ pub async fn create_agent_key(
     info!(">>> Agent key created: {:?}", agent_key);
 
     // GET /v1/users/me with the new key
-    let key = agent_key.key.ok_or(anyhow!("Missing key in agent_key"))?;
+    let key_ref = agent_key
+        .key
+        .as_deref()
+        .ok_or(anyhow!("Missing key in agent_key"))?;
     let user_me_url = format!("{}/v1/users/me", base_url);
     info!("Fetching /v1/users/me with new key...");
     let user_me_response = client
         .get(&user_me_url)
-        .header("Authorization", format!("Bearer {}", key)) // Assuming V1AgentKey has a field `key`
+        .header("Authorization", format!("Bearer {}", key_ref))
         .send()
         .await?;
 
