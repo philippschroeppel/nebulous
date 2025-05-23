@@ -50,6 +50,7 @@ pub async fn create_agent_key(
         .as_deref()
         .ok_or(anyhow!("Missing key in agent_key"))?;
     let user_me_url = format!("{}/v1/users/me", base_url);
+
     info!("Fetching /v1/users/me with new key...");
     let user_me_response = client
         .get(&user_me_url)

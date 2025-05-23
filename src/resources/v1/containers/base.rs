@@ -185,7 +185,7 @@ pub trait ContainerPlatform {
         &self,
         model: &containers::Model,
         db: &DatabaseConnection,
-    ) -> HashMap<String, String> {
+    ) -> Result<HashMap<String, String>, Box<dyn std::error::Error + Send + Sync>> {
         let config = GlobalConfig::read().unwrap();
         let mut env = HashMap::new();
 
@@ -194,7 +194,7 @@ pub trait ContainerPlatform {
             Ok(key) => key,
             Err(e) => {
                 error!("Error getting agent key: {:?}", e);
-                return env;
+                return Err(e.into());
             }
         };
 
@@ -216,7 +216,7 @@ pub trait ContainerPlatform {
             Ok(_) => (),
             Err(e) => {
                 error!("Error ensuring volume: {:?}", e);
-                return env;
+                return Err(e.into());
             }
         };
 
@@ -226,7 +226,7 @@ pub trait ContainerPlatform {
                 Ok(token) => token,
                 Err(e) => {
                     error!("Error creating s3 token: {:?}", e);
-                    return env;
+                    return Err(e.into());
                 }
             };
 
@@ -288,9 +288,10 @@ pub trait ContainerPlatform {
             }
             Err(e) => {
                 error!(
-                    "Failed to get Tailscale device key for container {}: {:?}. TS_AUTHKEY will not be set.",
+                    "Failed to get Tailscale device key for container {}: {:?}. Propagating error.",
                     model.id, e
                 );
+                return Err(e);
             }
         }
 
@@ -300,7 +301,7 @@ pub trait ContainerPlatform {
         // );
 
         // Add more common environment variables as needed
-        env
+        Ok(env)
     }
 
     async fn get_tailscale_device_name(&self, model: &containers::Model) -> String {

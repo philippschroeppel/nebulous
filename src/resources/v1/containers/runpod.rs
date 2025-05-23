@@ -1316,7 +1316,13 @@ impl RunpodPlatform {
             }
         }
 
-        let common_env = self.get_common_env(&model, db).await;
+        let common_env = match self.get_common_env(&model, db).await {
+            Ok(env) => env,
+            Err(e) => {
+                error!("[Runpod Controller] Failed to get common env: {}", e);
+                return Err(e);
+            }
+        };
         for (key, value) in common_env.clone() {
             env_vec.push(runpod::EnvVar { key, value });
         }
