@@ -170,7 +170,7 @@ impl StandardProcessor {
         };
 
         // Construct Redis URL using the fetched IP and default port
-        let redis_url = format!("redis://{}:6379", redis_ip);
+        let redis_url = format!("redis://{}:{}@{}:6379", username, password, redis_ip);
         info!("[Processor Controller] Using Redis URL: {}", redis_url);
 
         // Add all Redis env vars
