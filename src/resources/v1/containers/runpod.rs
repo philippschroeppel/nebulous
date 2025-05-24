@@ -1633,13 +1633,13 @@ impl RunpodPlatform {
             }
         };
 
-        let container_registry_auth_id = match std::env::var("RUNPOD_CONTAINER_REGISTRY_AUTH_ID") {
-            Ok(id) => id,
-            Err(_) => {
-                error!("[Runpod Controller] RUNPOD_CONTAINER_REGISTRY_AUTH_ID environment variable not set");
-                return Err("RUNPOD_CONTAINER_REGISTRY_AUTH_ID must be set".into());
-            }
-        };
+        // let container_registry_auth_id = match std::env::var("RUNPOD_CONTAINER_REGISTRY_AUTH_ID") {
+        //     Ok(id) => id,
+        //     Err(_) => {
+        //         error!("[Runpod Controller] RUNPOD_CONTAINER_REGISTRY_AUTH_ID environment variable not set");
+        //         return Err("RUNPOD_CONTAINER_REGISTRY_AUTH_ID must be set".into());
+        //     }
+        // };
 
         // 5) Create an on-demand instance instead of a spot instance
         let create_request =
