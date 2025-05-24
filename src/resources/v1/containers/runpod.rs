@@ -1662,7 +1662,8 @@ impl RunpodPlatform {
                     env: env_vec,
                     network_volume_id: Some(volume.id),
                     volume_mount_path: Some("/nebu/cache".to_string()),
-                    container_registry_auth_id: Some(container_registry_auth_id.to_string()),
+                    container_registry_auth_id: None,
+                    // container_registry_auth_id: Some(container_registry_auth_id.to_string()),
                 }
             } else {
                 // CPU-only workload
@@ -1683,7 +1684,8 @@ impl RunpodPlatform {
                     env: env_vec,
                     network_volume_id: Some(volume.id),
                     volume_mount_path: Some("/nebu/cache".to_string()),
-                    container_registry_auth_id: Some(container_registry_auth_id.to_string()),
+                    container_registry_auth_id: None,
+                    // container_registry_auth_id: Some(container_registry_auth_id.to_string()),
                 }
             };
 
