@@ -7,15 +7,13 @@ use crate::handlers::v1::volumes::ensure_volume;
 use crate::models::{V1CreateAgentKeyRequest, V1UserProfile};
 use crate::orign::get_orign_server;
 use crate::query::Query;
-use crate::resources::v1::containers::models::{
-    V1Container, V1ContainerRequest, V1UpdateContainer,
-};
+use crate::resources::v1::containers::models::{V1Container, V1ContainerRequest};
 use sea_orm::DatabaseConnection;
 use std::collections::HashMap;
-use std::env;
 use std::fmt;
+use std::net::IpAddr;
 use std::str::FromStr;
-use tailscale_client::TailscaleClient;
+use tailscale_client::{Capabilities, CreateAuthKeyRequest, CreateOpts, Devices, TailscaleClient};
 use tracing::{debug, error, info};
 
 /// Enum for container status
@@ -315,22 +313,20 @@ pub trait ContainerPlatform {
         let client = self.get_tailscale_client().await;
         let name = self.get_tailscale_device_name(model).await;
 
-        // If `find_device_by_name` returns an error, propagate it;
-        // if it returns None, create a formatted error.
         let device = client
             .find_device_by_name("-", &name, None)
             .await?
             .ok_or_else(|| format!("No Tailscale device found with name '{}'", name))?;
 
-        // If addresses is None, return an error.
         let addresses = device
             .addresses
-            .ok_or_else(|| "Tailscale device entry has no addresses")?;
+            .as_ref()
+            .ok_or_else(|| format!("Tailscale device '{}' has no addresses", name))?;
 
-        // If addresses is empty, return an error.
         let ipv4 = addresses
-            .first()
-            .ok_or_else(|| "No IP addresses found for the Tailscale device")?;
+            .iter()
+            .find(|s| IpAddr::from_str(s).map_or(false, |ip_addr| ip_addr.is_ipv4()))
+            .ok_or_else(|| format!("No IPv4 address found for Tailscale device '{}'", name))?;
 
         Ok(ipv4.to_string())
     }
@@ -356,44 +352,45 @@ pub trait ContainerPlatform {
         debug!("Tailnet: {}", tailnet);
 
         let client = self.get_tailscale_client().await;
-
         let name = self.get_tailscale_device_name(model).await;
 
         debug!("Ensuring no existing Tailscale device for {}", name);
-        match client
-            .remove_device_by_name(&"-".to_string(), &name, None)
-            .await
-        {
-            Ok(_) => {
-                debug!("Ensured no existing Tailscale device for {}", name);
+        match client.remove_device_by_name(&tailnet, &name, None).await {
+            Ok(Some(_deleted_device)) => {
+                debug!(
+                    "Successfully removed existing Tailscale device for {}",
+                    name
+                );
+            }
+            Ok(None) => {
+                debug!(
+                    "No existing Tailscale device found for {}, proceeding.",
+                    name
+                );
             }
             Err(e) => {
-                error!("Error removing Tailscale auth key for {}: {}", name, e);
-                // Return an error instead of panicking
-                return Err(
-                    format!("Tailscale API error while removing device {}: {}", name, e).into(),
+                error!(
+                    "Error removing existing Tailscale device for {}: {}. Proceeding with key creation attempt.",
+                    name, e
                 );
             }
         }
 
-        // Build the request body with the capabilities you need
-        let request_body = tailscale_client::CreateAuthKeyRequest {
-            description: Some("Nebu ephemeral key".to_string()), // or use any desired description
-            expirySeconds: None,                                 // or Some(...) to set a time limit
-            capabilities: tailscale_client::Capabilities {
-                devices: tailscale_client::Devices {
-                    create: Some(tailscale_client::CreateOpts {
+        let request_body = CreateAuthKeyRequest {
+            description: Some(format!("Nebu ephemeral key for container {}", model.id)),
+            expirySeconds: None,
+            capabilities: Capabilities {
+                devices: Devices {
+                    create: Some(CreateOpts {
                         reusable: Some(false),
-                        ephemeral: Some(true), // If true, the key can only add ephemeral nodes
-                        preauthorized: Some(true), // If true, automatically approves devices
+                        ephemeral: Some(true),
+                        preauthorized: Some(true),
                         tags: Some(vec!["tag:container".to_string()]),
                     }),
                 },
             },
         };
 
-        // The second parameter below (true) often corresponds to "override" in some older client versions;
-        // adjust as needed based on your Tailscale library's signature.
         let response = match client.create_auth_key(&tailnet, true, &request_body).await {
             Ok(resp) => resp,
             Err(e) => {
@@ -401,14 +398,13 @@ pub trait ContainerPlatform {
             }
         };
 
-        debug!("Response: {:?}", response);
-        // Return the key string
+        debug!("CreateAuthKeyResponse: {:?}", response);
         let key = response.key.ok_or_else(|| {
-            "Server did not return a value in `key` from Tailscale API".to_string()
+            "Server did not return a value in `key` from Tailscale API after key creation"
+                .to_string()
         })?;
 
-        debug!("Tailscale key: {}", key);
-
+        debug!("Tailscale auth key generated: {}", key);
         Ok(key)
     }
 
@@ -600,4 +596,71 @@ pub trait ContainerController {
 
 pub async fn get_tailscale_device_name(model: &containers::Model) -> String {
     format!("container-{}", model.id)
+}
+
+/// Fetches the IPv4 address of a device from Tailscale using its hostname.
+pub async fn get_ip_for_tailscale_device_hostname(
+    device_hostname: &str,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    debug!(
+        "[Tailscale] Attempting to fetch IP for hostname: {}",
+        device_hostname
+    );
+    let tailscale_api_key = CONFIG
+        .tailscale_api_key
+        .clone()
+        .ok_or_else(|| "TAILSCALE_API_KEY not found in config".to_string())?;
+    let client = TailscaleClient::new(tailscale_api_key);
+
+    // Use "-" for the default tailnet.
+    let device = client
+        .find_device_by_name("-", device_hostname, None)
+        .await?
+        .ok_or_else(|| {
+            error!(
+                "[Tailscale] Device with hostname '{}' not found.",
+                device_hostname
+            );
+            format!(
+                "No Tailscale device found with hostname '{}'",
+                device_hostname
+            )
+        })?;
+
+    debug!(
+        "[Tailscale] Found device for hostname '{}': Name in response: {:?}",
+        device_hostname,
+        device.name.as_deref().unwrap_or("N/A")
+    );
+
+    let addresses = device.addresses.as_ref().ok_or_else(|| {
+        error!(
+            "[Tailscale] Device '{}' has no IP addresses listed.",
+            device_hostname
+        );
+        format!(
+            "Tailscale device '{}' has no addresses listed",
+            device_hostname
+        )
+    })?;
+
+    let ipv4 = addresses
+        .iter()
+        .find(|s| IpAddr::from_str(s).map_or(false, |ip_addr| ip_addr.is_ipv4()))
+        .ok_or_else(|| {
+            error!(
+                "[Tailscale] No IPv4 address found for device '{}'. Addresses found: {:?}",
+                device_hostname, addresses
+            );
+            format!(
+                "No IPv4 address found for Tailscale device '{}'",
+                device_hostname
+            )
+        })?;
+
+    debug!(
+        "[Tailscale] Found IPv4 '{}' for device '{}'",
+        ipv4, device_hostname
+    );
+    Ok(ipv4.to_string())
 }

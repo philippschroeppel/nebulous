@@ -6,6 +6,7 @@ use crate::models::V1CreateAgentKeyRequest;
 use crate::models::V1UserProfile;
 use crate::mutation::Mutation;
 use crate::query::Query;
+use crate::resources::v1::containers::base::get_ip_for_tailscale_device_hostname;
 use crate::resources::v1::containers::base::ContainerStatus;
 use crate::resources::v1::containers::factory::platform_factory;
 use crate::resources::v1::containers::models::V1ContainerRequest;
@@ -36,7 +37,7 @@ impl StandardProcessor {
         Self { state }
     }
 
-    fn customize_container(
+    async fn customize_container(
         &self,
         processor: &processors::Model,
         container: Option<V1ContainerRequest>,
@@ -141,11 +142,36 @@ impl StandardProcessor {
             secret_name: None,
         });
 
-        // Redis URL with credentials - prioritize REDIS_URL if set
-        let redis_url = match CONFIG.redis_publish_url.clone() {
-            Some(url) => url,
-            None => CONFIG.redis_url.clone().unwrap(),
+        // Fetch Redis IP from Tailscale
+        let redis_hostname = "redis"; // Or get this from config if it can vary
+        let redis_ip = match get_ip_for_tailscale_device_hostname(redis_hostname).await {
+            Ok(ip) => ip,
+            Err(e) => {
+                error!(
+                    "[Processor Controller] Failed to get Tailscale IP for '{}': {}. Falling back to configured REDIS_URL/REDIS_PUBLISH_URL.",
+                    redis_hostname,
+                    e
+                );
+                // Fallback to existing config if Tailscale lookup fails
+                // This maintains previous behavior in case of Tailscale issues.
+                match CONFIG.redis_publish_url.clone() {
+                    Some(url) => {
+                        debug!("Using REDIS_PUBLISH_URL: {}", url);
+                        url
+                    }
+                    None => CONFIG.redis_url.clone().ok_or_else(|| {
+                        Box::new(std::io::Error::new(
+                            std::io::ErrorKind::NotFound,
+                            "REDIS_URL or REDIS_PUBLISH_URL must be set if Tailscale lookup fails",
+                        ))
+                    })?,
+                }
+            }
         };
+
+        // Construct Redis URL using the fetched IP and default port
+        let redis_url = format!("redis://{}:6379", redis_ip);
+        info!("[Processor Controller] Using Redis URL: {}", redis_url);
 
         // Add all Redis env vars
         env.push(V1EnvVar {
@@ -849,8 +875,9 @@ impl StandardProcessor {
             .map_err(|e| format!("Failed to decrypt agent key: {}", e))?;
 
         // Get the customized container with all our environment variables
-        let container =
-            self.customize_container(processor, Some(container_request), redis_client)?;
+        let container = self
+            .customize_container(processor, Some(container_request), redis_client)
+            .await?;
 
         debug!(
             "[Processor Controller] Processor {} customized container: {:?}",
