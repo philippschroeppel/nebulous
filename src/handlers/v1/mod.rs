@@ -19,7 +19,7 @@ pub use namespaces::{
 };
 pub use processors::{
     create_processor, delete_processor, get_processor, get_processor_logs, list_processors,
-    scale_processor, send_processor, update_processor,
+    read_processor_stream, scale_processor, send_processor, update_processor,
 };
 pub use secrets::{
     create_secret, delete_secret, delete_secret_by_id, get_secret, get_secret_by_id, list_secrets,

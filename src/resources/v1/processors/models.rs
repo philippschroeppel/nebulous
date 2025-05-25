@@ -1,7 +1,8 @@
-use crate::models::{V1ResourceMeta, V1ResourceMetaRequest, V1ResourceReference};
-use crate::resources::v1::containers::models::V1ContainerRequest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+use crate::models::{V1ResourceMeta, V1ResourceMetaRequest, V1ResourceReference};
+use crate::resources::v1::containers::models::V1ContainerRequest;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct V1ProcessorStatus {
@@ -98,6 +99,23 @@ pub struct V1UpdateProcessor {
     pub no_delete: Option<bool>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct V1ReadStreamRequest {
+    pub consumer_group: String,
+    #[serde(default = "default_max_records")]
+    pub max_records: u64,
+    #[serde(default = "default_wait_time_ms")]
+    pub wait_time_ms: u64,
+}
+
 fn default_processor_kind() -> String {
     "Processor".to_string()
+}
+
+fn default_max_records() -> u64 {
+    10
+}
+
+fn default_wait_time_ms() -> u64 {
+    1000
 }

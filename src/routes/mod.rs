@@ -6,9 +6,9 @@ use crate::handlers::v1::{
     fetch_container_logs, fetch_container_logs_by_id, generate_temp_s3_credentials, get_cache_key,
     get_container, get_container_by_id, get_namespace, get_processor, get_processor_logs,
     get_secret, get_secret_by_id, get_user_profile, get_volume, list_cache_keys, list_containers,
-    list_namespaces, list_processors, list_secrets, list_volumes, patch_container, scale_processor,
-    search_containers, send_processor, stream_logs_ws, stream_logs_ws_by_id, update_processor,
-    update_secret, update_secret_by_id,
+    list_namespaces, list_processors, list_secrets, list_volumes, patch_container,
+    read_processor_stream, scale_processor, search_containers, send_processor, stream_logs_ws,
+    stream_logs_ws_by_id, update_processor, update_secret, update_secret_by_id,
 };
 use crate::handlers::{health_handler, root_handler};
 use crate::middleware::auth_middleware;
@@ -105,6 +105,10 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
         .route(
             "/v1/processors/:namespace/:name/logs",
             get(get_processor_logs),
+        )
+        .route(
+            "/v1/processors/:namespace/:name/stream",
+            post(read_processor_stream),
         )
         .route("/v1/cache", get(list_cache_keys))
         .route(

@@ -6,7 +6,8 @@ use crate::models::{V1ResourceMetaRequest, V1StreamData, V1StreamMessage, V1User
 use crate::query::Query;
 use crate::resources::v1::processors::base::ProcessorPlatform;
 use crate::resources::v1::processors::models::{
-    V1Processor, V1ProcessorRequest, V1ProcessorScaleRequest, V1Processors, V1UpdateProcessor,
+    V1Processor, V1ProcessorRequest, V1ProcessorScaleRequest, V1Processors, V1ReadStreamRequest,
+    V1UpdateProcessor,
 };
 use crate::resources::v1::processors::standard::StandardProcessor;
 use crate::state::AppState;
@@ -1468,4 +1469,173 @@ pub async fn get_processor_logs(
     // };
 
     Ok(Json(json!(all_logs)))
+}
+
+#[axum::debug_handler]
+pub async fn read_processor_stream(
+    State(state): State<AppState>,
+    Extension(user_profile): Extension<V1UserProfile>,
+    Path((namespace, name)): Path<(String, String)>,
+    Json(read_request): Json<V1ReadStreamRequest>,
+) -> Result<Json<Vec<V1StreamMessage>>, (StatusCode, Json<serde_json::Value>)> {
+    debug!(
+        "Reading processor stream for {}/{} with group {}, max_records: {}, wait_ms: {}",
+        namespace,
+        name,
+        read_request.consumer_group,
+        read_request.max_records,
+        read_request.wait_time_ms
+    );
+    let db_pool = &state.db_pool;
+    let resolved_namespace = resolve_namespace(&namespace, &user_profile);
+
+    let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
+        orgs.keys().cloned().collect()
+    } else {
+        Vec::new()
+    };
+    owner_ids.push(user_profile.email.clone());
+    let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
+
+    let processor = Query::find_processor_by_namespace_name_and_owners(
+        db_pool,
+        &resolved_namespace,
+        &name,
+        &owner_id_refs,
+    )
+    .await
+    .map_err(|e| {
+        error!(
+            "Database error finding processor {}:{}: {}",
+            resolved_namespace, name, e
+        );
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Failed to retrieve processor: {}", e) })),
+        )
+    })?;
+
+    let stream_name = processor.stream;
+
+    match &state.message_queue {
+        crate::state::MessageQueue::Redis { client } => {
+            let mut conn = client.get_connection().map_err(|e| {
+                error!("Redis connection error: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": format!("Redis connection error: {}", e) })),
+                )
+            })?;
+
+            // Ensure consumer group exists, create if not (MKSTREAM handles stream non-existence)
+            let group_create_result: Result<(), redis::RedisError> = redis::cmd("XGROUP")
+                .arg("CREATE")
+                .arg(stream_name.clone())
+                .arg(read_request.consumer_group.clone())
+                .arg("0") // Start from the beginning if creating new
+                .arg("MKSTREAM")
+                .query(&mut conn);
+
+            match group_create_result {
+                Ok(_) => debug!(
+                    "Consumer group '{}' ensured for stream '{}'",
+                    read_request.consumer_group, stream_name
+                ),
+                Err(e) => {
+                    // BUSYGROUP error is fine, means group already exists
+                    if e.to_string().contains("BUSYGROUP") {
+                        debug!(
+                            "Consumer group '{}' already exists for stream '{}'",
+                            read_request.consumer_group, stream_name
+                        );
+                    } else {
+                        error!(
+                            "Failed to create/ensure consumer group '{}' for stream '{}': {}",
+                            read_request.consumer_group, stream_name, e
+                        );
+                        return Err((
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(
+                                json!({ "error": format!("Failed to setup consumer group: {}", e) }),
+                            ),
+                        ));
+                    }
+                }
+            }
+
+            debug!(
+                "Reading from stream '{}' with group '{}', count {}, block {}ms",
+                stream_name,
+                read_request.consumer_group,
+                read_request.max_records,
+                read_request.wait_time_ms
+            );
+
+            let reply: redis::streams::StreamReadReply = redis::cmd("XREADGROUP")
+                .arg("GROUP")
+                .arg(read_request.consumer_group.clone())
+                .arg(user_profile.email.clone()) // Consumer name, using user's email for now
+                .arg("COUNT")
+                .arg(read_request.max_records)
+                .arg("BLOCK")
+                .arg(read_request.wait_time_ms)
+                .arg("STREAMS")
+                .arg(stream_name.clone())
+                .arg(">") // Read new messages not yet delivered to other consumers in this group
+                .query(&mut conn)
+                .map_err(|e| {
+                    error!("XREADGROUP error for stream '{}': {}", stream_name, e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "error": format!("Failed to read from stream: {}", e) })),
+                    )
+                })?;
+
+            let mut messages: Vec<V1StreamMessage> = Vec::new();
+            if reply.keys.is_empty() {
+                debug!(
+                    "No new messages in stream '{}' for group '{}' within timeout",
+                    stream_name, read_request.consumer_group
+                );
+                return Ok(Json(messages)); // Return empty list if no messages
+            }
+
+            for key in reply.keys {
+                for id_entry in key.ids {
+                    if let Some(data_val) = id_entry.map.get("data") {
+                        let data_str = match data_val {
+                            redis::Value::BulkString(bytes) => {
+                                String::from_utf8_lossy(&bytes).to_string()
+                            }
+                            redis::Value::SimpleString(s) => s.clone(),
+                            _ => {
+                                warn!("Unexpected data format in stream: {:?}", data_val);
+                                continue;
+                            }
+                        };
+                        match serde_json::from_str::<V1StreamMessage>(&data_str) {
+                            Ok(msg) => messages.push(msg),
+                            Err(e) => {
+                                error!("Failed to deserialize V1StreamMessage from stream data '{}': {}", data_str, e);
+                                // Optionally, decide how to handle deserialization errors (e.g., skip, error out)
+                            }
+                        }
+                    } else {
+                        warn!(
+                            "'data' field not found in message map for ID: {:?}",
+                            id_entry.id
+                        );
+                    }
+                }
+            }
+
+            Ok(Json(messages))
+        }
+        crate::state::MessageQueue::Kafka { .. } => Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                json!({ "error": "Kafka streams are not currently supported for consumer group reads" }),
+            ),
+        )),
+    }
 }
