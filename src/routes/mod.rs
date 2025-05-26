@@ -7,8 +7,8 @@ use crate::handlers::v1::{
     get_container, get_container_by_id, get_namespace, get_processor, get_processor_logs,
     get_secret, get_secret_by_id, get_user_profile, get_volume, list_cache_keys, list_containers,
     list_namespaces, list_processors, list_secrets, list_volumes, patch_container,
-    read_processor_stream, scale_processor, search_containers, send_processor, stream_logs_ws,
-    stream_logs_ws_by_id, update_processor, update_secret, update_secret_by_id,
+    read_processor_stream, read_return_message, scale_processor, search_containers, send_processor,
+    stream_logs_ws, stream_logs_ws_by_id, update_processor, update_secret, update_secret_by_id,
 };
 use crate::handlers::{health_handler, root_handler};
 use crate::middleware::auth_middleware;
@@ -109,6 +109,10 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
         .route(
             "/v1/processors/:namespace/:name/stream",
             post(read_processor_stream),
+        )
+        .route(
+            "/v1/processors/:namespace/:name/return/:message_id",
+            post(read_return_message),
         )
         .route("/v1/cache", get(list_cache_keys))
         .route(
