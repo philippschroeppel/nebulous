@@ -18,8 +18,9 @@ pub use namespaces::{
     create_namespace, delete_namespace, ensure_namespace, get_namespace, list_namespaces,
 };
 pub use processors::{
-    create_processor, delete_processor, get_processor, get_processor_logs, list_processors,
-    read_processor_stream, read_return_message, scale_processor, send_processor, update_processor,
+    check_processor_health, create_processor, delete_processor, get_processor, get_processor_logs,
+    list_processors, read_processor_stream, read_return_message, scale_processor, send_processor,
+    update_processor,
 };
 pub use secrets::{
     create_secret, delete_secret, delete_secret_by_id, get_secret, get_secret_by_id, list_secrets,

@@ -266,6 +266,282 @@ async fn _scale_processor(
 }
 
 #[axum::debug_handler]
+pub async fn check_processor_health(
+    State(state): State<AppState>,
+    Extension(user_profile): Extension<V1UserProfile>,
+    Path((namespace, name)): Path<(String, String)>,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    debug!(
+        "Checking health for processor: {} in namespace: {}",
+        name, namespace
+    );
+    let db_pool = &state.db_pool;
+    let resolved_namespace = resolve_namespace(&namespace, &user_profile);
+
+    // --- Authorization and Processor Fetching ---
+    let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
+        orgs.keys().cloned().collect()
+    } else {
+        Vec::new()
+    };
+    owner_ids.push(user_profile.email.clone());
+    let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
+
+    let processor = Query::find_processor_by_namespace_name_and_owners(
+        db_pool,
+        &resolved_namespace,
+        &name,
+        &owner_id_refs,
+    )
+    .await
+    .map_err(|e| {
+        error!(
+            "Database error finding processor {}:{}: {}",
+            resolved_namespace, name, e
+        );
+        (
+            StatusCode::NOT_FOUND, // Changed to NOT_FOUND for clarity
+            Json(json!({"error": format!("Processor not found or access denied: {}", e)})),
+        )
+    })?;
+    // --- End Authorization ---
+
+    // Construct health stream name
+    let health_stream_name = format!("{}.health", processor.stream);
+    let message_id = ShortUuid::generate().to_string();
+    let return_stream_name = format!("{}.return.{}", health_stream_name, message_id);
+
+    debug!(
+        "Sending health check to stream: {}, expecting response on: {}",
+        health_stream_name, return_stream_name
+    );
+
+    let health_check_content = json!({
+        "type": "HEALTH_CHECK_REQUEST",
+        "request_id": message_id.clone(),
+        "timestamp": chrono::Utc::now().to_rfc3339()
+    });
+
+    let user_prof = match get_user_profile_from_token(
+        &state.db_pool,
+        &user_profile.token.clone().unwrap_or_default(),
+    )
+    .await
+    {
+        Ok(user_prof) => user_prof,
+        Err(e) => {
+            error!("Failed to get user profile for health check: {}", e);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    json!({"error": format!("Failed to get user profile for health check: {}", e)}),
+                ),
+            ));
+        }
+    };
+
+    let message = V1StreamMessage {
+        kind: "HealthCheckRequest".to_string(),
+        id: message_id.clone(),
+        content: health_check_content,
+        created_at: chrono::Utc::now().timestamp(),
+        return_stream: Some(return_stream_name.clone()),
+        user_id: Some(user_prof.email.clone()),
+        orgs: user_prof.organizations.clone().map(|orgs| json!(orgs)),
+        handle: user_prof.handle.clone(),
+        adapter: Some(format!("processor-health:{}", processor.id)),
+        api_key: None, // Removed agent key
+    };
+
+    match &state.message_queue {
+        crate::state::MessageQueue::Redis { client } => {
+            let mut conn = client.get_connection().map_err(|e| {
+                error!("Redis connection error for health check: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        json!({"error": format!("Redis connection error for health check: {}", e)}),
+                    ),
+                )
+            })?;
+
+            let message_json = serde_json::to_string(&message).map_err(|e| {
+                error!("Failed to serialize health check message: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("Failed to serialize health check message: {}", e)})),
+                )
+            })?;
+
+            let _stream_id: String = redis::cmd("XADD")
+                .arg(&health_stream_name)
+                .arg("*")
+                .arg("data")
+                .arg(&message_json)
+                .query(&mut conn)
+                .map_err(|e| {
+                    error!(
+                        "Failed to send health check message to stream '{}': {}",
+                        health_stream_name, e
+                    );
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"error": format!("Failed to send health check to stream: {}", e)})),
+                    )
+                })?;
+
+            // Initialize return stream
+            let init_message_id: String = match redis::cmd("XADD")
+                .arg(&return_stream_name)
+                .arg("*")
+                .arg("init")
+                .arg("true")
+                .query(&mut conn)
+            {
+                Ok(id) => id,
+                Err(e) => {
+                    error!(
+                        "Failed to add init message to return stream '{}': {}",
+                        return_stream_name, e
+                    );
+                    return Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            json!({"error": format!("Failed to initialize health return stream: {}", e)}),
+                        ),
+                    ));
+                }
+            };
+
+            const HEALTH_CHECK_TIMEOUT_MS: u64 = 30000; // 30 seconds timeout for health check
+
+            let client_clone = client.clone();
+            let return_stream_name_clone = return_stream_name.clone();
+
+            let read_result = tokio::task::spawn_blocking(move || {
+                let mut conn_blocking = client_clone.get_connection().map_err(|e| {
+                    redis::RedisError::from((
+                        redis::ErrorKind::IoError,
+                        "Failed to get connection in spawn_blocking for health check",
+                        e.to_string(),
+                    ))
+                })?;
+                redis::cmd("XREAD")
+                    .arg("BLOCK")
+                    .arg(HEALTH_CHECK_TIMEOUT_MS)
+                    .arg("STREAMS")
+                    .arg(&return_stream_name_clone)
+                    .arg(&init_message_id) // Read after the init message
+                    .query::<redis::streams::StreamReadReply>(&mut conn_blocking)
+            })
+            .await;
+
+            // Handle result from spawn_blocking
+            let response_data = match read_result {
+                Ok(Ok(reply)) => {
+                    if reply.keys.is_empty() {
+                        Err((
+                            StatusCode::REQUEST_TIMEOUT,
+                            Json(
+                                json!({"error": "Timed out waiting for processor health response"}),
+                            ),
+                        ))
+                    } else {
+                        // Process the first valid message found
+                        let mut processed_response = None;
+                        for key_entry in reply.keys {
+                            for id_entry in key_entry.ids {
+                                if id_entry.map.contains_key("init") {
+                                    // Skip init message
+                                    continue;
+                                }
+                                if let Some(data_val) = id_entry.map.get("data") {
+                                    let data_str = match data_val {
+                                        redis::Value::BulkString(bytes) => {
+                                            String::from_utf8_lossy(bytes).to_string()
+                                        }
+                                        redis::Value::SimpleString(s) => s.clone(),
+                                        _ => continue, // or log an error
+                                    };
+                                    match serde_json::from_str::<serde_json::Value>(&data_str) {
+                                        Ok(json_data) => {
+                                            processed_response = Some(json_data);
+                                            break; // Found a valid message
+                                        }
+                                        Err(e) => {
+                                            warn!("Failed to parse health response data as JSON: {}. Raw: '{}'", e, data_str);
+                                            // Store as raw if parsing fails
+                                            processed_response =
+                                                Some(json!({ "raw_health_response": data_str }));
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            if processed_response.is_some() {
+                                break;
+                            }
+                        }
+                        match processed_response {
+                            Some(data) => Ok(data),
+                            None => Err((
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                Json(
+                                    json!({"error": "Received health response without data or only init message"}),
+                                ),
+                            )),
+                        }
+                    }
+                }
+                Ok(Err(e)) => {
+                    error!("Redis error during health check XREAD: {}", e);
+                    Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            json!({"error": format!("Error reading health response stream: {}", e)}),
+                        ),
+                    ))
+                }
+                Err(e) => {
+                    error!("Spawn_blocking task failed for health check: {}", e);
+                    Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"error": format!("Health check task execution error: {}", e)})),
+                    ))
+                }
+            };
+
+            // Cleanup the return stream
+            let mut conn_cleanup = client.get_connection().unwrap(); // Assume connection is fine after read
+            let del_result: Result<(), redis::RedisError> = redis::cmd("DEL")
+                .arg(&return_stream_name)
+                .query(&mut conn_cleanup);
+            if let Err(e) = del_result {
+                warn!(
+                    "Failed to delete health check return stream '{}': {}",
+                    return_stream_name, e
+                );
+            }
+
+            // Return the processed response or error
+            match response_data {
+                Ok(data) => Ok(Json(data).into_response()),
+                Err(err_tuple) => Err(err_tuple),
+            }
+        }
+        crate::state::MessageQueue::Kafka { .. } => {
+            error!("Kafka not supported for processor health checks.");
+            Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    json!({"error": "Kafka streams are not currently supported for health checks"}),
+                ),
+            ))
+        }
+    }
+}
+
+#[axum::debug_handler]
 pub async fn list_processors(
     State(state): State<AppState>,
     Extension(user_profile): Extension<V1UserProfile>,
@@ -1373,7 +1649,7 @@ pub async fn get_processor_logs(
     .map_err(|e| {
         // Consider returning 404 if e indicates "not found"
         error!(
-            "Database error finding processor {}:{} - {}",
+            "Database error finding processor {}:{}: {}",
             resolved_namespace, name, e
         );
         (
@@ -1891,7 +2167,7 @@ fn process_return_stream_result(
                             "Failed to parse return data as JSON: {}. Returning raw string.",
                             e
                         );
-                        return Ok(Json(json!({"raw": data_str})));
+                        return Ok(Json(json!({"raw_health_response": data_str})));
                     }
                 }
             } else {
