@@ -771,7 +771,8 @@ pub async fn send_processor(
                 Ok(Json(json!({
                     "success": true,
                     "stream_id": stream_id,
-                    "message_id": message.id
+                    "message_id": message.id,
+                    "return_stream": return_stream.clone(),
                 }))
                 .into_response())
             }
