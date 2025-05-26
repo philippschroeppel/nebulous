@@ -108,6 +108,15 @@ pub struct V1ReadStreamRequest {
     pub wait_time_ms: u64,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct V1ProcessorHealthResponse {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<Value>,
+}
+
 fn default_processor_kind() -> String {
     "Processor".to_string()
 }

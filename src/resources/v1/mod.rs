@@ -5,3 +5,5 @@ pub mod processors;
 pub mod secrets;
 pub mod services;
 pub mod volumes;
+
+pub use processors::*;

@@ -6,7 +6,12 @@ use crate::models::{V1ResourceMetaRequest, V1StreamData, V1StreamMessage, V1User
 use crate::query::Query;
 use crate::resources::v1::processors::base::ProcessorPlatform;
 use crate::resources::v1::processors::models::{
-    V1Processor, V1ProcessorRequest, V1ProcessorScaleRequest, V1Processors, V1ReadStreamRequest,
+    V1Processor,
+    V1ProcessorHealthResponse, // Added import for health response
+    V1ProcessorRequest,
+    V1ProcessorScaleRequest,
+    V1Processors,
+    V1ReadStreamRequest,
     V1UpdateProcessor,
 };
 use crate::resources::v1::processors::standard::StandardProcessor;
@@ -270,7 +275,8 @@ pub async fn check_processor_health(
     State(state): State<AppState>,
     Extension(user_profile): Extension<V1UserProfile>,
     Path((namespace, name)): Path<(String, String)>,
-) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Json<V1ProcessorHealthResponse>, (StatusCode, Json<serde_json::Value>)> {
+    // Changed return type
     debug!(
         "Checking health for processor: {} in namespace: {}",
         name, namespace
@@ -463,16 +469,28 @@ pub async fn check_processor_health(
                                         redis::Value::SimpleString(s) => s.clone(),
                                         _ => continue, // or log an error
                                     };
-                                    match serde_json::from_str::<serde_json::Value>(&data_str) {
+                                    match serde_json::from_str::<V1ProcessorHealthResponse>(
+                                        &data_str,
+                                    ) {
+                                        // Deserialize into V1ProcessorHealthResponse
                                         Ok(json_data) => {
                                             processed_response = Some(json_data);
                                             break; // Found a valid message
                                         }
                                         Err(e) => {
-                                            warn!("Failed to parse health response data as JSON: {}. Raw: '{}'", e, data_str);
-                                            // Store as raw if parsing fails
-                                            processed_response =
-                                                Some(json!({ "raw_health_response": data_str }));
+                                            warn!(
+                                                "Failed to parse health response data as V1ProcessorHealthResponse: {}. Raw: '{}'",
+                                                e, data_str
+                                            );
+                                            // If parsing fails, return a generic error or a default health response
+                                            processed_response = Some(V1ProcessorHealthResponse {
+                                                status: "error".to_string(),
+                                                message: Some(format!(
+                                                    "Failed to parse health response: {}",
+                                                    e
+                                                )),
+                                                details: Some(json!({ "raw_response": data_str })),
+                                            });
                                             break;
                                         }
                                     }
@@ -525,7 +543,7 @@ pub async fn check_processor_health(
 
             // Return the processed response or error
             match response_data {
-                Ok(data) => Ok(Json(data).into_response()),
+                Ok(data) => Ok(Json(data)), // Return Json<V1ProcessorHealthResponse>
                 Err(err_tuple) => Err(err_tuple),
             }
         }
