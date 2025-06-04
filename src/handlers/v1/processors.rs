@@ -886,15 +886,17 @@ pub async fn send_processor(
     let stream_name = processor.stream;
     let id = ShortUuid::generate().to_string();
 
-    // Generate a return stream name if we need to wait for a response
-    let return_stream = if stream_data.wait.unwrap_or(false) {
-        let return_stream_name = format!("{}.return.{}", stream_name, id.clone());
-        Some(return_stream_name)
-    } else {
-        None
-    };
-    debug!("Sending message to processor: {}", stream_name);
-    debug!("content: {:?}", stream_data.content);
+    // Always generate the actual return stream name
+    let actual_return_stream_name = format!("{}.return.{}", stream_name, id.clone());
+
+    // Determine if the handler should wait based on the request's 'wait' field.
+    // Default to false (not waiting) if 'wait' is not specified.
+    let should_wait_for_response = stream_data.wait.unwrap_or(false);
+
+    debug!(
+        "Message ID: {}, Target Stream: {}, Actual Return Stream: {}, Should Wait: {}",
+        id, stream_name, actual_return_stream_name, should_wait_for_response
+    );
 
     let user_prof = match get_user_profile_from_token(&state.db_pool, &user_token).await {
         Ok(user_prof) => user_prof,
@@ -914,7 +916,7 @@ pub async fn send_processor(
         id: id.clone(),
         content: stream_data.content,
         created_at: chrono::Utc::now().timestamp(),
-        return_stream: return_stream.clone(),
+        return_stream: Some(actual_return_stream_name.clone()), // Always provide the return stream to the message
         user_id: Some(user_prof.email.clone()),
         orgs: user_prof.organizations.clone().map(|orgs| json!(orgs)),
         handle: user_prof.handle.clone(),
@@ -972,16 +974,16 @@ pub async fn send_processor(
                 }
             };
 
-            // If we need to wait for a response
-            if let Some(return_stream_name) = return_stream {
+            // If the client requested to wait for a response on the actual_return_stream_name
+            if should_wait_for_response {
                 tracing::debug!(
                     "Waiting for response on return stream: {}",
-                    return_stream_name
+                    actual_return_stream_name
                 );
 
                 // Create the return stream with a dummy message to ensure it exists, and capture its ID
                 let init_message_id: String = match redis::cmd("XADD")
-                    .arg(&return_stream_name)
+                    .arg(&actual_return_stream_name) // Use actual_return_stream_name
                     .arg("*")
                     .arg("init")
                     .arg("true")
@@ -990,14 +992,14 @@ pub async fn send_processor(
                     Ok(id) => {
                         debug!(
                             "Added init message to return stream '{}' with ID: {}",
-                            return_stream_name, id
+                            actual_return_stream_name, id
                         );
                         id // This value will be assigned to init_message_id
                     }
                     Err(e) => {
                         error!(
                             "Failed to add init message to return stream '{}': {}. Cannot proceed.",
-                            return_stream_name, e
+                            actual_return_stream_name, e
                         );
                         // If we can't even add the init message, waiting is unlikely to work
                         return Err((
@@ -1013,7 +1015,7 @@ pub async fn send_processor(
                 const TIMEOUT_MS: u64 = 3600000;
 
                 // --- Prepare for spawn_blocking ---
-                let return_stream_name_clone = return_stream_name.clone();
+                let actual_return_stream_name_clone = actual_return_stream_name.clone();
                 let client_clone = client.clone(); // Clone the client Arc for the blocking task
                                                    // --- Move blocking call to spawn_blocking ---
                 let read_result = tokio::task::spawn_blocking(move || {
@@ -1028,14 +1030,14 @@ pub async fn send_processor(
 
                     debug!(
                         "Attempting blocking XREAD on stream '{}' with timeout {}ms",
-                        return_stream_name_clone, TIMEOUT_MS
+                        actual_return_stream_name_clone, TIMEOUT_MS
                     );
 
                     redis::cmd("XREAD")
                         .arg("BLOCK")
                         .arg(TIMEOUT_MS)
                         .arg("STREAMS")
-                        .arg(&return_stream_name_clone) // Use the clone
+                        .arg(&actual_return_stream_name_clone) // Use the clone
                         .arg(&init_message_id)
                         .query::<redis::streams::StreamReadReply>(&mut conn)
                 })
@@ -1053,7 +1055,7 @@ pub async fn send_processor(
                         // Outer Ok, inner Err (Redis error)
                         error!(
                             "Error reading from response stream '{}' inside spawn_blocking: {}",
-                            return_stream_name, // Use original name for logging
+                            actual_return_stream_name, // Use original name for logging
                             e
                         );
                         return Err((
@@ -1067,7 +1069,7 @@ pub async fn send_processor(
                         // Outer Err (spawn_blocking join error)
                         error!(
                             "Spawn_blocking task failed for stream '{}': {}",
-                            return_stream_name, // Use original name for logging
+                            actual_return_stream_name, // Use original name for logging
                             e
                         );
                         return Err((
@@ -1094,21 +1096,22 @@ pub async fn send_processor(
                 };
                 debug!(
                     "Attempting to delete return stream '{}'",
-                    return_stream_name // Use original name
+                    actual_return_stream_name // Use actual_return_stream_name
                 );
-                let del_result: Result<(), redis::RedisError> =
-                    redis::cmd("DEL").arg(&return_stream_name).query(&mut conn); // Use original name
+                let del_result: Result<(), redis::RedisError> = redis::cmd("DEL")
+                    .arg(&actual_return_stream_name) // Use actual_return_stream_name
+                    .query(&mut conn);
                 if let Err(e) = del_result {
                     // Log error but continue processing the response if we got one
                     error!(
                         "Failed to delete return stream '{}': {}. Processing response anyway.",
-                        return_stream_name, // Use original name
+                        actual_return_stream_name, // Use actual_return_stream_name
                         e
                     );
                 } else {
                     debug!(
                         "Successfully deleted return stream '{}'",
-                        return_stream_name // Use original name
+                        actual_return_stream_name // Use actual_return_stream_name
                     );
                 }
 
@@ -1116,7 +1119,7 @@ pub async fn send_processor(
                 if result.keys.is_empty() {
                     error!(
                         "Timed out or received empty response from return stream '{}'",
-                        return_stream_name // Use original name
+                        actual_return_stream_name // Use actual_return_stream_name
                     );
                     return Err((
                         StatusCode::REQUEST_TIMEOUT,
@@ -1126,7 +1129,7 @@ pub async fn send_processor(
                 debug!(
                     "Received {} keys in response from stream '{}'",
                     result.keys.len(),
-                    return_stream_name // Use original name
+                    actual_return_stream_name // Use actual_return_stream_name
                 );
 
                 // Process the response
@@ -1171,7 +1174,7 @@ pub async fn send_processor(
                 // If we couldn't find data in the response
                 error!(
                     "Processed all messages in response stream '{}', but none contained a 'data' field.",
-                    return_stream_name // Use original name
+                    actual_return_stream_name // Use actual_return_stream_name
                 );
                 return Err((
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -1187,7 +1190,7 @@ pub async fn send_processor(
                     "success": true,
                     "stream_id": stream_id,
                     "message_id": message.id,
-                    "return_stream": return_stream.clone(),
+                    "return_stream": actual_return_stream_name, // Always include the name of the return stream
                 }))
                 .into_response())
             }
