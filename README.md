@@ -19,7 +19,7 @@ Why not Kubernetes? See [why_not_kube.md](docs/why_not_kube.md)
 
 Nebulous helps find accelerators wherever they may be, across clouds or in your datacenter. It scales those resources as needed based on usage.
 <div align="center">
-<img src="./static/cross_cloud.png" alt="description" width="500" height="175"/>
+<img src="./static/scale3.png" alt="description" width="500" height="175"/>
 </div>
 
 ### Globally Segmented Networks
@@ -31,7 +31,7 @@ Nebulous connects resources across clouds using [Tailnet](https://tailscale.com/
 Nebulous enables fast and resiliant replication of data between nodes using [Iroh](https://www.iroh.computer/) a p2p daemon. Containers can subscribe to data resources in their namespace and have them lazily synced from peers as they need them regardless of geolocation.
 
 
-### Suspendable
+### Live Migration
 
 Nebulous enables containers to be suspended and restored at any point in time, including GPU operations. This enables forking of containers in realtime or migrating workloads seemlessly to cheaper resources.
 
@@ -50,7 +50,7 @@ Nebulous is multi-tenant from the ground up, providing strong isolation of workl
 
 Everything in Nebulous is built to be light as a feather, it should feel the opposite of Kubernetes. You can spin it up easily on your local machine as a single process, while still enabling you to seemlessly scale to thousands of nodes in the cloud when needed.
 
-Nebulous should be as cheap as possible when not in use.
+Nebulous should be as cheap as possible when idle.
 
 ## Installation
 
