@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./static/nebu_logo2_alpha.png" alt="Nebulous Logo" width="400">
+  <img src="./static/neb_logo2_alpha.png" alt="Nebulous Logo" width="400">
 </p>
 
 
@@ -13,10 +13,49 @@ Why not Kubernetes? See [why_not_kube.md](docs/why_not_kube.md)
 > [!WARNING]
 > Nebulous is in __alpha__, things may break.
 
+## Concepts
+
+### Cross-cloud Autoscaling
+
+Nebulous helps find accelerators wherever they may be, across clouds or in your datacenter. It scales those resources as needed based on usage.
+<div align="center">
+<img src="./static/cross_cloud.png" alt="description" width="500" height="175"/>
+</div>
+
+### Globally Segmented Networks
+
+Nebulous connects resources across clouds using [Tailnet](https://tailscale.com/kb/1136/tailnet). Every container deployed is connected to every other container in their segmented namespace regardless of where they are running.
+
+### Decentralized Data Layer
+
+Nebulous enables fast and resiliant replication of data between nodes using [Iroh](https://www.iroh.computer/) a p2p daemon. Containers can subscribe to data resources in their namespace and have them lazily synced from peers as they need them regardless of geolocation.
+
+
+### Suspendable
+
+Nebulous enables containers to be suspended and restored at any point in time, including GPU operations. This enables forking of containers in realtime or migrating workloads seemlessly to cheaper resources.
+
+
+### Billable
+
+Accelerated resources are expensive. Nebulous comes batteries-included with primitives for consumption based billing using [OpenMeter](https://github.com/openmeterio/openmeter).
+
+
+### Multi-tentant
+
+Nebulous is multi-tenant from the ground up, providing strong isolation of workloads and robust authorization mechanisms.
+
+
+### Lightweight
+
+Everything in Nebulous is built to be light as a feather, it should feel the opposite of Kubernetes. You can spin it up easily on your local machine as a single process, while still enabling you to seemlessly scale to thousands of nodes in the cloud when needed.
+
+Nebulous should be as cheap as possible when not in use.
+
 ## Installation
 
 ```sh
-curl -fsSL -H "Cache-Control: no-cache" https://raw.githubusercontent.com/agentsea/nebulous/main/remote_install.sh | bash
+curl -fsSL -H "Cache-Control: no-cache" https://raw.githubusercontent.com/agentsea/neblous/main/remote_install.sh | bash
 ```
 > [!NOTE]
 > Only MacOS and Linux arm64/amd64 are supported at this time.
@@ -32,23 +71,23 @@ export AWS_SECRET_ACCESS_KEY=...
 
 Run a local API server on docker
 ```sh
-nebu serve --docker
+neb serve --docker
 ```
 
-Or optionally run on Kubernetes with our [helm chart](./deploy/charts/nebulous/)   
+Or optionally run on Kubernetes with our [helm chart](./deploy/charts/neblous/)   
    
 Connect to the tailnet
 ```sh
-nebu connect
+neb connect
 ```
     
 See what cloud platforms are currently supported.
 ```sh
-nebu get platforms
+neb get platforms
 ```
 
 > [!TIP]
-> Prefer a pythonic interface? Try [nebulous-py](https://github.com/agentsea/nebulous-py)   
+> Prefer a pythonic interface? Try [neblous-py](https://github.com/agentsea/neblous-py)   
 >     
 > Prefer a higher level LLM interface? Try [orign](https://github.com/agentsea/orign)
 
@@ -58,7 +97,7 @@ Let's run our first container. We'll create a container on runpod with 2 A100 GP
    
 First, let's find what accelerators are available.
 ```sh
-nebu get accelerators
+neb get accelerators
 ```
 
 Now lets create a container.
@@ -81,10 +120,8 @@ env:
   - key: DATASET
     value: trl-lib/Capybara 
 volumes:  
-  - source: /output
-    dest: nebu://training-output
-    driver: RCLONE_COPY
-    continuous: true
+  - name: model-cache
+    mount: /models
 accelerators:
   - "2:A100_SXM"
 restart: Never
@@ -92,94 +129,35 @@ restart: Never
 Now to create the container
 
 ```sh
-nebu create container -f mycontainer.yaml
+neb create container -f mycontainer.yaml
 ```
 > [!TIP]
 > See our [container examples](examples/containers) for more.
 
 List all containers
 ```sh
-nebu get containers
+neb get containers
 ```
 
 Get the container we just created.
 ```sh
-nebu get containers trl-job -n training
+neb get containers trl-job -n training
 ```
 
 Exec a command in a container
 ```text
-nebu exec trl-job -n training -c "echo hello"
+neb exec trl-job -n training -c "echo hello"
 ```
 
 Get logs from a container
 ```sh
-nebu logs trl-job -n training
+neb logs trl-job -n training
 ```
 
 Send an http request to a container
 ```sh
 curl http://container-{id}:8000
 ```
-
-#### Queues
-
-Containers can be assigned to a FIFO queue, which will block them from starting until the queue is free.
-
-```yaml
-kind: Container
-image: pytorch/pytorch:latest
-queue: actor-critic-training
-```
-
-#### Volumes
-
-Volumes provide a means to persist and sync data accross clouds. Nebulous uses [rclone](https://rclone.org/) to sync data between clouds backed by an object storage provider.   
-   
-```yaml
-kind: Volume
-metadata:
-  name: shared-datasets
-  namespace: my-app
-source: s3://foo/bar
-```
-
-This volume could then be used in a container like
-```yaml
-kind: Container
-volumes:
-  - source: /output
-    dest: nebu://shared-datasets/my-dataset
-    driver: RCLONE_SYNC
-    continuous: true
-```
-
-The dest path `nebu://shared-datasets/my-dataset` would translate to `s3://foo/bar/my-dataset`. Nebulous will take care of configuring the container with the needed credentials to access shared namespace volumes.
-> [!TIP]
-> By default, Nebulous provisions every namespace with a volume with the same name as the namespace
-   
-Optionally users can define volumes directly in the container
-
-```yaml
-kind: Container
-volumes:
-  - source: s3://my-other-bucket/foo/bar
-    dest: /datasets
-    driver: RCLONE_SYNC
-env:
-  - key: AWS_ACCESS_KEY_ID
-    secret_name: my-aws-access-key-secret
-  - key: AWS_SECRET_ACCESS_KEY
-    secret_name: my-aws-secret-access-key
-```
-> [!NOTE]
-> Note that you will need to provide the necessary credentials for the container to access that s3 path.
-
-Supported drivers are:
-- `RCLONE_SYNC`
-- `RCLONE_COPY`
-- `RCLONE_BISYNC`
-
 #### Meters
 
 Metered billing is supported through [OpenMeter](https://openmeter.cloud/) using the `meters` field.
@@ -192,51 +170,6 @@ meters:
     metric: runtime 
 ```
 
-Cost plus is supported through the `costp` field.
-
-```yaml
-meters:
-  - costp: 10
-    unit: second
-    currency: USD
-    metric: runtime 
-```
-This configuration will add 10% to the cost of the container.
-
-#### Authz
-
-Authz is supported through the container proxy. 
-
-To enable the proxy for a container, set the `proxy_port` field to the container port you want to proxy.
-```yaml
-proxy_port: 8080
-```
-
-Then your service can be accesssed at `http://proxy.<nebu-host>` with the header `x-resource: <name>.<namespace>.<kind>`.   
-
-With the proxy enabled, you can also configure authz rules.
-
-```yaml
-authz:
-  rules:
-    # Match on email
-    - name: email-match
-      field_match:
-        - field: "owner"
-          pattern: "${email}"
-      allow: true
-    
-    # Path-based matching for organization resources
-    - name: org-path-access
-      path_match:
-        - pattern: "/api/v1/orgs/${org_id}/**"
-        - pattern: "/api/v1/organizations/${org_id}/**"
-        - pattern: "/api/v1/models/${org_id}/**"
-      allow: true
-```
-
-Variables are interpolated from the users auth profile.
-
 > [!TIP]
 > See [container examples](examples/containers) for more.
 
@@ -246,22 +179,22 @@ Secrets are used to store sensitive information such as API keys and credentials
 
 Create a secret
 ```sh
-nebu create secret my-secret --value $MY_SECRET_VALUE -n my-app
+neb create secret my-secret --value $MY_SECRET_VALUE -n my-app
 ```
 
 Get all secrets
 ```sh
-nebu get secrets -n my-app
+neb get secrets -n my-app
 ```
 
 Get a secret
 ```sh
-nebu get secrets my-secret -n my-app
+neb get secrets my-secret -n my-app
 ```
 
 Delete a secret
 ```sh
-nebu delete secrets my-secret -n my-app
+neb delete secrets my-secret -n my-app
 ```
 
 Secrets can be used in container environment variables.
@@ -309,6 +242,76 @@ The authorization heirarchy is
 owners -> namespaces -> resources
 ```
 
+### Processors
+
+Processors are containers that work off real-time data streams and are autoscaled based on back-pressure. Streams are provided by [Redis Streams](https://redis.io/docs/latest/develop/data-types/streams/).
+
+Processors are best used for bursty async jobs, or low latency stream processing.
+
+```yaml
+kind: Processor
+metadata:
+  name: translator
+  namespace: my-app
+stream: my-app:workers:translator
+container:
+  image: corge/translator:latest
+  command: "redis-cli XREAD COUNT 10 STREAMS my-app:workers:translator"
+  platform: gce
+  accelerators:
+    - "1:A40"
+min_workers: 1
+max_workers: 10
+scale:
+  up:
+    above_pressure: 100
+    duration: 10s
+  down:
+    below_pressure: 10
+    duration: 5m
+  zero:
+    duration: 10m
+```
+```sh
+neb create processor -f examples/processors/translator.yaml
+```
+
+Processors can also scale to zero.
+
+```yaml
+min_workers: 0
+```
+
+Processors can enforce schemas.
+
+```yaml
+schema:
+  - name: text_to_translate
+    type: string
+    required: true
+```
+
+Send data to a processor stream
+
+```sh
+neb send processor translator --data '{"text_to_translate": "Dlrow Olleh"} -n my-app'
+```
+
+Read data from a processor stream
+
+```text
+neb read processor translator --num 10
+```
+
+List all processors
+
+```sh
+neb get processors
+```
+
+> [!TIP]
+> See [processor examples](examples/processors) for more.
+
 ### Services [in progress]
 
 Services provide a means to expose containers on a stable IP address, and to balance traffic across multiple containers. Services auto-scale up and down as needed.
@@ -343,46 +346,19 @@ scale:
 ```
 
 ```sh
-nebu create service -f examples/service/vllm-qwen.yaml
+neb create service -f examples/service/vllm-qwen.yaml
 ```
 
 The IP will be returned in the `status` field.
 
 ```sh
-nebu get services vllm-qwen -n inference
-```
-
-Service can be buffered, which will queue requests until a container is available.
-
-```yaml
-buffered: true
+neb get services vllm-qwen -n inference
 ```
 
 Services can also scale to zero.
 
 ```yaml
 min_containers: 0
-```
-
-Services can also enforce schemas.
-
-```yaml
-schema:
-  - name: prompt
-    type: string
-    required: true
-```
-
-Or use a common schema.
-
-```yaml
-common_schema: OPENAI_CHAT
-```
-
-Services can record all requests and responses.
-
-```yaml
-record: true
 ```
 
 Services can perform metered billing, such as counting the number of tokens in the response.
@@ -395,161 +371,23 @@ meters:
     response_json_value: "$.usage.prompt_tokens"
 ```
 
-Services also work with clusters.
-
-```yaml
-kind: Service
-metadata:
-  name: vllm-qwen
-  namespace: inference
-cluster:
-  container:
-    image: vllm/vllm-openai:latest
-    command: |
-      python -m vllm.entrypoints.api_server \
-        --model Qwen/Qwen2-72B-Instruct \
-        --tensor-parallel-size 1 \
-        --port 8000
-    accelerators:
-      - "8:A100"
-  num_nodes: 2
-```
-
 > [!TIP]
 > See [service examples](examples/services) for more.
-   
-### Clusters [in progress]
-
-Clusters provide a means of multi-node training and inference.
-
-```yaml
-kind: Cluster
-metadata:
-  name: pytorch-test
-  namespace: foo
-container:
-  image: pytorch/pytorch:latest
-  command: "echo $NODES && torchrun ..."
-  platform: ec2
-  env:
-    - key: HELLO
-      value: world
-  volumes:
-    - source: s3://nebulous-rs/test
-      dest: /test
-      driver: RCLONE_SYNC
-      continuous: true
-  accelerators:
-    - "8:B200"
-num_nodes: 4
-```
-```sh
-nebu create cluster -f examples/cluster.yaml
-```
-
-Each container will get a `$NODES` env var which contains the IP addresses of the nodes in the cluster.   
-   
-Clusters always aim to schedule nodes as close to each other as possible, with as fast of networking as available.   
-
-> [!TIP]
-> See [cluster examples](examples/clusters) for more.
-
-### Processors [in progress]
-
-Processors are containers that work off real-time data streams and are autoscaled based on back-pressure. Streams are provided by [Redis Streams](https://redis.io/docs/latest/develop/data-types/streams/).
-
-Processors are best used for bursty async jobs, or low latency stream processing.
-
-```yaml
-kind: Processor
-metadata:
-  name: translator
-  namespace: my-app
-stream: my-app:workers:translator
-container:
-  image: corge/translator:latest
-  command: "redis-cli XREAD COUNT 10 STREAMS my-app:workers:translator"
-  platform: gce
-  accelerators:
-    - "1:A40"
-min_workers: 1
-max_workers: 10
-scale:
-  up:
-    above_pressure: 100
-    duration: 10s
-  down:
-    below_pressure: 10
-    duration: 5m
-  zero:
-    duration: 10m
-```
-```sh
-nebu create processor -f examples/processors/translator.yaml
-```
-
-Processors can also scale to zero.
-
-```yaml
-min_workers: 0
-```
-
-Processors can enforce schemas.
-
-```yaml
-schema:
-  - name: text_to_translate
-    type: string
-    required: true
-```
-
-Send data to a processor stream
-
-```sh
-nebu send processor translator --data '{"text_to_translate": "Dlrow Olleh"} -n my-app'
-```
-
-Read data from a processor stream
-
-```text
-nebu read processor translator --num 10
-```
-
-List all processors
-
-```sh
-nebu get processors
-```
-
-Processors can use containers across different platforms. [in progress]
-
-```yaml
-container:
-  image: corge/translator:latest
-  command: "redis-cli XREAD COUNT 10 STREAMS my-app:workers:translator"
-  platforms:
-    - gce
-    - runpod
-  accelerators:
-    - "1:A40"
-```
-
-> [!TIP]
-> See [processor examples](examples/processors) for more.
 
 ## SDK
 
-:snake: Python https://github.com/agentsea/nebulous-py    
+:snake: Python https://github.com/agentsea/neblous-py    
    
-:crab: Rust https://crates.io/crates/nebulous/versions
+:crab: Rust https://crates.io/crates/neblous/versions
 
 ## Roadmap
 
 - [x] Support non-gpu containers
+- [x] Processors
+- [ ] Support for Nebius Cloud
+- [ ] Support for AWS EC2
 - [ ] Services
 - [ ] Clusters
-- [ ] Processors
-- [ ] Support for AWS EC2
 - [ ] Support for GCE
 - [ ] Support for Azure
 - [ ] Support for Kubernetes
@@ -573,7 +411,7 @@ To configure the secrets store you will need an encryption key. This can be gene
 ```sh
 openssl rand -base64 32 | tr -dc '[:alnum:]' | head -c 32
 ```
-Then set this to the `NEBU_ENCRYPTION_KEY` environment variable.   
+Then set this to the `NEB_ENCRYPTION_KEY` environment variable.   
      
 To optionally use OpenMeter for metered billing, you will need to open an account with either [their cloud](https://openmeter.cloud/) or run their [open source](https://github.com/openmeterio/openmeter) and set the `OPENMETER_API_KEY` and `OPENMETER_URL` environment variables.   
      
@@ -586,25 +424,26 @@ make install
    
 Run the server
 ```
-nebu serve
+neb serve
 ```
    
 Login to the auth server. When you do, set the server to `http://localhost:3000`.
 ```
-nebu login
+neb login
 ```
    
 Now you can create resources
 
 ```sh
-nebu create container -f examples/containers/trl_small.yaml
+neb create container -f examples/containers/trl_small.yaml
 ```
    
-When you make changes, simply run `make install` and `nebu serve` again.
+When you make changes, simply run `make install` and `neb serve` again.
 
 ## Inspiration
 
 - [Kubernetes](https://kubernetes.io/)
 - [Aurea](https://github.com/aurae-runtime/aurae)
+- [SkyPilot](https://github.com/skypilot-org/skypilot)
 - [RunPod](https://runpod.io/)
 - [Prime Intellect](https://primeintellect.com/)

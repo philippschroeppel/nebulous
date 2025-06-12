@@ -18,6 +18,7 @@ steps:
         docker buildx build \
           --platform linux/amd64 \
           -t us-docker.pkg.dev/$PROJECT_ID/nebulous/server:$BRANCH_NAME \
+          -t us-docker.pkg.dev/$PROJECT_ID/nebulous/server:$SHORT_SHA \
           --cache-from type=registry,ref=us-docker.pkg.dev/$PROJECT_ID/nebulous/server:buildcache \
           --cache-to type=registry,ref=us-docker.pkg.dev/$PROJECT_ID/nebulous/server:buildcache,mode=max \
           --push \
@@ -28,6 +29,7 @@ steps:
           docker buildx build \
             --platform linux/amd64 \
             -t us-docker.pkg.dev/$PROJECT_ID/nebulous/server:latest \
+            -t us-docker.pkg.dev/$PROJECT_ID/nebulous/server:$SHORT_SHA \
             --cache-from type=registry,ref=us-docker.pkg.dev/$PROJECT_ID/nebulous/server:buildcache \
             --push \
             .
@@ -45,6 +47,7 @@ steps:
           docker buildx build \
             --platform linux/amd64 \
             -t us-docker.pkg.dev/$PROJECT_ID/nebulous/server:$TAG_NAME \
+            -t us-docker.pkg.dev/$PROJECT_ID/nebulous/server:$SHORT_SHA \
             --cache-from type=registry,ref=us-docker.pkg.dev/$PROJECT_ID/nebulous/server:buildcache \
             --cache-to type=registry,ref=us-docker.pkg.dev/$PROJECT_ID/nebulous/server:buildcache,mode=max \
             --push \
