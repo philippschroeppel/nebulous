@@ -52,7 +52,7 @@ Nebulous enables containers to be suspended and restored at any point in time us
 Accelerated resources are expensive. Nebulous comes batteries-included with primitives for metered billing using [OpenMeter](https://github.com/openmeterio/openmeter).
 
 <div align="center">
-<img src="./static/stripe.png" alt="description" width="450" height="175"/>
+<img src="./static/stripe.png" alt="description" width="450" height="125"/>
 </div>
 
 
@@ -67,8 +67,6 @@ Nebulous is multi-tenant from the ground up, providing strong isolation of workl
 ### Lightweight
 
 Everything in Nebulous is built to be light as a feather, it should feel the opposite of Kubernetes. You can spin it up easily on your local machine as a single process, while still enabling you to seemlessly scale to thousands of nodes in the cloud when needed.
-
-Nebulous should be as cheap as possible when idle.
 
 <div align="center">
 <img src="./static/local.png" alt="description" width="400" height="200"/>
