@@ -18,6 +18,7 @@ Why not Kubernetes? See [why_not_kube.md](docs/why_not_kube.md)
 ### Cross-cloud Autoscaling
 
 Nebulous helps find accelerators wherever they may be, across clouds or in your datacenter. It scales those resources as needed based on usage.
+
 <div align="center">
 <img src="./static/scale3.png" alt="description" width="500" height="175"/>
 </div>
@@ -27,22 +28,25 @@ Nebulous helps find accelerators wherever they may be, across clouds or in your 
 Nebulous connects resources across clouds using [Tailnet](https://tailscale.com/kb/1136/tailnet). Every container deployed is connected to every other container in their segmented namespace regardless of where they are running.
 
 <div align="center">
-<img src="./static/namespace.png" alt="description" width="700" height="175"/>
+<img src="./static/namespace2.png" alt="description" width="700" height="175"/>
 </div>
 
 ### Decentralized Data Layer
 
-Nebulous enables fast and resiliant replication of data between nodes using [Iroh](https://www.iroh.computer/) a p2p daemon. Containers can subscribe to data resources in their namespace and have them lazily synced from peers as they need them regardless of geolocation.
+Nebulous enables fast and resiliant replication of data between nodes using [Iroh](https://www.iroh.computer/) p2p. Containers can subscribe to data resources in their namespace and have them lazily synced from peers as they need them regardless of geolocation.
 
+<div align="center">
+<img src="./static/data_layer.png" alt="description" width="450" height="175"/>
+</div>
 
 ### Live Migration
 
-Nebulous enables containers to be suspended and restored at any point in time, including GPU operations. This enables forking of containers in realtime or migrating workloads seemlessly to cheaper resources.
+Nebulous enables containers to be suspended and restored at any point in time using [CRIU](https://criu.org/Main_Page), including GPU operations. This enables forking of containers in realtime or migrating workloads seemlessly to cheaper resources.
 
 
-### Billable
+### Metering
 
-Accelerated resources are expensive. Nebulous comes batteries-included with primitives for consumption based billing using [OpenMeter](https://github.com/openmeterio/openmeter).
+Accelerated resources are expensive. Nebulous comes batteries-included with primitives for metered billing using [OpenMeter](https://github.com/openmeterio/openmeter).
 
 
 ### Multi-tentant
