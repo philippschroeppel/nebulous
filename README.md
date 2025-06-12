@@ -26,6 +26,10 @@ Nebulous helps find accelerators wherever they may be, across clouds or in your 
 
 Nebulous connects resources across clouds using [Tailnet](https://tailscale.com/kb/1136/tailnet). Every container deployed is connected to every other container in their segmented namespace regardless of where they are running.
 
+<div align="center">
+<img src="./static/namespace.png" alt="description" width="700" height="175"/>
+</div>
+
 ### Decentralized Data Layer
 
 Nebulous enables fast and resiliant replication of data between nodes using [Iroh](https://www.iroh.computer/) a p2p daemon. Containers can subscribe to data resources in their namespace and have them lazily synced from peers as they need them regardless of geolocation.
