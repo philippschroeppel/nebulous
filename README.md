@@ -43,6 +43,9 @@ Nebulous enables fast and resiliant replication of data between nodes using [Iro
 
 Nebulous enables containers to be suspended and restored at any point in time using [CRIU](https://criu.org/Main_Page), including GPU operations. This enables forking of containers in realtime or migrating workloads seemlessly to cheaper resources.
 
+<div align="center">
+<img src="./static/migration.png" alt="description" width="450" height="175"/>
+</div>
 
 ### Metering
 
