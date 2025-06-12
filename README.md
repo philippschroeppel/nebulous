@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./static/neb_logo2_alpha.png" alt="Nebulous Logo" width="400">
+  <img src="./static/nebu_logo2_alpha.png" alt="Nebulous Logo" width="400">
 </p>
 
 
@@ -126,7 +126,7 @@ accelerators:
   - "2:A100_SXM"
 restart: Never
 ```
-Now to create the container
+To create the container
 
 ```sh
 neb create container -f mycontainer.yaml
