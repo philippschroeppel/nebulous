@@ -51,6 +51,7 @@ pub async fn send_messages(args: &crate::cli::SendMessageCommands) -> Result<(),
     let payload = V1StreamData {
         content: message_content,
         wait: if args.wait { Some(true) } else { None },
+        stream: None,
         user_key: None,
     };
     debug!("Payload: {:?}", payload);

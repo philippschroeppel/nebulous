@@ -12,15 +12,18 @@ use crate::resources::v1::processors::models::{
 use crate::resources::v1::processors::standard::StandardProcessor;
 use crate::state::AppState;
 use crate::utils::namespace::resolve_namespace;
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::{
     extract::Extension, extract::Json, extract::Path, extract::State, http::StatusCode,
     response::IntoResponse,
 };
+use futures::{SinkExt, StreamExt};
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection};
 use serde_json::json;
 use short_uuid::ShortUuid;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use tracing::{debug, error, warn};
 
 pub async fn create_processor(
@@ -767,6 +770,29 @@ pub async fn get_processor(
     Ok(Json(processor_v1))
 }
 
+/// Send a message to a processor
+///
+/// # Request Parameters
+/// - `stream_data.content`: The message content to send to the processor
+/// - `stream_data.wait`: If true, wait for a response (default: false)
+/// - `stream_data.stream`: If true, indicates the processor is a generator that streams responses (default: false)
+/// - `stream_data.user_key`: Optional user authentication key
+///
+/// # Streaming Support
+/// When `stream=true` and `wait=true`, the API will suggest using the WebSocket endpoint
+/// for real-time streaming. This is designed for processor generators that:
+///
+/// 1. Return multiple incremental response chunks ("StreamChunkMessage" with "status": "stream")
+/// 2. Signal completion with "StreamResponseMessage" having "status": "success" and "content": null
+/// 3. Benefit from real-time message delivery via WebSocket
+///
+/// # Response Modes
+/// - `wait=false`: Returns immediately with success confirmation and return stream info
+/// - `wait=true, stream=false`: Waits for single response and returns it
+/// - `wait=true, stream=true`: Suggests WebSocket endpoint with connection info
+///
+/// # WebSocket URL Format
+/// For streaming responses: `/v1/processors/{namespace}/{name}/return/{message_id}/stream`
 pub async fn send_processor(
     State(state): State<AppState>,
     Extension(user_profile): Extension<V1UserProfile>,
@@ -893,9 +919,12 @@ pub async fn send_processor(
     // Default to false (not waiting) if 'wait' is not specified.
     let should_wait_for_response = stream_data.wait.unwrap_or(false);
 
+    // Check if this is a streaming request
+    let is_streaming_request = stream_data.stream.unwrap_or(false);
+
     debug!(
-        "Message ID: {}, Target Stream: {}, Actual Return Stream: {}, Should Wait: {}",
-        id, stream_name, actual_return_stream_name, should_wait_for_response
+        "Message ID: {}, Target Stream: {}, Actual Return Stream: {}, Should Wait: {}, Is Streaming: {}",
+        id, stream_name, actual_return_stream_name, should_wait_for_response, is_streaming_request
     );
 
     let user_prof = match get_user_profile_from_token(&state.db_pool, &user_token).await {
@@ -973,6 +1002,20 @@ pub async fn send_processor(
                     ));
                 }
             };
+
+            // If client requested streaming, suggest using the websocket endpoint instead
+            if is_streaming_request && should_wait_for_response {
+                debug!("Client requested streaming with wait=true, suggesting websocket endpoint");
+                return Ok(Json(json!({
+                    "success": true,
+                    "stream_id": stream_id,
+                    "message_id": id,
+                    "return_stream": actual_return_stream_name,
+                    "streaming": true,
+                    "websocket_url": format!("/v1/processors/{}/{}/return/{}/stream", namespace, name, id),
+                    "note": "For streaming responses, consider using the WebSocket endpoint for real-time message delivery"
+                })).into_response());
+            }
 
             // If the client requested to wait for a response on the actual_return_stream_name
             if should_wait_for_response {
@@ -2147,10 +2190,10 @@ pub async fn read_return_message(
                 ));
             }
 
-            // Read from the return stream using XREAD with BLOCK
+            // Read from the return stream using XREAD with BLOCK and COUNT 1
             let wait_time_ms = read_request.wait_time_ms;
             debug!(
-                "Reading from return stream '{}' with timeout {}ms",
+                "Reading ONE message from return stream '{}' with timeout {}ms",
                 return_stream_name, wait_time_ms
             );
 
@@ -2169,11 +2212,13 @@ pub async fn read_return_message(
                 })?;
 
                 debug!(
-                    "Attempting blocking XREAD on return stream '{}' with timeout {}ms",
+                    "Attempting blocking XREAD on return stream '{}' with timeout {}ms and COUNT 1",
                     return_stream_name_clone, wait_time_ms
                 );
 
                 redis::cmd("XREAD")
+                    .arg("COUNT")
+                    .arg("1") // Only read one message at a time
                     .arg("BLOCK")
                     .arg(wait_time_ms)
                     .arg("STREAMS")
@@ -2211,35 +2256,7 @@ pub async fn read_return_message(
                 }
             };
 
-            // Clean up the return stream after reading
-            let mut conn = match client.get_connection() {
-                Ok(c) => c,
-                Err(e) => {
-                    error!("Failed to get connection for DEL command: {}", e);
-                    // Continue processing even if cleanup fails
-                    return process_return_stream_result(result, &return_stream_name);
-                }
-            };
-
-            debug!(
-                "Attempting to delete return stream '{}'",
-                return_stream_name
-            );
-            let del_result: Result<(), redis::RedisError> =
-                redis::cmd("DEL").arg(&return_stream_name).query(&mut conn);
-            if let Err(e) = del_result {
-                // Log error but continue processing the response
-                error!(
-                    "Failed to delete return stream '{}': {}. Processing response anyway.",
-                    return_stream_name, e
-                );
-            } else {
-                debug!(
-                    "Successfully deleted return stream '{}'",
-                    return_stream_name
-                );
-            }
-
+            // Process the result without cleanup - keep stream intact for subsequent polls
             process_return_stream_result(result, &return_stream_name)
         }
         crate::state::MessageQueue::Kafka { .. } => Err((
@@ -2327,4 +2344,817 @@ fn process_return_stream_result(
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(json!({"error": "Received return message without data field"})),
     ))
+}
+
+/// Bidirectional WebSocket endpoint for interactive communication with processors  
+/// Allows sending and receiving messages through a persistent WebSocket connection
+///
+/// # Features
+/// - Send messages to processor via WebSocket (no HTTP POST needed)
+/// - Receive responses via the same WebSocket  
+/// - Supports streaming generators with multiple chunks
+/// - Persistent connection for ongoing conversation
+/// - Automatic message ID generation and return stream management
+///
+/// # Message Format
+/// Send JSON messages like: `{"content": {"greeting": "Hello"}}`
+/// Receive responses as they arrive from the processor
+///
+/// # URL Format  
+/// `/v1/processors/{namespace}/{name}/ws`
+pub async fn processor_websocket(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+    Extension(user_profile): Extension<V1UserProfile>,
+    Path((namespace, name)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let resolved_namespace = resolve_namespace(&namespace, &user_profile);
+    ws.on_upgrade(move |socket| {
+        handle_bidirectional_processor_socket(socket, state, user_profile, resolved_namespace, name)
+    })
+}
+
+/// WebSocket endpoint for reading processor return messages
+/// Supports both single responses and streaming generators
+///
+/// # Streaming Support
+/// This endpoint is designed to handle processor generators that can return multiple
+/// stream chunks followed by a final response. When a processor has `stream=true`,
+/// it can:
+///
+/// 1. Return multiple chunk messages with incremental data ("StreamChunkMessage" with "status": "stream")
+/// 2. Signal completion with "StreamResponseMessage" having "status": "success" and "content": null
+/// 3. Support real-time streaming of responses via WebSocket
+///
+/// # Usage
+/// - For single responses: Connect to the WebSocket and receive one message
+/// - For streaming responses: Connect and receive multiple messages until completion
+/// - The WebSocket will automatically clean up the return stream when done
+///
+/// # URL Format
+/// `/v1/processors/{namespace}/{name}/return/{message_id}/stream`
+pub async fn stream_processor_return_ws(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+    Extension(user_profile): Extension<V1UserProfile>,
+    Path((namespace, name, message_id)): Path<(String, String, String)>,
+) -> impl IntoResponse {
+    let resolved_namespace = resolve_namespace(&namespace, &user_profile);
+    ws.on_upgrade(move |socket| {
+        handle_processor_return_socket(
+            socket,
+            state,
+            user_profile,
+            resolved_namespace,
+            name,
+            message_id,
+        )
+    })
+}
+
+/// Handle WebSocket connection for processor return messages
+async fn handle_processor_return_socket(
+    socket: WebSocket,
+    state: AppState,
+    user_profile: V1UserProfile,
+    namespace: String,
+    name: String,
+    message_id: String,
+) {
+    debug!(
+        "WebSocket upgrade request received for processor return: {}/{} message_id: {}",
+        namespace, name, message_id
+    );
+
+    let db_pool = &state.db_pool;
+    let (sender, _receiver) = socket.split();
+
+    // Collect owner IDs from user_profile
+    let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
+        orgs.keys().cloned().collect()
+    } else {
+        Vec::new()
+    };
+    owner_ids.push(user_profile.email.clone());
+    let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
+
+    // Find the processor to get its stream name
+    let processor = match Query::find_processor_by_namespace_name_and_owners(
+        db_pool,
+        &namespace,
+        &name,
+        &owner_id_refs,
+    )
+    .await
+    {
+        Ok(processor) => processor,
+        Err(e) => {
+            let mut sender_locked = sender;
+            let _ = sender_locked
+                .send(Message::Text(format!("Error fetching processor: {}", e)))
+                .await;
+            let _ = sender_locked.close().await;
+            return;
+        }
+    };
+
+    // Construct the return stream name
+    let return_stream_name = format!("{}.return.{}", processor.stream, message_id);
+    debug!("Constructed return stream name: {}", return_stream_name);
+
+    // Start streaming processor return messages
+    stream_processor_return_messages(sender, state, return_stream_name).await;
+}
+
+/// Stream processor return messages via WebSocket
+async fn stream_processor_return_messages<S>(sender: S, state: AppState, return_stream_name: String)
+where
+    S: SinkExt<Message> + Unpin + Send + 'static,
+    <S as futures::Sink<Message>>::Error: std::fmt::Debug + Send,
+{
+    let sender = Arc::new(Mutex::new(sender));
+
+    match &state.message_queue {
+        crate::state::MessageQueue::Redis { client } => {
+            // Get a Redis connection
+            let mut conn = match client.get_connection() {
+                Ok(conn) => {
+                    debug!("Successfully obtained Redis connection for return stream read.");
+                    conn
+                }
+                Err(e) => {
+                    error!("Redis connection error: {}", e);
+                    let mut sender_lock = sender.lock().await;
+                    let _ = sender_lock
+                        .send(Message::Text(format!("Redis connection error: {}", e)))
+                        .await;
+                    let _ = sender_lock.close().await;
+                    return;
+                }
+            };
+
+            // Check if the return stream exists
+            let stream_exists: bool = match redis::cmd("EXISTS")
+                .arg(&return_stream_name)
+                .query(&mut conn)
+            {
+                Ok(exists) => exists,
+                Err(e) => {
+                    error!("Failed to check if return stream exists: {}", e);
+                    let mut sender_lock = sender.lock().await;
+                    let _ = sender_lock
+                        .send(Message::Text(format!(
+                            "Failed to check stream existence: {}",
+                            e
+                        )))
+                        .await;
+                    let _ = sender_lock.close().await;
+                    return;
+                }
+            };
+
+            if !stream_exists {
+                debug!("Return stream '{}' does not exist", return_stream_name);
+                let mut sender_lock = sender.lock().await;
+                let _ = sender_lock
+                    .send(Message::Text("Return stream not found - message may not exist or may have already been consumed".to_string()))
+                    .await;
+                let _ = sender_lock.close().await;
+                return;
+            }
+
+            // Stream messages continuously until the stream is complete
+            let mut last_id = "0".to_string(); // Start from beginning
+            let mut stream_complete = false;
+            let mut message_count = 0;
+            const MAX_WAIT_MS: u64 = 30000; // 30 seconds timeout per read
+            const MAX_MESSAGES: usize = 1000; // Prevent infinite loops
+
+            while !stream_complete && message_count < MAX_MESSAGES {
+                debug!(
+                    "Reading from return stream '{}' starting from ID '{}'",
+                    return_stream_name, last_id
+                );
+
+                // Move the blocking call to spawn_blocking
+                let return_stream_name_clone = return_stream_name.clone();
+                let last_id_clone = last_id.clone();
+                let client_clone = client.clone();
+
+                let read_result = tokio::task::spawn_blocking(move || {
+                    let mut conn = client_clone.get_connection().map_err(|e| {
+                        redis::RedisError::from((
+                            redis::ErrorKind::IoError,
+                            "Failed to get connection in spawn_blocking",
+                            e.to_string(),
+                        ))
+                    })?;
+
+                    debug!(
+                        "Attempting blocking XREAD on return stream '{}' with timeout {}ms from ID '{}'",
+                        return_stream_name_clone, MAX_WAIT_MS, last_id_clone
+                    );
+
+                    redis::cmd("XREAD")
+                        .arg("BLOCK")
+                        .arg(MAX_WAIT_MS)
+                        .arg("STREAMS")
+                        .arg(&return_stream_name_clone)
+                        .arg(&last_id_clone)
+                        .query::<redis::streams::StreamReadReply>(&mut conn)
+                })
+                .await;
+
+                // Handle the result from spawn_blocking
+                let result = match read_result {
+                    Ok(Ok(reply)) => {
+                        debug!("XREAD successful for return stream. Raw reply: {:?}", reply);
+                        reply
+                    }
+                    Ok(Err(e)) => {
+                        if e.to_string().contains("timeout") {
+                            debug!(
+                                "Timeout waiting for messages on return stream '{}'",
+                                return_stream_name
+                            );
+                            stream_complete = true;
+                            break;
+                        } else {
+                            error!(
+                                "Error reading from return stream '{}': {}",
+                                return_stream_name, e
+                            );
+                            let mut sender_lock = sender.lock().await;
+                            let _ = sender_lock
+                                .send(Message::Text(format!(
+                                    "Error reading from return stream: {}",
+                                    e
+                                )))
+                                .await;
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            "Spawn_blocking task failed for return stream '{}': {}",
+                            return_stream_name, e
+                        );
+                        let mut sender_lock = sender.lock().await;
+                        let _ = sender_lock
+                            .send(Message::Text(format!("Task execution error: {}", e)))
+                            .await;
+                        break;
+                    }
+                };
+
+                // Process messages from this read
+                if result.keys.is_empty() {
+                    debug!("No more messages in return stream '{}'", return_stream_name);
+                    stream_complete = true;
+                    break;
+                }
+
+                for key in result.keys {
+                    debug!("Processing key (stream): {:?}", key.key);
+                    for id_entry in key.ids {
+                        debug!(
+                            "Processing message ID: {:?}, Map: {:?}",
+                            id_entry.id, id_entry.map
+                        );
+                        last_id = id_entry.id.clone(); // Update last processed ID
+                        message_count += 1;
+
+                        // Skip the init message if present
+                        if id_entry.map.contains_key("init") {
+                            debug!("Skipping init message");
+                            continue;
+                        }
+
+                        if let Some(data_value) = id_entry.map.get("data") {
+                            debug!("Found 'data' field: {:?}", data_value);
+
+                            // Convert the Redis value to a string
+                            let data_str = match data_value {
+                                redis::Value::BulkString(bytes) => {
+                                    String::from_utf8_lossy(bytes).to_string()
+                                }
+                                redis::Value::SimpleString(s) => s.clone(),
+                                _ => format!("{:?}", data_value),
+                            };
+                            debug!("Data string: '{}'", data_str);
+
+                            // Try to parse the data as JSON
+                            match serde_json::from_str::<serde_json::Value>(&data_str) {
+                                Ok(json_data) => {
+                                    debug!("Successfully parsed data as JSON: {:?}", json_data);
+
+                                    // Check if this is a stream completion message
+                                    if let Some(stream_complete_flag) =
+                                        json_data.get("stream_complete")
+                                    {
+                                        if stream_complete_flag.as_bool().unwrap_or(false) {
+                                            debug!("Received stream completion signal");
+                                            stream_complete = true;
+                                        }
+                                    }
+
+                                    // Also check for StreamResponseMessage with success status (actual completion pattern)
+                                    if let Some(kind) = json_data.get("kind") {
+                                        if kind.as_str() == Some("StreamResponseMessage") {
+                                            if let Some(status) = json_data.get("status") {
+                                                if status.as_str() == Some("success") {
+                                                    debug!("Received StreamResponseMessage with success status - stream complete");
+                                                    stream_complete = true;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Send the message to the client
+                                    let mut sender_lock = sender.lock().await;
+                                    match sender_lock.send(Message::Text(data_str)).await {
+                                        Ok(_) => debug!("Sent message to WebSocket client"),
+                                        Err(e) => {
+                                            debug!("Client disconnected: {:?}", e);
+                                            stream_complete = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!("Failed to parse return data as JSON: {}. Sending raw string.", e);
+                                    let mut sender_lock = sender.lock().await;
+                                    let raw_message = json!({"raw_response": data_str, "parse_error": e.to_string()});
+                                    if let Err(send_err) = sender_lock
+                                        .send(Message::Text(raw_message.to_string()))
+                                        .await
+                                    {
+                                        debug!("Client disconnected: {:?}", send_err);
+                                        stream_complete = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        } else {
+                            debug!(
+                                "'data' field not found in message map for ID: {:?}",
+                                id_entry.id
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Clean up the return stream after reading
+            debug!("Cleaning up return stream '{}'", return_stream_name);
+            let mut conn = match client.get_connection() {
+                Ok(c) => c,
+                Err(e) => {
+                    error!("Failed to get connection for DEL command: {}", e);
+                    let mut sender_lock = sender.lock().await;
+                    let _ = sender_lock.close().await;
+                    return;
+                }
+            };
+
+            let del_result: Result<(), redis::RedisError> =
+                redis::cmd("DEL").arg(&return_stream_name).query(&mut conn);
+
+            if let Err(e) = del_result {
+                warn!(
+                    "Failed to delete return stream '{}': {}",
+                    return_stream_name, e
+                );
+            } else {
+                debug!(
+                    "Successfully deleted return stream '{}'",
+                    return_stream_name
+                );
+            }
+
+            // Send completion message and close connection
+            {
+                let mut sender_lock = sender.lock().await;
+                if message_count == 0 {
+                    let _ = sender_lock
+                        .send(Message::Text(
+                            "No messages found in return stream".to_string(),
+                        ))
+                        .await;
+                } else {
+                    let completion_msg = json!({
+                        "stream_complete": true,
+                        "message_count": message_count,
+                        "reason": if message_count >= MAX_MESSAGES { "max_messages_reached" } else { "stream_ended" }
+                    });
+                    let _ = sender_lock
+                        .send(Message::Text(completion_msg.to_string()))
+                        .await;
+                }
+                let _ = sender_lock.close().await;
+                debug!("WebSocket connection closed by server.");
+            }
+        }
+        crate::state::MessageQueue::Kafka { .. } => {
+            let mut sender_lock = sender.lock().await;
+            let _ = sender_lock
+                .send(Message::Text(
+                    "Kafka streams are not currently supported for WebSocket streaming".to_string(),
+                ))
+                .await;
+            let _ = sender_lock.close().await;
+        }
+    }
+}
+
+/// Handle bidirectional WebSocket connection for interactive processor communication
+async fn handle_bidirectional_processor_socket(
+    socket: WebSocket,
+    state: AppState,
+    user_profile: V1UserProfile,
+    namespace: String,
+    name: String,
+) {
+    debug!(
+        "Bidirectional WebSocket connection established for processor: {}/{}",
+        namespace, name
+    );
+
+    let db_pool = &state.db_pool;
+    let (ws_sender, mut ws_receiver) = socket.split();
+    let ws_sender = Arc::new(Mutex::new(ws_sender));
+
+    // Collect owner IDs from user_profile
+    let mut owner_ids: Vec<String> = if let Some(orgs) = &user_profile.organizations {
+        orgs.keys().cloned().collect()
+    } else {
+        Vec::new()
+    };
+    owner_ids.push(user_profile.email.clone());
+    let owner_id_refs: Vec<&str> = owner_ids.iter().map(|s| s.as_str()).collect();
+
+    // Find the processor
+    let processor = match Query::find_processor_by_namespace_name_and_owners(
+        db_pool,
+        &namespace,
+        &name,
+        &owner_id_refs,
+    )
+    .await
+    {
+        Ok(processor) => processor,
+        Err(e) => {
+            let mut sender_lock = ws_sender.lock().await;
+            let _ = sender_lock
+                .send(Message::Text(format!("Error fetching processor: {}", e)))
+                .await;
+            let _ = sender_lock.close().await;
+            return;
+        }
+    };
+
+    // Get user token for agent key generation
+    let user_token = user_profile.token.clone().unwrap_or_default();
+    if user_token.is_empty() {
+        let mut sender_lock = ws_sender.lock().await;
+        let _ = sender_lock
+            .send(Message::Text("Authentication token missing".to_string()))
+            .await;
+        let _ = sender_lock.close().await;
+        return;
+    }
+
+    // Generate agent key (similar to send_processor logic)
+    let agent_key = if user_token.starts_with("a.") || user_token.starts_with("k.") {
+        user_token.clone()
+    } else {
+        match generate_agent_key_for_processor(&processor, &user_token).await {
+            Ok(key) => key,
+            Err(e) => {
+                let mut sender_lock = ws_sender.lock().await;
+                let _ = sender_lock
+                    .send(Message::Text(format!(
+                        "Failed to generate agent key: {}",
+                        e
+                    )))
+                    .await;
+                let _ = sender_lock.close().await;
+                return;
+            }
+        }
+    };
+
+    // Send welcome message
+    {
+        let mut sender_lock = ws_sender.lock().await;
+        let welcome_msg = json!({
+            "type": "connection_established",
+            "processor": {
+                "namespace": namespace,
+                "name": name,
+                "stream": processor.stream
+            },
+            "message": "WebSocket connection established. Send JSON messages to interact with the processor."
+        });
+        if let Err(e) = sender_lock
+            .send(Message::Text(welcome_msg.to_string()))
+            .await
+        {
+            error!("Failed to send welcome message: {:?}", e);
+            return;
+        }
+    }
+
+    // Process incoming messages from the WebSocket
+    while let Some(msg_result) = ws_receiver.next().await {
+        match msg_result {
+            Ok(Message::Text(text)) => {
+                debug!("Received WebSocket message: {}", text);
+
+                // Parse the incoming message
+                let content = match serde_json::from_str::<serde_json::Value>(&text) {
+                    Ok(json) => json,
+                    Err(e) => {
+                        let mut sender_lock = ws_sender.lock().await;
+                        let error_msg = json!({
+                            "type": "error",
+                            "error": "Invalid JSON",
+                            "details": e.to_string()
+                        });
+                        let _ = sender_lock.send(Message::Text(error_msg.to_string())).await;
+                        continue;
+                    }
+                };
+
+                // Generate unique message ID
+                let message_id = ShortUuid::generate().to_string();
+                let return_stream_name = format!("{}.return.{}", processor.stream, message_id);
+
+                // Handle the message in a separate task to avoid blocking the WebSocket receiver
+                let state_clone = state.clone();
+                let processor_clone = processor.clone();
+                let user_profile_clone = user_profile.clone();
+                let agent_key_clone = agent_key.clone();
+                let ws_sender_clone = ws_sender.clone();
+                let return_stream_name_clone = return_stream_name.clone();
+
+                tokio::spawn(async move {
+                    if let Err(e) = handle_websocket_message(
+                        content,
+                        message_id,
+                        return_stream_name_clone,
+                        state_clone,
+                        processor_clone,
+                        user_profile_clone,
+                        agent_key_clone,
+                        ws_sender_clone,
+                    )
+                    .await
+                    {
+                        error!("Error handling WebSocket message: {}", e);
+                    }
+                });
+            }
+            Ok(Message::Close(_)) => {
+                debug!("WebSocket connection closed by client");
+                break;
+            }
+            Ok(Message::Ping(data)) => {
+                let mut sender_lock = ws_sender.lock().await;
+                let _ = sender_lock.send(Message::Pong(data)).await;
+            }
+            Ok(_) => {
+                // Ignore other message types (Binary, Pong)
+            }
+            Err(e) => {
+                error!("WebSocket error: {:?}", e);
+                break;
+            }
+        }
+    }
+
+    debug!(
+        "Bidirectional WebSocket connection closed for processor: {}/{}",
+        namespace, name
+    );
+}
+
+/// Helper function to generate agent key for processor (extracted from send_processor)
+async fn generate_agent_key_for_processor(
+    processor: &crate::entities::processors::Model,
+    user_token: &str,
+) -> Result<String, String> {
+    let auth_server = CONFIG.auth_server.clone();
+    if auth_server.is_empty() {
+        return Err("Auth server configuration missing".to_string());
+    }
+
+    let agent_key_request = crate::models::V1CreateAgentKeyRequest {
+        agent_id: format!("processor-{}", processor.id),
+        name: format!(
+            "websocket-processor-{}-{}",
+            processor.id,
+            ShortUuid::generate().to_string()
+        ),
+        duration: 86400, // 24 hour validity
+    };
+
+    let agent_key_response =
+        crate::agent::agent::create_agent_key(&auth_server, user_token, agent_key_request)
+            .await
+            .map_err(|e| format!("Failed to create agent key: {}", e))?;
+
+    agent_key_response
+        .key
+        .ok_or_else(|| "Agent key response missing key".to_string())
+}
+
+/// Handle a single WebSocket message by sending it to the processor and streaming back responses
+async fn handle_websocket_message(
+    content: serde_json::Value,
+    message_id: String,
+    return_stream_name: String,
+    state: AppState,
+    processor: crate::entities::processors::Model,
+    user_profile: V1UserProfile,
+    agent_key: String,
+    ws_sender: Arc<Mutex<futures::stream::SplitSink<WebSocket, Message>>>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    debug!(
+        "Processing WebSocket message {} for processor {}",
+        message_id, processor.id
+    );
+
+    // Get user profile for the message
+    let user_prof = get_user_profile_from_token(
+        &state.db_pool,
+        &user_profile.token.clone().unwrap_or_default(),
+    )
+    .await
+    .map_err(|e| format!("Failed to get user profile: {:?}", e))?;
+
+    // Create the stream message
+    let stream_message = V1StreamMessage {
+        kind: "StreamMessage".to_string(),
+        id: message_id.clone(),
+        content,
+        created_at: chrono::Utc::now().timestamp(),
+        return_stream: Some(return_stream_name.clone()),
+        user_id: Some(user_prof.email.clone()),
+        orgs: user_prof.organizations.clone().map(|orgs| json!(orgs)),
+        handle: user_prof.handle.clone(),
+        adapter: Some(format!("processor:{}", processor.id)),
+        api_key: Some(agent_key),
+    };
+
+    // Send message to processor stream
+    match &state.message_queue {
+        crate::state::MessageQueue::Redis { client } => {
+            let mut conn = client
+                .get_connection()
+                .map_err(|e| format!("Redis connection error: {}", e))?;
+
+            let message_json = serde_json::to_string(&stream_message)
+                .map_err(|e| format!("Failed to serialize message: {}", e))?;
+
+            let _stream_id: String = redis::cmd("XADD")
+                .arg(&processor.stream)
+                .arg("*")
+                .arg("data")
+                .arg(&message_json)
+                .query(&mut conn)
+                .map_err(|e| format!("Failed to send message to stream: {}", e))?;
+
+            debug!(
+                "Sent WebSocket message {} to processor stream {}",
+                message_id, processor.stream
+            );
+
+            // Start listening for responses in a separate task
+            let client_clone = client.clone();
+            let return_stream_name_clone = return_stream_name.clone();
+            let ws_sender_clone = ws_sender.clone();
+            let message_id_clone = message_id.clone();
+
+            tokio::spawn(async move {
+                if let Err(e) = stream_return_messages_to_websocket(
+                    (*client_clone).clone(),
+                    return_stream_name_clone,
+                    ws_sender_clone,
+                    message_id_clone,
+                )
+                .await
+                {
+                    error!("Error streaming return messages: {}", e);
+                }
+            });
+        }
+        crate::state::MessageQueue::Kafka { .. } => {
+            return Err("Kafka streams are not currently supported for WebSocket".into());
+        }
+    }
+
+    Ok(())
+}
+
+/// Stream return messages from Redis to WebSocket client
+async fn stream_return_messages_to_websocket(
+    client: redis::Client,
+    return_stream_name: String,
+    ws_sender: Arc<Mutex<futures::stream::SplitSink<WebSocket, Message>>>,
+    message_id: String,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    debug!("Starting to stream return messages for {}", message_id);
+
+    // Wait a moment for the return stream to be created
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    let mut last_id = "0".to_string();
+    let mut stream_complete = false;
+    let mut message_count = 0;
+    const MAX_WAIT_MS: u64 = 30000; // 30 seconds timeout per read
+    const MAX_MESSAGES: usize = 1000; // Prevent infinite loops
+
+    while !stream_complete && message_count < MAX_MESSAGES {
+        let client_clone = client.clone();
+        let return_stream_name_clone = return_stream_name.clone();
+        let last_id_clone = last_id.clone();
+
+        let read_result = tokio::task::spawn_blocking(move || {
+            let mut conn = client_clone.get_connection()?;
+            redis::cmd("XREAD")
+                .arg("BLOCK")
+                .arg(MAX_WAIT_MS)
+                .arg("STREAMS")
+                .arg(&return_stream_name_clone)
+                .arg(&last_id_clone)
+                .query::<redis::streams::StreamReadReply>(&mut conn)
+        })
+        .await??;
+
+        if read_result.keys.is_empty() {
+            debug!("No more messages for {}, completing", message_id);
+            break;
+        }
+
+        for key in read_result.keys {
+            for id_entry in key.ids {
+                last_id = id_entry.id.clone();
+                message_count += 1;
+
+                // Skip init messages
+                if id_entry.map.contains_key("init") {
+                    continue;
+                }
+
+                if let Some(data_value) = id_entry.map.get("data") {
+                    let data_str = match data_value {
+                        redis::Value::BulkString(bytes) => {
+                            String::from_utf8_lossy(bytes).to_string()
+                        }
+                        redis::Value::SimpleString(s) => s.clone(),
+                        _ => format!("{:?}", data_value),
+                    };
+
+                    // Parse and check for completion
+                    if let Ok(json_data) = serde_json::from_str::<serde_json::Value>(&data_str) {
+                        // Check for completion signals
+                        if json_data
+                            .get("stream_complete")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false)
+                        {
+                            stream_complete = true;
+                        }
+
+                        if let Some(kind) = json_data.get("kind") {
+                            if kind.as_str() == Some("StreamResponseMessage") {
+                                if let Some(status) = json_data.get("status") {
+                                    if status.as_str() == Some("success") {
+                                        stream_complete = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Send to WebSocket client
+                    {
+                        let mut sender_lock = ws_sender.lock().await;
+                        if let Err(e) = sender_lock.send(Message::Text(data_str)).await {
+                            debug!("WebSocket client disconnected: {:?}", e);
+                            return Ok(());
+                        }
+                    }
+
+                    if stream_complete {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    debug!("Completed streaming return messages for {}", message_id);
+    Ok(())
 }
