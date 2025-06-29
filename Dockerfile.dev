@@ -10,6 +10,7 @@ RUN cargo install sccache --locked watchexec-cli
 
 ENV RUSTC_WRAPPER=sccache
 ENV SCCACHE_DIR=/sccache
+ENV RUSTFLAGS="-Awarnings"
 
 WORKDIR /usr/src/nebulous
 
