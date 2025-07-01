@@ -2,13 +2,14 @@ use dirs;
 use dotenv::dotenv;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, Default, Debug)]
 pub struct ClientConfig {
-    pub servers: Vec<ClientServerConfig>,
+    pub servers: HashMap<String, ClientServerConfig>,
     pub current_server: Option<String>,
 }
 
@@ -61,15 +62,15 @@ impl ClientConfig {
             (env_api_key, env_server, env_auth_server)
         {
             // Find a matching server (all three fields match).
-            let found_server = self.servers.iter_mut().find(|srv| {
+            let found_server = self.servers.iter_mut().find(|(_, srv)| {
                 srv.api_key.as_deref() == Some(&env_api_key)
                     && srv.server.as_deref() == Some(&env_server)
                     && srv.auth_server.as_deref() == Some(&env_auth_server)
             });
 
             // If found, use that. If not, create a new entry.
-            if let Some(srv) = found_server {
-                self.current_server = Some(srv.name.clone());
+            if let Some((name, _)) = found_server {
+                self.current_server = Some(name.clone());
             } else {
                 let new_server = ClientServerConfig {
                     name: "env-based-server".to_string(),
@@ -97,47 +98,31 @@ impl ClientConfig {
         Ok(())
     }
 
-    /// Get the server config for the current server.
     pub fn get_current_server_config(&self) -> Option<&ClientServerConfig> {
         self.current_server
             .as_deref()
-            .and_then(|name| self.servers.iter().find(|srv| srv.name == name))
+            .and_then(|name| self.servers.get(name))
     }
 
-    /// Get the server config for a specific server.
     pub fn get_server(&self, name: &str) -> Option<&ClientServerConfig> {
-        self.servers.iter().find(|srv| srv.name == name)
+        self.servers.get(name)
     }
 
-    /// Remove a server from the config.
     pub fn drop_server(&mut self, name: &str) {
-        if let Some(pos) = self.servers.iter().position(|srv| srv.name == name) {
-            self.servers.remove(pos);
+        self.servers.remove(name);
 
-            // If the removed server was the current one, clear it.
-            if self.current_server == Some(name.to_string()) {
-                self.current_server = None;
-            }
+        if self.current_server == Some(name.to_string()) {
+            self.current_server = None;
         }
     }
 
-    /// Update or add a server config.
     pub fn update_server(&mut self, new_config: ClientServerConfig, make_current: bool) {
-        if let Some(pos) = self
-            .servers
-            .iter()
-            .position(|srv| srv.name == new_config.name)
-        {
-            self.servers[pos] = new_config;
-        } else {
-            if make_current {
-                self.current_server = Some(new_config.name.clone());
-            }
-            self.servers.push(new_config);
+        if make_current {
+            self.current_server = Some(new_config.name.clone());
         }
+        self.servers.insert(new_config.name.clone(), new_config);
     }
 
-    /// Add a server.
     pub fn add_server(&mut self, config: ClientServerConfig, make_current: bool) {
         if self.contains_server(&config.name) {
             eprintln!(
@@ -149,9 +134,8 @@ impl ClientConfig {
         self.update_server(config, make_current);
     }
 
-    /// Check if a server with the given name exists.
     pub fn contains_server(&self, name: &str) -> bool {
-        self.servers.iter().any(|srv| srv.name == name)
+        self.servers.contains_key(name)
     }
 }
 

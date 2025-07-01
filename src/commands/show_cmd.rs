@@ -19,12 +19,8 @@ pub async fn show_config() -> Result<(), Box<dyn Error>> {
     if config.servers.is_empty() {
         println!("  {}", "No servers configured".yellow());
     } else {
-        for (idx, server) in config.servers.iter().enumerate() {
-            let is_current = config
-                .current_server
-                .as_ref()
-                .map(|current| current == &server.name)
-                .unwrap_or(false);
+        for (idx, (_, server)) in config.servers.iter().enumerate() {
+            let is_current = config.current_server == Some(server.name.clone());
 
             let prefix = if is_current {
                 "→ ".green()

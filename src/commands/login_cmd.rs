@@ -35,13 +35,12 @@ pub async fn execute(
         io::stdout().flush()?;
         let api_key = rpassword::read_password()?;
 
-        client_config.servers.push(ClientServerConfig {
+        client_config.add_server(ClientServerConfig {
             name: "cloud".to_string(),
             server: Some(nebu_url),
             api_key: Some(api_key),
             auth_server: Some(auth_url),
-        });
-        client_config.current_server = Some("cloud".to_string());
+        }, true);
     } else {
         println!(
             r#"Configuring the Nebulous CLI to use the integrated auth server.
@@ -63,13 +62,12 @@ When you're running nebulous on Kubernetes, use:
         io::stdout().flush()?;
         let api_key = rpassword::read_password()?;
 
-        client_config.servers.push(ClientServerConfig {
+        client_config.add_server(ClientServerConfig {
             name: "nebu".to_string(),
             server: Some(nebu_url),
             api_key: Some(api_key),
             auth_server: None,
-        });
-        client_config.current_server = Some("nebu".to_string());
+        }, true);
     }
     client_config.write()?;
 

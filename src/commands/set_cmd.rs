@@ -7,10 +7,7 @@ pub async fn set_context(server_name: &str) -> Result<(), Box<dyn Error>> {
     let mut config = ClientConfig::read()?;
 
     // Check if the server exists
-    let server_exists = config
-        .servers
-        .iter()
-        .any(|s| s.name == server_name);
+    let server_exists = config.contains_server(server_name);
 
     if !server_exists {
         return Err(format!("Server '{}' not found in configuration", server_name).into());
